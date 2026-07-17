@@ -47,6 +47,60 @@ class _StreamersPageState extends State<StreamersPage> {
   String _trendFilter = "todos";
   String _sortKey = "diamonds";
   bool _ascending = false;
+  bool _recalculating = false;
+
+  Future<void> _recalculateRanking() async {
+    setState(() => _recalculating = true);
+    try {
+      final client = Supabase.instance.client;
+      final managerId = client.auth.currentUser!.id;
+      final manager = await client.from("managers").select("agency_id").eq("id", managerId).single();
+      final agencyId = manager["agency_id"] as String;
+
+      final rows = await client
+          .from("profiles")
+          .select("id, streamer_stats(diamonds)")
+          .eq("is_active", true)
+          .eq("agency_id", agencyId);
+
+      final list = (rows as List).map((r) {
+        final statsData = r["streamer_stats"];
+        int diamonds = 0;
+        if (statsData is List && statsData.isNotEmpty) {
+          diamonds = statsData.first["diamonds"] as int? ?? 0;
+        } else if (statsData is Map) {
+          diamonds = statsData["diamonds"] as int? ?? 0;
+        }
+        return {"id": r["id"] as String, "diamonds": diamonds};
+      }).toList();
+
+      list.sort((a, b) => (b["diamonds"] as int).compareTo(a["diamonds"] as int));
+
+      final now = DateTime.now();
+      final periodKey = now.year.toString() + "-" + now.month.toString().padLeft(2, "0");
+
+      await client.from("rankings_snapshot").delete().eq("agency_id", agencyId).eq("period_key", periodKey).eq("metric", "diamonds").eq("period_type", "monthly").eq("scope_type", "global");
+
+      for (var i = 0; i < list.length; i++) {
+        await client.from("rankings_snapshot").insert({
+          "agency_id": agencyId,
+          "scope_type": "global",
+          "metric": "diamonds",
+          "period_type": "monthly",
+          "period_key": periodKey,
+          "streamer_id": list[i]["id"],
+          "position": i + 1,
+          "value": list[i]["diamonds"],
+        });
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Ranking calculado para " + list.length.toString() + " streamers.")));
+      }
+    } finally {
+      setState(() => _recalculating = false);
+    }
+  }
 
   List<Map<String, dynamic>> _categories = [];
   List<Map<String, dynamic>> _groups = [];
@@ -209,6 +263,13 @@ class _StreamersPageState extends State<StreamersPage> {
                   const Text("Streamers", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
                   const SizedBox(width: 12),
                   IconButton(icon: const Icon(Icons.refresh, color: Colors.white70), onPressed: () => setState(() => _future = _load())),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    onPressed: _recalculating ? null : _recalculateRanking,
+                    icon: const Icon(Icons.leaderboard, size: 16),
+                    label: Text(_recalculating ? "Calculando..." : "Recalcular Ranking"),
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -360,3 +421,4 @@ class _StreamersPageState extends State<StreamersPage> {
     );
   }
 }
+

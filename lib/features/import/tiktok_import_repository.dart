@@ -24,6 +24,7 @@ class ImportSummary {
 const _colPeriodo = 0;
 const _colId = 1;
 const _colNick = 2;
+const _colGrupo = 3;
 const _colHorarioIngresso = 5;
 const _colDiamantes = 7;
 const _colDuracao = 8;
@@ -158,6 +159,7 @@ class TikTokImportRepository {
                 "display_name": nick,
                 "tiktok_username": nick,
                 "tiktok_creator_id": tiktokId,
+                "tiktok_group_name": cell(_colGrupo).trim(),
                 if (joinDate != null) "joined_at": joinDate.toIso8601String(),
               })
               .select()
@@ -175,6 +177,7 @@ class TikTokImportRepository {
           final profileUpdate = <String, dynamic>{};
           if (isNumericId && !wasCreated) profileUpdate["tiktok_creator_id"] = tiktokId;
           if (joinDateUpdate != null) profileUpdate["joined_at"] = joinDateUpdate.toIso8601String();
+          profileUpdate["tiktok_group_name"] = cell(_colGrupo).trim();
           if (profileUpdate.isNotEmpty) {
             await _client.from("profiles").update(profileUpdate).eq("id", streamerId);
           }
@@ -229,6 +232,7 @@ class TikTokImportRepository {
     return ImportSummary(results, rowsData.length);
   }
 }
+
 
 
 
