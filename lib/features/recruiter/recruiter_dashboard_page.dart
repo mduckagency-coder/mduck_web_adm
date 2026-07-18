@@ -125,7 +125,7 @@ class _RecruiterDashboardPageState extends State<RecruiterDashboardPage> {
       }
     }
 
-    final allProfilesFull = await client.from("profiles").select("id, joined_at, recruited_by_manager_id, tiktok_agent_email");
+    final allProfilesFull = await client.from("profiles").select("id, joined_at, recruited_by_manager_id, tiktok_agent_email, agent_relationship_date");
     final allProfilesFullList = (allProfilesFull as List).cast<Map<String, dynamic>>();
     final allProfilesList = allProfilesFullList.where((p) => p["recruited_by_manager_id"] != null).toList();
     final recruiterIds = allProfilesList.map((p) => p["recruited_by_manager_id"] as String).toSet();
@@ -136,6 +136,7 @@ class _RecruiterDashboardPageState extends State<RecruiterDashboardPage> {
     final managerByEmail = {for (final m in allManagersList) (m["login_email"] as String).toLowerCase(): m};
 
     // Ranking agrupado pelo e-mail do agente da planilha (funciona mesmo sem conta cadastrada)
+    String? relDate(Map<String, dynamic> p) => (p["agent_relationship_date"] as String?) ?? (p["joined_at"] as String?);
     final agentGroups = <String, List<Map<String, dynamic>>>{};
     for (final p in allProfilesFullList) {
       String? key = (p["tiktok_agent_email"] as String?)?.trim();
@@ -150,7 +151,9 @@ class _RecruiterDashboardPageState extends State<RecruiterDashboardPage> {
     final ranking = <Map<String, dynamic>>[];
     agentGroups.forEach((email, profiles) {
       final recrutamentosMes = profiles.where((p) {
-        final d = DateTime.parse(p["joined_at"]);
+        final ds = relDate(p);
+        if (ds == null) return false;
+        final d = DateTime.parse(ds);
         return d.year == now.year && d.month == now.month;
       }).length;
       final mInfo = managerByEmail[email];
@@ -230,13 +233,15 @@ class _RecruiterDashboardPageState extends State<RecruiterDashboardPage> {
 
     final recentProfiles = await client
         .from("profiles")
-        .select("display_name, avatar_url, joined_at, recruited_by_manager_id")
+        .select("display_name, avatar_url, joined_at, agent_relationship_date, recruited_by_manager_id, tiktok_agent_email")
         .order("joined_at", ascending: false)
         .limit(5);
     final duckersRecentes = (recentProfiles as List).cast<Map<String, dynamic>>();
     for (final dItem in duckersRecentes) {
       final rid = dItem["recruited_by_manager_id"];
-      dItem["recruiterEmail"] = rid != null ? (managerMap[rid]?["login_email"] ?? "-") : "-";
+      final fromManager = rid != null ? (managerMap[rid]?["login_email"] as String?) : null;
+      final fromSheet = (dItem["tiktok_agent_email"] as String?)?.trim();
+      dItem["recruiterEmail"] = fromManager ?? (fromSheet != null && fromSheet.isNotEmpty ? fromSheet : "-");
     }
 
     final unreadFeedbacks = await client.from("recruiter_feedbacks").select().eq("recruiter_id", userId).isFilter("read_at", null).order("created_at", ascending: false);
@@ -683,6 +688,10 @@ class _RecruiterDashboardPageState extends State<RecruiterDashboardPage> {
     );
   }
 }
+
+
+
+
 
 
 

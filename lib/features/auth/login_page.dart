@@ -394,11 +394,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF0D0D14), Color(0xFF1A0B2E), Color(0xFF120018)],
-          ),
+          color: Colors.black,
         ),
         child: Center(
           child: FadeTransition(
@@ -408,21 +404,21 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(24),
                 child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                  filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
                   child: Container(
                     width: cardWidth,
                     padding: const EdgeInsets.all(32),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.06),
+                      color: Colors.white.withOpacity(0.04),
                       borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: Colors.white.withOpacity(0.15)),
+                      border: Border.all(color: Colors.white.withOpacity(0.12)),
                       boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 30, offset: const Offset(0, 12))],
                     ),
                     child: SingleChildScrollView(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Image.asset("assets/logo/LogoMduck.png", height: 120, errorBuilder: (context, error, stack) => const Icon(Icons.hive, color: Color(0xFF7A0BD4), size: 100)),
+                          Image.asset("assets/logo/LogoMduck.png", height: 150, errorBuilder: (context, error, stack) => const Icon(Icons.hive, color: Color(0xFF7A0BD4), size: 100)),
                           const SizedBox(height: 28),
                           AnimatedSwitcher(
                             duration: const Duration(milliseconds: 250),
@@ -441,5 +437,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
     );
   }
 }
+
+
 
 

@@ -59,9 +59,24 @@ class AgentLinkImportRepository {
 
     for (var i = 1; i < rowsData.length; i++) {
       final row = rowsData[i];
-      String cell(int idx) => idx >= 0 && idx < row.length ? (row[idx]?.value?.toString() ?? "") : "";
+      String cell(int idx) {
+        if (idx < 0 || idx >= row.length) return "";
+        final value = row[idx]?.value;
+        if (value == null) return "";
+        final typeName = value.runtimeType.toString();
+        try {
+          if (typeName == "IntCellValue") {
+            return (value as dynamic).value.toString();
+          }
+          if (typeName == "DoubleCellValue") {
+            final d = (value as dynamic).value as double;
+            return d.toStringAsFixed(0);
+          }
+        } catch (_) {}
+        return value.toString().trim();
+      }
 
-      final tiktokId = cell(_colId).trim();
+      final tiktokId = cell(_colId).trim().replaceAll(RegExp(r"[^0-9]"), "");
       final nomeCriador = cell(_colNomeCriador).trim();
       final agentEmail = cell(_colEmailAgente).trim();
       final dataRelacionamento = cell(_colDataRelacionamento).trim();
@@ -108,5 +123,8 @@ class AgentLinkImportRepository {
     return AgentLinkImportSummary(results, rowsData.length);
   }
 }
+
+
+
 
 

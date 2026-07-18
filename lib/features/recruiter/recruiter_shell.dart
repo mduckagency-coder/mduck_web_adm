@@ -61,14 +61,14 @@ class _RecruiterShellState extends State<RecruiterShell> {
 
   void _select(String value) {
     setState(() => _selected = value);
-    html.window.location.hash = Uri.encodeComponent(value);
+    html.window.localStorage["mduck_recruiter_page"] = value;
   }
 
   @override
   void initState() {
     super.initState();
-    final hash = html.window.location.hash.replaceFirst("#", "");
-    if (hash.isNotEmpty) _selected = Uri.decodeComponent(hash);
+    final saved = html.window.localStorage["mduck_recruiter_page"];
+    if (saved != null && saved.isNotEmpty) _selected = saved;
     _checkRole();
   }
 
@@ -136,11 +136,16 @@ class _RecruiterShellState extends State<RecruiterShell> {
           Container(
             width: 250,
             color: const Color(0xFF1A1A1A),
-            child: Column(
+            child: Material(
+              color: Colors.transparent,
+              child: Column(
               children: [
                 const SizedBox(height: 20),
                 InkWell(
-                  onTap: () => Navigator.of(context).pop(),
+                  onTap: () {
+                    html.window.localStorage.remove("mduck_area");
+                    Navigator.of(context).pop();
+                  },
                   child: Image.asset("assets/logo/LogoMduck.png", height: 90, errorBuilder: (context, error, stack) => const Text("MDuck", style: TextStyle(color: Color(0xFF7A0BD4), fontSize: 20, fontWeight: FontWeight.bold))),
                 ),
                 const Text("Area do Recrutador", style: TextStyle(color: Colors.white70, fontSize: 12)),
@@ -184,6 +189,7 @@ class _RecruiterShellState extends State<RecruiterShell> {
                 const SizedBox(height: 12),
               ],
             ),
+            ),
           ),
           const VerticalDivider(width: 1),
           Expanded(
@@ -199,6 +205,11 @@ class _RecruiterShellState extends State<RecruiterShell> {
     );
   }
 }
+
+
+
+
+
 
 
 

@@ -7,8 +7,9 @@ import "../recruiter/recruiter_shell.dart";
 class AreaChoicePage extends StatelessWidget {
   const AreaChoicePage({super.key});
 
-  void _goTo(BuildContext context, Widget page) {
-    html.window.location.hash = "";
+  void _goTo(BuildContext context, String area, Widget page) {
+    html.window.localStorage["mduck_area"] = area;
+    html.window.localStorage.remove(area == "admin" ? "mduck_admin_page" : "mduck_recruiter_page");
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
   }
 
@@ -29,13 +30,19 @@ class AreaChoicePage extends StatelessWidget {
               runSpacing: 24,
               alignment: WrapAlignment.center,
               children: [
-                _AreaCard(icon: Icons.dashboard, title: "Home Central", subtitle: "Gestao geral da agencia", onTap: () => _goTo(context, const AdminShell())),
-                _AreaCard(icon: Icons.groups, title: "Area do Gestor", subtitle: "Em construcao", onTap: () => _goTo(context, const _StubAreaPage(title: "Area do Gestor"))),
-                _AreaCard(icon: Icons.person_search, title: "Area do Recrutador", subtitle: "Dashboard e leads", onTap: () => _goTo(context, const RecruiterShell())),
+                _AreaCard(icon: Icons.dashboard, title: "Home Central", subtitle: "Gestao geral da agencia", onTap: () => _goTo(context, "admin", const AdminShell())),
+                _AreaCard(icon: Icons.groups, title: "Area do Gestor", subtitle: "Em construcao", onTap: () => _goTo(context, "gestor", const _StubAreaPage(title: "Area do Gestor"))),
+                _AreaCard(icon: Icons.person_search, title: "Area do Recrutador", subtitle: "Dashboard e leads", onTap: () => _goTo(context, "recruiter", const RecruiterShell())),
               ],
             ),
             const SizedBox(height: 24),
-            TextButton(onPressed: () => Supabase.instance.client.auth.signOut(), child: const Text("Sair")),
+            TextButton(
+              onPressed: () {
+                html.window.localStorage.remove("mduck_area");
+                Supabase.instance.client.auth.signOut();
+              },
+              child: const Text("Sair"),
+            ),
           ],
         ),
       ),

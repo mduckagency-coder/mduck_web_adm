@@ -33,13 +33,23 @@ class _ImportPageState extends State<ImportPage> {
   @override
   void initState() {
     super.initState();
+    debugPrint("[ImportPage] initState() chamado");
     _loadAgencyId();
   }
 
+  @override
+  void dispose() {
+    debugPrint("[ImportPage] dispose() chamado");
+    super.dispose();
+  }
+
   Future<void> _loadAgencyId() async {
+    debugPrint("[ImportPage] _loadAgencyId() iniciado");
     final client = Supabase.instance.client;
     final managerId = client.auth.currentUser!.id;
     final manager = await client.from("managers").select("agency_id").eq("id", managerId).single();
+    debugPrint("[ImportPage] _loadAgencyId() concluido, mounted=" + mounted.toString());
+    if (!mounted) return;
     setState(() {
       _agencyId = manager["agency_id"];
     });
@@ -47,6 +57,7 @@ class _ImportPageState extends State<ImportPage> {
   }
 
   Future<void> _loadLastUpdates() async {
+    debugPrint("[ImportPage] _loadLastUpdates() iniciado");
     final client = Supabase.instance.client;
     final metrics = await client
         .from("tiktok_imports")
@@ -69,6 +80,8 @@ class _ImportPageState extends State<ImportPage> {
         .order("processed_at", ascending: false)
         .limit(1)
         .maybeSingle();
+    debugPrint("[ImportPage] _loadLastUpdates() concluido, mounted=" + mounted.toString());
+    if (!mounted) return;
     setState(() {
       _lastMetricsUpdate = metrics != null && metrics["processed_at"] != null ? DateTime.parse(metrics["processed_at"]) : null;
       _lastActivityUpdate = activity != null && activity["processed_at"] != null ? DateTime.parse(activity["processed_at"]) : null;
@@ -187,6 +200,7 @@ class _ImportPageState extends State<ImportPage> {
 
   @override
   Widget build(BuildContext context) {
+    debugPrint("[ImportPage] build() chamado");
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -203,7 +217,7 @@ class _ImportPageState extends State<ImportPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text("1. Planilha de Metricas (mes atual/mes passado)",
+                const Text("1. Planilha de Metricas (Dados do Criador)",
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                 const SizedBox(height: 4),
                 const Text(
@@ -271,7 +285,7 @@ class _ImportPageState extends State<ImportPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text("2. Planilha de Atividade (Ultima LIVE)",
+                const Text("2. Gerenciar Criadores",
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                 const SizedBox(height: 4),
                 const Text(
@@ -326,12 +340,3 @@ class _SummaryChip extends StatelessWidget {
     );
   }
 }
-
-
-
-
-
-
-
-
-

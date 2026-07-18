@@ -14,6 +14,7 @@ import "../ranking/ranking_page.dart";
 import "../crm/crm_page.dart";
 import "../missoes_atividades/missoes_atividades_page.dart";
 import "../ilha_top_duckers/ilha_top_duckers_page.dart";
+import "../metricas/level_maintenance_page.dart";
 import "../financeiro_rh/financeiro_rh_shell.dart";
 import "../profile/profile_avatar_menu.dart";
 import "../profile/app_top_bar.dart";
@@ -31,6 +32,7 @@ const _menuGroups = [
     (Icons.badge, "CRM"),
     (Icons.person_outline, "Streamers"),
     (Icons.query_stats, "Metricas Streamers"),
+    (Icons.military_tech, "Manutencao de Nivel"),
     (Icons.category, "Categorias"),
     (Icons.timeline, "Progressao Inatividade"),
   ]),
@@ -73,8 +75,10 @@ class _AdminShellState extends State<AdminShell> {
   final Set<String> _expanded = {"Criadores"};
 
   void _select(String value) {
+    debugPrint("[AdminShell] _select chamado com value=" + value);
     setState(() => _selected = value);
-    html.window.location.hash = Uri.encodeComponent(value);
+    html.window.localStorage["mduck_admin_page"] = value;
+    debugPrint("[AdminShell] localStorage gravado=" + value);
   }
 
   @override
@@ -83,8 +87,9 @@ class _AdminShellState extends State<AdminShell> {
   @override
   void initState() {
     super.initState();
-    final hash = html.window.location.hash.replaceFirst("#", "");
-    if (hash.isNotEmpty) _selected = Uri.decodeComponent(hash);
+    final saved = html.window.localStorage["mduck_admin_page"];
+    if (saved != null && saved.isNotEmpty) _selected = saved;
+    debugPrint("[AdminShell] initState() chamado. saved=" + (saved ?? "null") + " _selected=" + _selected);
     _checkDono();
   }
 
@@ -96,6 +101,7 @@ class _AdminShellState extends State<AdminShell> {
   }
 
   Widget _buildContent() {
+    debugPrint("[AdminShell] _buildContent() chamado com _selected=" + _selected);
     switch (_selected) {
       case "Dashboard":
         return const DashboardPage();
@@ -107,6 +113,8 @@ class _AdminShellState extends State<AdminShell> {
         return const ProgressoStreamersPage();
       case "Metricas Streamers":
         return const MetricasStreamersPage();
+      case "Manutencao de Nivel":
+        return const LevelMaintenancePage();
       case "Missao Agencia":
         return const AgencyCampaignsPage();
       case "Missoes APP":
@@ -142,7 +150,10 @@ class _AdminShellState extends State<AdminShell> {
               children: [
                 const SizedBox(height: 16),
                 InkWell(
-                  onTap: () => Navigator.of(context).pop(),
+                  onTap: () {
+                    html.window.localStorage.remove("mduck_area");
+                    Navigator.of(context).pop();
+                  },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Image.asset("assets/logo/LogoMduck.png", height: 96, fit: BoxFit.contain),
@@ -186,7 +197,7 @@ class _AdminShellState extends State<AdminShell> {
                                     leading: Icon(child.$1, color: selected ? const Color(0xFF7A0BD4) : Colors.white54, size: 18),
                                     title: Text(child.$2,
                                         style: TextStyle(color: selected ? const Color(0xFF7A0BD4) : Colors.white70, fontWeight: selected ? FontWeight.bold : FontWeight.normal, fontSize: 13)),
-                                    onTap: () => setState(() => _selected = child.$2),
+                                    onTap: () => _select(child.$2),
                                   ),
                                 );
                               }),
@@ -199,10 +210,10 @@ class _AdminShellState extends State<AdminShell> {
                         return ListTile(
                           leading: Icon(item.$1, color: selected ? const Color(0xFF7A0BD4) : Colors.white70, size: 20),
                           title: Text(item.$3, style: TextStyle(color: selected ? const Color(0xFF7A0BD4) : Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                          onTap: () => setState(() => _selected = item.$2),
+                          onTap: () => _select(item.$2),
                         );
                       }),
-                      if (_isDono) ListTile(leading: Icon(Icons.account_balance, color: _selected == "Financeiro & RH" ? const Color(0xFF7A0BD4) : Colors.amber, size: 20), title: Text("Financeiro & RH", style: TextStyle(color: _selected == "Financeiro & RH" ? const Color(0xFF7A0BD4) : Colors.amber, fontWeight: FontWeight.bold, fontSize: 14)), onTap: () => setState(() => _selected = "Financeiro & RH")),
+                      if (_isDono) ListTile(leading: Icon(Icons.account_balance, color: _selected == "Financeiro & RH" ? const Color(0xFF7A0BD4) : Colors.amber, size: 20), title: Text("Financeiro & RH", style: TextStyle(color: _selected == "Financeiro & RH" ? const Color(0xFF7A0BD4) : Colors.amber, fontWeight: FontWeight.bold, fontSize: 14)), onTap: () => _select("Financeiro & RH")),
                     ],
                   ),
                 ),
@@ -241,6 +252,13 @@ class _AdminShellState extends State<AdminShell> {
     );
   }
 }
+
+
+
+
+
+
+
 
 
 
