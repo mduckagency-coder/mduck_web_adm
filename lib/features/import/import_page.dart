@@ -3,6 +3,7 @@ import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "tiktok_import_repository.dart";
 import "activity_import_repository.dart";
+import "agent_link_import_repository.dart";
 
 class ImportPage extends StatefulWidget {
   const ImportPage({super.key});
@@ -14,15 +15,20 @@ class ImportPage extends StatefulWidget {
 class _ImportPageState extends State<ImportPage> {
   final _repository = TikTokImportRepository();
   final _activityRepository = ActivityImportRepository();
+  final _agentLinkRepository = AgentLinkImportRepository();
   bool _isProcessing = false;
   bool _isProcessingActivity = false;
+  bool _isProcessingAgentLink = false;
   ImportSummary? _summary;
   ActivityImportSummary? _activitySummary;
+  AgentLinkImportSummary? _agentLinkSummary;
   String? _errorMessage;
   String? _activityErrorMessage;
+  String? _agentLinkErrorMessage;
   String? _agencyId;
   DateTime? _lastMetricsUpdate;
   DateTime? _lastActivityUpdate;
+  DateTime? _lastAgentLinkUpdate;
 
   @override
   void initState() {
@@ -56,9 +62,17 @@ class _ImportPageState extends State<ImportPage> {
         .order("processed_at", ascending: false)
         .limit(1)
         .maybeSingle();
+    final agentLink = await client
+        .from("tiktok_imports")
+        .select("processed_at")
+        .eq("import_type", "vinculo_agente")
+        .order("processed_at", ascending: false)
+        .limit(1)
+        .maybeSingle();
     setState(() {
       _lastMetricsUpdate = metrics != null && metrics["processed_at"] != null ? DateTime.parse(metrics["processed_at"]) : null;
       _lastActivityUpdate = activity != null && activity["processed_at"] != null ? DateTime.parse(activity["processed_at"]) : null;
+      _lastAgentLinkUpdate = agentLink != null && agentLink["processed_at"] != null ? DateTime.parse(agentLink["processed_at"]) : null;
     });
   }
 
@@ -89,6 +103,53 @@ class _ImportPageState extends State<ImportPage> {
     } finally {
       setState(() {
         _isProcessing = false;
+      });
+    }
+  }
+
+  Future<void> _pickAndProcessAgentLink() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ["xlsx"],
+      withData: true,
+    );
+    if (result == null || result.files.single.bytes == null) return;
+
+    setState(() {
+      _isProcessingAgentLink = true;
+      _agentLinkErrorMessage = null;
+      _agentLinkSummary = null;
+    });
+
+    try {
+      final client = Supabase.instance.client;
+      final importRecord = await client.from("tiktok_imports").insert({
+        "agency_id": _agencyId,
+        "uploaded_by": client.auth.currentUser!.id,
+        "file_url": "upload_direto",
+        "status": "processando",
+        "import_type": "vinculo_agente",
+      }).select().single();
+
+      final summary = await _agentLinkRepository.processFile(result.files.single.bytes!);
+
+      await client.from("tiktok_imports").update({
+        "status": "concluido",
+        "rows_processed": summary.rows.length,
+        "processed_at": DateTime.now().toIso8601String(),
+      }).eq("id", importRecord["id"]);
+
+      setState(() {
+        _agentLinkSummary = summary;
+      });
+      _loadLastUpdates();
+    } catch (e) {
+      setState(() {
+        _agentLinkErrorMessage = "Erro ao processar planilha: " + e.toString();
+      });
+    } finally {
+      setState(() {
+        _isProcessingAgentLink = false;
       });
     }
   }
@@ -265,6 +326,12 @@ class _SummaryChip extends StatelessWidget {
     );
   }
 }
+
+
+
+
+
+
 
 
 

@@ -1,11 +1,14 @@
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
+import "dart:html" as html;
 import "../shell/admin_shell.dart";
+import "../recruiter/recruiter_shell.dart";
 
 class AreaChoicePage extends StatelessWidget {
   const AreaChoicePage({super.key});
 
   void _goTo(BuildContext context, Widget page) {
+    html.window.location.hash = "";
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
   }
 
@@ -17,8 +20,8 @@ class AreaChoicePage extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text("MDuck Admin", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
+            Image.asset("assets/logo/LogoMduck.png", height: 110, errorBuilder: (context, error, stack) => const Text("MDuck Admin", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold))),
+            const SizedBox(height: 16),
             const Text("Escolha para onde deseja ir", style: TextStyle(color: Colors.white54)),
             const SizedBox(height: 32),
             Wrap(
@@ -28,7 +31,7 @@ class AreaChoicePage extends StatelessWidget {
               children: [
                 _AreaCard(icon: Icons.dashboard, title: "Home Central", subtitle: "Gestao geral da agencia", onTap: () => _goTo(context, const AdminShell())),
                 _AreaCard(icon: Icons.groups, title: "Area do Gestor", subtitle: "Em construcao", onTap: () => _goTo(context, const _StubAreaPage(title: "Area do Gestor"))),
-                _AreaCard(icon: Icons.person_search, title: "Area do Recrutador", subtitle: "Em construcao", onTap: () => _goTo(context, const _StubAreaPage(title: "Area do Recrutador"))),
+                _AreaCard(icon: Icons.person_search, title: "Area do Recrutador", subtitle: "Dashboard e leads", onTap: () => _goTo(context, const RecruiterShell())),
               ],
             ),
             const SizedBox(height: 24),
@@ -45,7 +48,6 @@ class _AreaCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback onTap;
-
   const _AreaCard({required this.icon, required this.title, required this.subtitle, required this.onTap});
 
   @override

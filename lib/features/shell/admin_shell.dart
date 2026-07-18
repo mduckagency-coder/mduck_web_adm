@@ -1,3 +1,4 @@
+import "dart:html" as html;
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "../import/import_page.dart";
@@ -13,6 +14,9 @@ import "../ranking/ranking_page.dart";
 import "../crm/crm_page.dart";
 import "../missoes_atividades/missoes_atividades_page.dart";
 import "../ilha_top_duckers/ilha_top_duckers_page.dart";
+import "../financeiro_rh/financeiro_rh_shell.dart";
+import "../profile/profile_avatar_menu.dart";
+import "../profile/app_top_bar.dart";
 
 class _MenuGroup {
   final IconData icon;
@@ -68,6 +72,29 @@ class _AdminShellState extends State<AdminShell> {
   String _selected = "Dashboard";
   final Set<String> _expanded = {"Criadores"};
 
+  void _select(String value) {
+    setState(() => _selected = value);
+    html.window.location.hash = Uri.encodeComponent(value);
+  }
+
+  @override
+  bool _isDono = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final hash = html.window.location.hash.replaceFirst("#", "");
+    if (hash.isNotEmpty) _selected = Uri.decodeComponent(hash);
+    _checkDono();
+  }
+
+  Future<void> _checkDono() async {
+    final client = Supabase.instance.client;
+    final userId = client.auth.currentUser!.id;
+    final manager = await client.from("managers").select("financial_role").eq("id", userId).maybeSingle();
+    if (mounted) setState(() => _isDono = manager != null && manager["financial_role"] == "dono");
+  }
+
   Widget _buildContent() {
     switch (_selected) {
       case "Dashboard":
@@ -86,6 +113,8 @@ class _AdminShellState extends State<AdminShell> {
         return const AppMissionsPage();
       case "Campanhas Financeiro":
         return const FinanceiroPage();
+      case "Financeiro & RH":
+        return const FinanceiroRhShell();
       case "Categorias":
         return const CategoriasPage();
       case "Ranking":
@@ -113,10 +142,10 @@ class _AdminShellState extends State<AdminShell> {
               children: [
                 const SizedBox(height: 16),
                 InkWell(
-                  onTap: () => setState(() => _selected = "Dashboard"),
+                  onTap: () => Navigator.of(context).pop(),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Image.asset("assets/LogoMduck.png", height: 60, fit: BoxFit.contain),
+                    child: Image.asset("assets/logo/LogoMduck.png", height: 96, fit: BoxFit.contain),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -128,7 +157,7 @@ class _AdminShellState extends State<AdminShell> {
                         leading: Icon(Icons.dashboard, color: _selected == "Dashboard" ? const Color(0xFF7A0BD4) : Colors.white70, size: 20),
                         title: Text("Dashboard",
                             style: TextStyle(color: _selected == "Dashboard" ? const Color(0xFF7A0BD4) : Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                        onTap: () => setState(() => _selected = "Dashboard"),
+                        onTap: () => _select("Dashboard"),
                       ),
                       const Divider(color: Colors.white12, height: 12),
                       ..._menuGroups.map((group) {
@@ -173,11 +202,12 @@ class _AdminShellState extends State<AdminShell> {
                           onTap: () => setState(() => _selected = item.$2),
                         );
                       }),
+                      if (_isDono) ListTile(leading: Icon(Icons.account_balance, color: _selected == "Financeiro & RH" ? const Color(0xFF7A0BD4) : Colors.amber, size: 20), title: Text("Financeiro & RH", style: TextStyle(color: _selected == "Financeiro & RH" ? const Color(0xFF7A0BD4) : Colors.amber, fontWeight: FontWeight.bold, fontSize: 14)), onTap: () => setState(() => _selected = "Financeiro & RH")),
                     ],
                   ),
                 ),
                 InkWell(
-                  onTap: () => setState(() => _selected = "Importacao TikTok"),
+                  onTap: () => _select("Importacao TikTok"),
                   child: Container(
                     width: double.infinity,
                     color: _selected == "Importacao TikTok" ? const Color(0xFF7A0BD4) : const Color(0xFF7A0BD4).withOpacity(0.6),
@@ -192,20 +222,33 @@ class _AdminShellState extends State<AdminShell> {
                     ),
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.logout, color: Colors.white70),
-                  tooltip: "Sair",
-                  onPressed: () => Supabase.instance.client.auth.signOut(),
-                ),
+                
                 const SizedBox(height: 8),
               ],
             ),
           ),
           const VerticalDivider(width: 1),
-          Expanded(child: _buildContent()),
+          Expanded(
+            child: Column(
+              children: [
+                const AppTopBar(),
+                Expanded(child: _buildContent()),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 }
+
+
+
+
+
+
+
+
+
+
 

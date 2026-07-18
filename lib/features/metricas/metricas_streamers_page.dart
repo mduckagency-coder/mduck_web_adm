@@ -40,6 +40,7 @@ class _MetricasStreamersPageState extends State<MetricasStreamersPage> {
 
   static const _tabs = [
     "Novatos",
+    "0 a 5k",
     "Streamers 10k",
     "Streamers 20k",
     "Streamers 40k",
@@ -50,6 +51,7 @@ class _MetricasStreamersPageState extends State<MetricasStreamersPage> {
 
   static const _tabRules = {
     "Novatos": "Streamers com ate 3 meses (90 dias) de agencia.",
+    "0 a 5k": "Diamantes no mes: de 0 ate 5.000.",
     "Streamers 10k": "Diamantes: ate 10.000.",
     "Streamers 20k": "Diamantes: de 10.001 ate 20.000.",
     "Streamers 40k": "Diamantes: de 20.001 ate 40.000.",
@@ -129,6 +131,8 @@ class _MetricasStreamersPageState extends State<MetricasStreamersPage> {
     switch (_selectedTab) {
       case "Novatos":
         return all.where((s) => now.difference(s.joinedAt).inDays <= 90).toList();
+      case "0 a 5k":
+        return all.where((s) => s.diamonds >= 0 && s.diamonds <= 5000).toList();
       case "Streamers 10k":
         return all.where((s) => s.diamonds <= 10000).toList();
       case "Streamers 20k":
@@ -632,4 +636,5 @@ class _MetricsContactLogDialogState extends State<_MetricsContactLogDialog> {
     );
   }
 }
+
 
