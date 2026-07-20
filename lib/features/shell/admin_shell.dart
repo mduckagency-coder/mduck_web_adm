@@ -16,6 +16,8 @@ import "../missoes_atividades/missoes_atividades_page.dart";
 import "../ilha_top_duckers/ilha_top_duckers_page.dart";
 import "../metricas/level_maintenance_page.dart";
 import "../financeiro_rh/financeiro_rh_shell.dart";
+import "../admin/bug_reports_page.dart";
+import "../admin/bug_reports_page.dart";
 import "../profile/profile_avatar_menu.dart";
 import "../profile/app_top_bar.dart";
 
@@ -93,11 +95,18 @@ class _AdminShellState extends State<AdminShell> {
     _checkDono();
   }
 
+  bool _isAdmin2 = false;
+
   Future<void> _checkDono() async {
     final client = Supabase.instance.client;
     final userId = client.auth.currentUser!.id;
-    final manager = await client.from("managers").select("financial_role").eq("id", userId).maybeSingle();
-    if (mounted) setState(() => _isDono = manager != null && manager["financial_role"] == "dono");
+    final manager = await client.from("managers").select("financial_role, role").eq("id", userId).maybeSingle();
+    if (mounted) {
+      setState(() {
+        _isDono = manager != null && manager["financial_role"] == "dono";
+        _isAdmin2 = manager != null && manager["role"] == "admin";
+      });
+    }
   }
 
   Widget _buildContent() {
@@ -121,8 +130,12 @@ class _AdminShellState extends State<AdminShell> {
         return const AppMissionsPage();
       case "Campanhas Financeiro":
         return const FinanceiroPage();
+      case "Reportes de Bugs":
+        return const BugReportsPage();
       case "Financeiro & RH":
         return const FinanceiroRhShell();
+      case "Reportes de Bugs":
+        return const BugReportsPage();
       case "Categorias":
         return const CategoriasPage();
       case "Ranking":
@@ -214,6 +227,7 @@ class _AdminShellState extends State<AdminShell> {
                         );
                       }),
                       if (_isDono) ListTile(leading: Icon(Icons.account_balance, color: _selected == "Financeiro & RH" ? const Color(0xFF7A0BD4) : Colors.amber, size: 20), title: Text("Financeiro & RH", style: TextStyle(color: _selected == "Financeiro & RH" ? const Color(0xFF7A0BD4) : Colors.amber, fontWeight: FontWeight.bold, fontSize: 14)), onTap: () => _select("Financeiro & RH")),
+                      if (_isDono || _isAdmin2) ListTile(leading: Icon(Icons.bug_report, color: _selected == "Reportes de Bugs" ? const Color(0xFF7A0BD4) : Colors.redAccent, size: 20), title: Text("Reportes de Bugs", style: TextStyle(color: _selected == "Reportes de Bugs" ? const Color(0xFF7A0BD4) : Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 14)), onTap: () => _select("Reportes de Bugs")),
                     ],
                   ),
                 ),
@@ -242,7 +256,7 @@ class _AdminShellState extends State<AdminShell> {
           Expanded(
             child: Column(
               children: [
-                const AppTopBar(),
+                AppTopBar(onNotificationTap: () => _select("Reportes de Bugs")),
                 Expanded(child: _buildContent()),
               ],
             ),
@@ -252,6 +266,11 @@ class _AdminShellState extends State<AdminShell> {
     );
   }
 }
+
+
+
+
+
 
 
 

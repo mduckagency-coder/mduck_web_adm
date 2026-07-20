@@ -617,6 +617,7 @@ class _LeadFormDialogState extends State<LeadFormDialog> {
   final _tiktokController = TextEditingController();
   final _phoneController = TextEditingController();
   String? _selectedOrigin;
+  final _originDetailController = TextEditingController();
   List<Map<String, dynamic>> _categories = [];
   String? _selectedCategory;
   bool _saving = false;
@@ -650,8 +651,22 @@ class _LeadFormDialogState extends State<LeadFormDialog> {
       "phone": _phoneController.text.trim(),
       "category_interest": _selectedCategory,
       "origin": _selectedOrigin,
+      "origin_detail": _originDetailController.text.trim(),
       "status": initialStage != null ? initialStage["stage_key"] : "novo",
     });
+
+    if (_selectedOrigin == "Indicacao") {
+      try {
+        final donos = await client.from("managers").select("id").eq("financial_role", "dono");
+        for (final d in (donos as List)) {
+          await client.from("manager_notifications").insert({
+            "manager_id": d["id"],
+            "subject": "Novo lead por indicacao",
+            "message": (_nameController.text.trim()) + " - indicado por: " + (_originDetailController.text.trim().isEmpty ? "nao informado" : _originDetailController.text.trim()),
+          });
+        }
+      } catch (_) {}
+    }
 
     if (mounted) Navigator.of(context).pop(true);
   }
@@ -696,6 +711,17 @@ class _LeadFormDialogState extends State<LeadFormDialog> {
                 items: leadOrigins.map((o) => DropdownMenuItem<String?>(value: o, child: Text(o))).toList(),
                 onChanged: (v) => setState(() => _selectedOrigin = v),
               ),
+              if (_selectedOrigin == "Indicacao" || _selectedOrigin == "Outros") ...[
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _originDetailController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: _selectedOrigin == "Indicacao" ? "Quem indicou?" : "Descreva a origem",
+                    labelStyle: const TextStyle(color: Colors.white54),
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
@@ -1051,5 +1077,8 @@ class _BulkImportDialogState extends State<BulkImportDialog> {
     );
   }
 }
+
+
+
 
 

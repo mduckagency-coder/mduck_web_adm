@@ -3,6 +3,7 @@ import "dashboard_financeiro_page.dart";
 import "colaboradores_financeiro_page.dart";
 import "contas_pagar_page.dart";
 import "historico_financeiro_page.dart";
+import "indicacoes_page.dart";
 
 class FinanceiroRhShell extends StatefulWidget {
   const FinanceiroRhShell({super.key});
@@ -55,6 +56,7 @@ class _FinanceiroRhShellState extends State<FinanceiroRhShell> {
             ("colaboradores", "Colaboradores"),
             ("contas_pagar", "Contas a Pagar"),
             ("historico", "Historico Financeiro"),
+            ("indicacoes", "Indicacoes"),
           ].map((t) {
             final selected = _tab == t.$1;
             return ChoiceChip(
@@ -73,10 +75,13 @@ class _FinanceiroRhShellState extends State<FinanceiroRhShell> {
                     ? const ColaboradoresFinanceiroPage()
                     : _tab == "contas_pagar"
                         ? ContasPagarPage(selectedMonth: _selectedMonth)
-                        : HistoricoFinanceiroPage(selectedMonth: _selectedMonth),
+                        : _tab == "historico"
+                        ? HistoricoFinanceiroPage(selectedMonth: _selectedMonth)
+                        : const IndicacoesPage(),
           ),
         ],
       ),
     );
   }
 }
+

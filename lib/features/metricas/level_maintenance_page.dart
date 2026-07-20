@@ -51,8 +51,9 @@ class _LevelMaintenancePageState extends State<LevelMaintenancePage> {
   String? _pmManutencaoFilter;
   bool _pmSubidaOnly = false;
   String _dhSearch = "";
-  int? _dhDayMilestone;
-  int? _dhHourMilestone;
+  String? _dhStatusFilter;
+  String _riscoSearch = "";
+  String? _riscoStatusFilter;
   String _dhSortBy = "proximo";
   bool _dhSortAscending = true;
 
@@ -117,6 +118,8 @@ class _LevelMaintenancePageState extends State<LevelMaintenancePage> {
         final lastClosed = streamerHistory.isNotEmpty ? streamerHistory.first : null;
         final previousDiamonds = (lastClosed?["diamonds"] as num?) ?? 0;
         final previousLevel = levelForDiamonds(previousDiamonds);
+        final previousDays = (lastClosed?["days_live"] as num?) ?? 0;
+        final previousHours = (lastClosed?["hours_live"] as num?) ?? 0;
 
         var bestEverLevel = previousLevel;
         for (final h in streamerHistory) {
@@ -128,6 +131,8 @@ class _LevelMaintenancePageState extends State<LevelMaintenancePage> {
         final currentDiamonds = (current?["diamonds"] as num?) ?? 0;
         final currentDays = (current?["days_live"] as num?) ?? 0;
         final currentHours = (current?["hours_live"] as num?) ?? 0;
+        final ratioToLastMonth = previousDiamonds > 0 ? (currentDiamonds / previousDiamonds) : (currentDiamonds > 0 ? 1.0 : 0.0);
+        final qualifies80Bonus = previousDiamonds > 0 && ratioToLastMonth >= 0.8 && currentDays >= 7 && currentHours >= 15;
 
         // Requisitos para MANTER o tier conquistado no mes anterior (status independente)
         final requiredThreshold = levelThresholds[previousLevel - 1];
@@ -161,6 +166,18 @@ class _LevelMaintenancePageState extends State<LevelMaintenancePage> {
         final hourGapToMilestone = (nextHourMilestone - currentHours).clamp(0, nextHourMilestone).toDouble();
         final allDaysDone = currentDays >= dayMilestones.last;
         final allHoursDone = currentHours >= hourMilestones.last;
+
+        final daysTierIndex = dayMilestones.where((d) => currentDays >= d).length;
+        final hoursTierIndex = hourMilestones.where((h) => currentHours >= h).length;
+        final activityTier = daysTierIndex < hoursTierIndex ? daysTierIndex : hoursTierIndex;
+
+        final prevDaysTierIndex = dayMilestones.where((d) => previousDays >= d).length;
+        final prevHoursTierIndex = hourMilestones.where((h) => previousHours >= h).length;
+        final prevActivityTier = prevDaysTierIndex < prevHoursTierIndex ? prevDaysTierIndex : prevHoursTierIndex;
+
+        final activityConcluded = allDaysDone && allHoursDone;
+        final activityCloseToNext = !activityConcluded && (dayGapToMilestone <= 2 || hourGapToMilestone <= 8);
+        final activityDropped = !activityConcluded && prevActivityTier >= 4 && activityTier <= (prevActivityTier - 2).clamp(0, 5);
 
         final diamondGapNext = nextThreshold != null ? (nextThreshold - currentDiamonds).clamp(0, nextThreshold).toDouble() : 0.0;
         final dayGapNext = nextReqDays != null ? (nextReqDays - currentDays).clamp(0, nextReqDays).toDouble() : 0.0;
@@ -297,6 +314,15 @@ class _LevelMaintenancePageState extends State<LevelMaintenancePage> {
           "hourGapToMilestone": hourGapToMilestone,
           "allDaysDone": allDaysDone,
           "allHoursDone": allHoursDone,
+          "activityTier": activityTier,
+          "prevActivityTier": prevActivityTier,
+          "activityConcluded": activityConcluded,
+          "activityCloseToNext": activityCloseToNext,
+          "activityDropped": activityDropped,
+          "previousDays": previousDays,
+          "ratioToLastMonth": ratioToLastMonth,
+          "qualifies80Bonus": qualifies80Bonus,
+          "previousHours": previousHours,
           "upgradeCount": upgradeCount,
           "wouldBeFirstTimeAtNext": wouldBeFirstTimeAtNext,
         });
@@ -496,7 +522,7 @@ class _LevelMaintenancePageState extends State<LevelMaintenancePage> {
   }
 
   List<Map<String, dynamic>> get _diasHorasItems {
-    var list = List<Map<String, dynamic>>.from(_items.where((i) => i["allDaysDone"] != true || i["allHoursDone"] != true));
+    var list = List<Map<String, dynamic>>.from(_items);
 
     if (_dhSearch.trim().isNotEmpty) {
       final q = _dhSearch.trim().toLowerCase();
@@ -506,11 +532,14 @@ class _LevelMaintenancePageState extends State<LevelMaintenancePage> {
         return name.contains(q) || id.contains(q);
       }).toList();
     }
-    if (_dhDayMilestone != null) {
-      list = list.where((i) => i["nextDayMilestone"] == _dhDayMilestone).toList();
-    }
-    if (_dhHourMilestone != null) {
-      list = list.where((i) => i["nextHourMilestone"] == _dhHourMilestone).toList();
+    if (_dhStatusFilter == null) {
+      list = list.where((i) => i["activityConcluded"] != true).toList();
+    } else if (_dhStatusFilter == "concluido") {
+      list = list.where((i) => i["activityConcluded"] == true).toList();
+    } else if (_dhStatusFilter == "proximo") {
+      list = list.where((i) => i["activityCloseToNext"] == true).toList();
+    } else if (_dhStatusFilter == "queda") {
+      list = list.where((i) => i["activityDropped"] == true).toList();
     }
 
     int Function(Map<String, dynamic>, Map<String, dynamic>) comparator;
@@ -956,57 +985,35 @@ class _LevelMaintenancePageState extends State<LevelMaintenancePage> {
               onChanged: (v) => setState(() => _dhSearch = v),
             ),
           ),
-          DropdownButton<int?>(
-            value: _dhDayMilestone,
-            hint: const Text("Marco de dias: Todos", style: TextStyle(color: Colors.white54, fontSize: 12)),
+          DropdownButton<String?>(
+            value: _dhStatusFilter,
+            hint: const Text("Status: Em andamento", style: TextStyle(color: Colors.white54, fontSize: 12)),
             dropdownColor: const Color(0xFF1A1A1A),
             style: const TextStyle(color: Colors.white, fontSize: 12),
-            items: [
-              const DropdownMenuItem<int?>(value: null, child: Text("Marco de dias: Todos")),
-              ...levelActivityDays.take(5).map((d) => DropdownMenuItem<int?>(value: d, child: Text(d.toString() + " dias"))),
+            items: const [
+              DropdownMenuItem(value: null, child: Text("Em andamento")),
+              DropdownMenuItem(value: "concluido", child: Text("Concluidos")),
+              DropdownMenuItem(value: "proximo", child: Text("Proximos de completar")),
+              DropdownMenuItem(value: "queda", child: Text("Em queda (cobrar atencao)")),
             ],
-            onChanged: (v) => setState(() => _dhDayMilestone = v),
+            onChanged: (v) => setState(() => _dhStatusFilter = v),
           ),
-          DropdownButton<int?>(
-            value: _dhHourMilestone,
-            hint: const Text("Marco de horas: Todos", style: TextStyle(color: Colors.white54, fontSize: 12)),
+          DropdownButton<String>(
+            value: _dhSortBy,
             dropdownColor: const Color(0xFF1A1A1A),
             style: const TextStyle(color: Colors.white, fontSize: 12),
-            items: [
-              const DropdownMenuItem<int?>(value: null, child: Text("Marco de horas: Todos")),
-              ...levelActivityHours.take(5).map((h) => DropdownMenuItem<int?>(value: h, child: Text(h.toString() + " horas"))),
+            items: const [
+              DropdownMenuItem(value: "proximo", child: Text("Mais perto de completar")),
+              DropdownMenuItem(value: "dias", child: Text("Menos dias faltando")),
+              DropdownMenuItem(value: "horas", child: Text("Menos horas faltando")),
+              DropdownMenuItem(value: "alfabetica", child: Text("Ordem alfabetica")),
             ],
-            onChanged: (v) => setState(() => _dhHourMilestone = v),
+            onChanged: (v) => setState(() => _dhSortBy = v!),
           ),
-          Row(mainAxisSize: MainAxisSize.min, children: [
-            DropdownButton<String>(
-              value: _dhSortBy,
-              dropdownColor: const Color(0xFF1A1A1A),
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-              items: const [
-                DropdownMenuItem(value: "proximo", child: Text("Mais perto de completar")),
-                DropdownMenuItem(value: "dias", child: Text("Menos dias faltando")),
-                DropdownMenuItem(value: "horas", child: Text("Menos horas faltando")),
-                DropdownMenuItem(value: "alfabetica", child: Text("Ordem alfabetica")),
-              ],
-              onChanged: (v) => setState(() => _dhSortBy = v!),
-            ),
-            const SizedBox(width: 4),
-            InkWell(
-              onTap: () => setState(() => _dhSortAscending = !_dhSortAscending),
-              borderRadius: BorderRadius.circular(6),
-              child: Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(color: const Color(0xFF7A0BD4).withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
-                child: Icon(_dhSortAscending ? Icons.arrow_upward : Icons.arrow_downward, color: const Color(0xFF7A0BD4), size: 16),
-              ),
-            ),
-          ]),
           TextButton.icon(
             onPressed: () => setState(() {
               _dhSearch = "";
-              _dhDayMilestone = null;
-              _dhHourMilestone = null;
+              _dhStatusFilter = null;
               _dhSortBy = "proximo";
               _dhSortAscending = true;
             }),
@@ -1015,6 +1022,36 @@ class _LevelMaintenancePageState extends State<LevelMaintenancePage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _segmentedBar(List<num> milestones, List<String> labels, double current, Color color) {
+    return Row(
+      children: milestones.asMap().entries.map((e) {
+        final idx = e.key;
+        final segStart = idx == 0 ? 0.0 : milestones[idx - 1].toDouble();
+        final segEnd = milestones[idx].toDouble();
+        final segFraction = ((current - segStart) / (segEnd - segStart)).clamp(0.0, 1.0);
+        final passed = current >= segEnd;
+        return Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Column(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: Stack(children: [
+                    Container(height: 8, color: Colors.white12),
+                    FractionallySizedBox(widthFactor: segFraction, child: Container(height: 8, color: passed ? Colors.greenAccent : color)),
+                  ]),
+                ),
+                const SizedBox(height: 3),
+                Text(labels[idx], style: TextStyle(color: passed ? Colors.white70 : Colors.white24, fontSize: 9, fontWeight: passed ? FontWeight.bold : FontWeight.normal)),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 
@@ -1046,19 +1083,21 @@ class _LevelMaintenancePageState extends State<LevelMaintenancePage> {
     );
   }
 
-  Widget _sectionHeader(String title) {
+  Widget _sectionHeader(String title, {bool ascending = true, VoidCallback? onToggle}) {
     return Row(children: [
       Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-      const SizedBox(width: 8),
-      InkWell(
-        onTap: () => setState(() => _pmSortAscending = !_pmSortAscending),
-        borderRadius: BorderRadius.circular(6),
-        child: Container(
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(color: const Color(0xFF7A0BD4).withOpacity(0.15), borderRadius: BorderRadius.circular(6)),
-          child: Icon(_pmSortAscending ? Icons.arrow_upward : Icons.arrow_downward, color: const Color(0xFF7A0BD4), size: 14),
+      if (onToggle != null) ...[
+        const SizedBox(width: 8),
+        InkWell(
+          onTap: onToggle,
+          borderRadius: BorderRadius.circular(6),
+          child: Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(color: const Color(0xFF7A0BD4).withOpacity(0.15), borderRadius: BorderRadius.circular(6)),
+            child: Icon(ascending ? Icons.arrow_upward : Icons.arrow_downward, color: const Color(0xFF7A0BD4), size: 14),
+          ),
         ),
-      ),
+      ],
     ]);
   }
 
@@ -1237,7 +1276,7 @@ class _LevelMaintenancePageState extends State<LevelMaintenancePage> {
             const SizedBox(height: 16),
             if (_tab == "prioridade") _prioridadeFilterBar(),
             if (_tab == "prioridade") ...[
-              _sectionHeader("Prioridade Maxima - mais perto do proximo Tier primeiro"),
+              _sectionHeader("Prioridade Maxima - mais perto do proximo Tier primeiro", ascending: _pmSortAscending, onToggle: () => setState(() => _pmSortAscending = !_pmSortAscending)),
               const SizedBox(height: 12),
               Container(
                 width: double.infinity,
@@ -1338,99 +1377,186 @@ class _LevelMaintenancePageState extends State<LevelMaintenancePage> {
               ),
             ],
             if (_tab == "dias_horas") ...[
-              _sectionHeader("Dias e Horas para o proximo Tier - mais perto de concluir primeiro"),
+              _sectionHeader("Dias e Horas - sequencia ate 22 dias / 100 horas", ascending: _dhSortAscending, onToggle: () => setState(() => _dhSortAscending = !_dhSortAscending)),
               const SizedBox(height: 12),
-              ...filtered.where((i) => i["atMaxLevel"] != true).take(30).map((i) {
-                final dayGap = ((i["nextReqDays"] as int?) ?? 0) - (i["currentDays"] as num);
-                final hourGap = ((i["nextReqHours"] as int?) ?? 0) - (i["currentHours"] as num);
-                final dayOk = dayGap <= 0;
-                final hourOk = hourGap <= 0;
+              _diasHorasFilterBar(),
+              Text(_diasHorasItems.length.toString() + " streamers", style: const TextStyle(color: Colors.white54, fontSize: 12)),
+              const SizedBox(height: 8),
+              ..._diasHorasItems.take(30).map((i) {
+                final dayOk = i["allDaysDone"] == true;
+                final hourOk = i["allHoursDone"] == true;
+                final concluded = i["activityConcluded"] == true;
+                final close = i["activityCloseToNext"] == true;
+                final dropped = i["activityDropped"] == true;
+                final activityTier = i["activityTier"] as int;
+
+                Color borderColor = Colors.tealAccent;
+                if (concluded) borderColor = Colors.greenAccent;
+                else if (dropped) borderColor = Colors.redAccent;
+                else if (close) borderColor = Colors.amber;
+
                 return Container(
                   margin: const EdgeInsets.only(bottom: 10),
                   padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(color: Colors.tealAccent.withOpacity(0.06), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.tealAccent.withOpacity(0.3))),
-                  child: Row(children: [
-                    CircleAvatar(radius: 16, backgroundColor: Colors.white24, backgroundImage: i["avatar_url"] != null ? NetworkImage(i["avatar_url"] as String) : null, child: i["avatar_url"] == null ? const Icon(Icons.person, color: Colors.white70, size: 16) : null),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          GestureDetector(onTap: () => _openDetail(i), child: Text(i["display_name"] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13, decoration: TextDecoration.underline))),
-                          const SizedBox(height: 6),
-                          Text("Rumo ao Tier " + i["nextLevel"].toString(), style: const TextStyle(color: Colors.white38, fontSize: 10)),
-                          const SizedBox(height: 4),
-                          Row(children: [
-                            Icon(dayOk ? Icons.check_circle : Icons.radio_button_unchecked, color: dayOk ? Colors.greenAccent : Colors.white38, size: 13),
-                            const SizedBox(width: 4),
-                            Text("Dias " + i["currentDays"].toString() + " / " + (i["nextReqDays"]?.toString() ?? "-"), style: TextStyle(color: dayOk ? Colors.greenAccent : Colors.white70, fontSize: 12)),
-                            const SizedBox(width: 14),
-                            Icon(hourOk ? Icons.check_circle : Icons.radio_button_unchecked, color: hourOk ? Colors.greenAccent : Colors.white38, size: 13),
-                            const SizedBox(width: 4),
-                            Text("Horas " + i["currentHours"].toString() + " / " + (i["nextReqHours"]?.toString() ?? "-"), style: TextStyle(color: hourOk ? Colors.greenAccent : Colors.white70, fontSize: 12)),
-                          ]),
-                          const SizedBox(height: 6),
-                          Row(children: [
-                            Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(value: i["dayFractionNext"] as double, minHeight: 6, backgroundColor: Colors.white12, valueColor: const AlwaysStoppedAnimation(Colors.blueAccent)))),
-                            const SizedBox(width: 8),
-                            Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(value: i["hourFractionNext"] as double, minHeight: 6, backgroundColor: Colors.white12, valueColor: const AlwaysStoppedAnimation(Colors.purpleAccent)))),
-                          ]),
-                          const SizedBox(height: 6),
-                          if (dayOk && hourOk)
-                            const Text("Requisitos de atividade completos para o proximo Tier!", style: TextStyle(color: Colors.greenAccent, fontSize: 12, fontWeight: FontWeight.bold))
-                          else
-                            Text(
-                              "Faltam: " + (dayGap > 0 ? dayGap.toStringAsFixed(0) + " dia(s) " : "") + (hourGap > 0 ? hourGap.toStringAsFixed(0) + " hora(s)" : ""),
-                              style: const TextStyle(color: Colors.tealAccent, fontSize: 12, fontWeight: FontWeight.bold),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ]),
+                  decoration: BoxDecoration(color: borderColor.withOpacity(0.06), borderRadius: BorderRadius.circular(12), border: Border.all(color: borderColor.withOpacity(0.4))),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        CircleAvatar(radius: 16, backgroundColor: Colors.white24, backgroundImage: i["avatar_url"] != null ? NetworkImage(i["avatar_url"] as String) : null, child: i["avatar_url"] == null ? const Icon(Icons.person, color: Colors.white70, size: 16) : null),
+                        const SizedBox(width: 10),
+                        Expanded(child: GestureDetector(onTap: () => _openDetail(i), child: Text(i["display_name"] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13, decoration: TextDecoration.underline)))),
+                        if (activityTier > 0)
+                          Container(
+                            margin: const EdgeInsets.only(right: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(border: Border.all(color: Colors.tealAccent), borderRadius: BorderRadius.circular(6)),
+                            child: Text("Tier " + activityTier.toString(), style: const TextStyle(color: Colors.tealAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                          ),
+                        if (concluded)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(color: Colors.greenAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
+                            child: const Text("CONCLUIDO", style: TextStyle(color: Colors.greenAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                          )
+                        else if (dropped)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
+                            child: const Text("EM QUEDA", style: TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                          )
+                        else if (close)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(color: Colors.amber.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
+                            child: const Text("PROXIMO", style: TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold)),
+                          ),
+                      ]),
+                      if (dropped) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          "Mes passado fez " + (i["previousDays"] as num).toString() + " dias / " + (i["previousHours"] as num).toStringAsFixed(0) + "h. Este mes esta bem abaixo - vale a pena cobrar.",
+                          style: const TextStyle(color: Colors.redAccent, fontSize: 11, fontStyle: FontStyle.italic),
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                      Row(children: [
+                        Icon(dayOk ? Icons.check_circle : Icons.radio_button_unchecked, color: dayOk ? Colors.greenAccent : Colors.white38, size: 13),
+                        const SizedBox(width: 4),
+                        Text(dayOk ? "Dias: 22/22 completo" : "Dias: " + i["currentDays"].toString() + " - proximo marco " + i["nextDayMilestone"].toString() + " (faltam " + (i["dayGapToMilestone"] as double).toStringAsFixed(0) + ")", style: TextStyle(color: dayOk ? Colors.greenAccent : Colors.white70, fontSize: 12)),
+                      ]),
+                      const SizedBox(height: 6),
+                      _segmentedBar(levelActivityDays.take(5).toList(), const ["8d", "14d", "17d", "20d", "22d"], (i["currentDays"] as num).toDouble(), Colors.blueAccent),
+                      const SizedBox(height: 12),
+                      Row(children: [
+                        Icon(hourOk ? Icons.check_circle : Icons.radio_button_unchecked, color: hourOk ? Colors.greenAccent : Colors.white38, size: 13),
+                        const SizedBox(width: 4),
+                        Text(hourOk ? "Horas: 100/100 completo" : "Horas: " + (i["currentHours"] as num).toStringAsFixed(1) + " - proximo marco " + i["nextHourMilestone"].toString() + " (faltam " + (i["hourGapToMilestone"] as double).toStringAsFixed(1) + ")", style: TextStyle(color: hourOk ? Colors.greenAccent : Colors.white70, fontSize: 12)),
+                      ]),
+                      const SizedBox(height: 6),
+                      _segmentedBar(levelActivityHours.take(5).toList(), const ["25h", "40h", "60h", "80h", "100h"], (i["currentHours"] as num).toDouble(), Colors.purpleAccent),
+                    ],
+                  ),
                 );
               }),
             ],
             if (_tab == "risco") ...[
-              _sectionHeader("Manutencao em Risco"),
+              _sectionHeader("Manutencao em Risco - nao conseguiu repetir o Tier do mes passado"),
               const SizedBox(height: 12),
               Container(
-                width: double.infinity,
-                decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(16)),
-                child: Column(
-                  children: emRiscoFiltered.isEmpty
-                      ? [const Padding(padding: EdgeInsets.all(16), child: Text("Nenhum streamer em risco no momento.", style: TextStyle(color: Colors.white54)))]
-                      : emRiscoFiltered.map((i) {
-                          final sit = _situacao(i);
-                          return Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white12))),
-                            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Expanded(
-                                flex: 2,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    GestureDetector(onTap: () => _openDetail(i), child: Text(i["display_name"] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13, decoration: TextDecoration.underline))),
-                                    const SizedBox(height: 4),
-                                    Row(children: [Text(sit.$1 + " ", style: const TextStyle(fontSize: 11)), Expanded(child: Text(sit.$2, style: TextStyle(color: sit.$3, fontSize: 11, fontWeight: FontWeight.bold)))]),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(flex: 3, child: _levelContextBar(i)),
-                              const SizedBox(width: 12),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text("Dias " + i["currentDays"].toString() + "/" + i["requiredDays"].toString(), style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                                  Text("Horas " + i["currentHours"].toString() + "/" + i["requiredHours"].toString(), style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                                ],
-                              ),
-                            ]),
-                          );
-                        }).toList(),
-                ),
+                padding: const EdgeInsets.all(14),
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(color: Colors.white.withOpacity(0.04), borderRadius: BorderRadius.circular(14)),
+                child: Wrap(spacing: 12, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                  SizedBox(
+                    width: 220,
+                    child: TextField(
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                      decoration: const InputDecoration(prefixIcon: Icon(Icons.search, color: Colors.white54, size: 18), hintText: "Buscar por nome ou ID", hintStyle: TextStyle(color: Colors.white38, fontSize: 12), isDense: true),
+                      onChanged: (v) => setState(() => _riscoSearch = v),
+                    ),
+                  ),
+                  DropdownButton<String?>(
+                    value: _riscoStatusFilter,
+                    hint: const Text("Nao conseguiu (padrao)", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                    dropdownColor: const Color(0xFF1A1A1A),
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    items: const [
+                      DropdownMenuItem(value: null, child: Text("Nao conseguiu (padrao)")),
+                      DropdownMenuItem(value: "conseguiu", child: Text("Conseguiu repetir")),
+                      DropdownMenuItem(value: "todos", child: Text("Todos com Tier no mes passado")),
+                    ],
+                    onChanged: (v) => setState(() => _riscoStatusFilter = v),
+                  ),
+                ]),
               ),
+              Builder(builder: (context) {
+                var riscoTier = _items.where((i) => (i["previousLevel"] as int) >= 2).toList();
+                if (_riscoStatusFilter == "conseguiu") {
+                  riscoTier = riscoTier.where((i) => (i["currentLevelNow"] as int) >= (i["previousLevel"] as int)).toList();
+                } else if (_riscoStatusFilter != "todos") {
+                  riscoTier = riscoTier.where((i) => (i["currentLevelNow"] as int) < (i["previousLevel"] as int)).toList();
+                }
+                if (_riscoSearch.trim().isNotEmpty) {
+                  final q = _riscoSearch.trim().toLowerCase();
+                  riscoTier = riscoTier.where((i) => (i["display_name"] as String).toLowerCase().contains(q) || (i["id"] as String).toLowerCase().contains(q)).toList();
+                }
+                if (riscoTier.isEmpty) {
+                  return const Text("Nenhum streamer deixou de repetir o Tier do mes passado.", style: TextStyle(color: Colors.white54, fontSize: 13));
+                }
+                return Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(16)),
+                  child: Column(
+                    children: riscoTier.map((i) {
+                      final previousLevel = i["previousLevel"] as int;
+                      final currentLevelNow = i["currentLevelNow"] as int;
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white12))),
+                        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          CircleAvatar(radius: 16, backgroundColor: Colors.white24, backgroundImage: i["avatar_url"] != null ? NetworkImage(i["avatar_url"] as String) : null, child: i["avatar_url"] == null ? const Icon(Icons.person, color: Colors.white70, size: 16) : null),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            flex: 2,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                GestureDetector(onTap: () => _openDetail(i), child: Text(i["display_name"] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13, decoration: TextDecoration.underline))),
+                                const SizedBox(height: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(color: (currentLevelNow >= previousLevel ? Colors.greenAccent : Colors.redAccent).withOpacity(0.2), borderRadius: BorderRadius.circular(4)),
+                                  child: Text(currentLevelNow >= previousLevel ? "CONSEGUIU REPETIR" : "NAO REPETIU O TIER", style: TextStyle(color: currentLevelNow >= previousLevel ? Colors.greenAccent : Colors.redAccent, fontSize: 9, fontWeight: FontWeight.bold)),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            flex: 3,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text("Tier do mes passado: " + previousLevel.toString() + "  (" + (i["previousDiamonds"] as num).toStringAsFixed(0) + " diamantes)", style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                                Text("Tier atual: " + currentLevelNow.toString() + "  (" + (i["currentDiamonds"] as num).toStringAsFixed(0) + " diamantes)", style: TextStyle(color: currentLevelNow >= previousLevel ? Colors.greenAccent : Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text("Dias " + i["currentDays"].toString() + "/" + i["requiredDays"].toString(), style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                              Text("Horas " + i["currentHours"].toString() + "/" + i["requiredHours"].toString(), style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                            ],
+                          ),
+                        ]),
+                      );
+                    }).toList(),
+                  ),
+                );
+              }),
               const SizedBox(height: 20),
               const Text("Recuperacao", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
               const SizedBox(height: 10),
@@ -1459,110 +1585,215 @@ class _LevelMaintenancePageState extends State<LevelMaintenancePage> {
                 }),
             ],
             if (_tab == "ranking") ...[
-              const Text("Oportunidades de Upgrade", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-              const SizedBox(height: 10),
-              if (proximosUpgradesFiltered.isEmpty)
-                const Text("Nenhum streamer proximo de subir de nivel no momento.", style: TextStyle(color: Colors.white54, fontSize: 13))
-              else
-                Wrap(
-                  spacing: 14,
-                  runSpacing: 14,
-                  children: proximosUpgradesFiltered.map((i) {
-                    final nextThreshold = (i["nextThreshold"] as int?) ?? 0;
-                    final currentDiamonds = i["currentDiamonds"] as num;
-                    final fraction = nextThreshold == 0 ? 1.0 : (currentDiamonds / nextThreshold).clamp(0.0, 1.0);
-                    final activityOk = (i["currentDays"] as num) >= (i["nextReqDays"] as int? ?? 0) && (i["currentHours"] as num) >= (i["nextReqHours"] as int? ?? 0);
-                    return Container(
-                      width: 300,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.08), borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.blueAccent.withOpacity(0.4))),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(children: [
-                            CircleAvatar(radius: 16, backgroundColor: Colors.white24, backgroundImage: i["avatar_url"] != null ? NetworkImage(i["avatar_url"] as String) : null, child: i["avatar_url"] == null ? const Icon(Icons.person, color: Colors.white70, size: 16) : null),
-                            const SizedBox(width: 8),
-                            Expanded(child: GestureDetector(onTap: () => _openDetail(i), child: Text(i["display_name"] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, decoration: TextDecoration.underline)))),
-                          ]),
-                          const SizedBox(height: 10),
-                          Text("Tier " + i["previousLevel"].toString() + " -> Tier " + i["nextLevel"].toString(), style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 13)),
-                          const SizedBox(height: 8),
-                          Text(currentDiamonds.toStringAsFixed(0) + " / " + nextThreshold.toString() + " diamantes", style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                          const SizedBox(height: 4),
-                          ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(value: fraction, minHeight: 6, backgroundColor: Colors.white12, valueColor: const AlwaysStoppedAnimation(Colors.blueAccent))),
-                          const SizedBox(height: 8),
-                          Text("Faltam " + ((nextThreshold - currentDiamonds).clamp(0, nextThreshold)).toStringAsFixed(0) + " diamantes", style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                          const SizedBox(height: 4),
-                          Text("Dias: " + i["currentDays"].toString() + "/" + (i["nextReqDays"]?.toString() ?? "-") + "   Horas: " + i["currentHours"].toString() + "/" + (i["nextReqHours"]?.toString() ?? "-"),
-                              style: TextStyle(color: activityOk ? Colors.greenAccent : Colors.orangeAccent, fontSize: 11)),
-                          const SizedBox(height: 10),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(color: (activityOk ? Colors.greenAccent : Colors.orangeAccent).withOpacity(0.15), borderRadius: BorderRadius.circular(6)),
-                            child: Text(activityOk ? "Probabilidade alta" : "Probabilidade media", style: TextStyle(color: activityOk ? Colors.greenAccent : Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.bold)),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                ),
-              const SizedBox(height: 20),
-              _sectionHeader("Ranking de Oportunidades"),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(16)),
-                child: Column(
-                  children: filtered.take(15).toList().asMap().entries.map((entry) {
-                    final idx = entry.key;
-                    final i = entry.value;
-                    final medal = idx == 0 ? "\ud83e\udd47" : idx == 1 ? "\ud83e\udd48" : idx == 2 ? "\ud83e\udd49" : null;
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: Row(children: [
-                        medal != null ? Text(medal, style: const TextStyle(fontSize: 18)) : SizedBox(width: 24, child: Text((idx + 1).toString(), style: const TextStyle(color: Colors.white38), textAlign: TextAlign.center)),
-                        const SizedBox(width: 10),
-                        CircleAvatar(radius: 14, backgroundColor: Colors.white24, backgroundImage: i["avatar_url"] != null ? NetworkImage(i["avatar_url"] as String) : null, child: i["avatar_url"] == null ? const Icon(Icons.person, color: Colors.white70, size: 14) : null),
-                        const SizedBox(width: 10),
-                        Expanded(child: GestureDetector(onTap: () => _openDetail(i), child: Text(i["display_name"] as String, style: const TextStyle(color: Colors.white, fontSize: 13, decoration: TextDecoration.underline)))),
-                        Text("Score " + (i["score"] as double).toStringAsFixed(0), style: const TextStyle(color: Color(0xFF7A0BD4), fontWeight: FontWeight.bold, fontSize: 12)),
-                      ]),
-                    );
-                  }).toList(),
-                ),
-              ),
-            ],
-            if (_tab == "recomendacoes") ...[
-              _sectionHeader("Recomendacoes Inteligentes"),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(16)),
-                child: Column(
-                  children: filtered.map((i) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        const Icon(Icons.lightbulb, color: Colors.amber, size: 16),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: RichText(
-                            text: TextSpan(
-                              style: const TextStyle(fontSize: 12.5),
+              Builder(builder: (context) {
+                final upgradeCandidates = _items.where((i) =>
+                  (i["previousLevel"] as int) >= 3 &&
+                  (i["currentLevelNow"] as int) >= (i["previousLevel"] as int) &&
+                  (i["percentRemaining"] as double) <= 0.35
+                ).toList()..sort((a, b) => (a["percentRemaining"] as double).compareTo(b["percentRemaining"] as double));
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text("Oportunidades de Upgrade", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                    const Text("Streamers que garantiram manutencao do Tier 3 (80k) ou acima e estao perto do proximo nivel.", style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic)),
+                    const SizedBox(height: 10),
+                    if (upgradeCandidates.isEmpty)
+                      const Text("Nenhum streamer nessa situacao no momento.", style: TextStyle(color: Colors.white54, fontSize: 13))
+                    else
+                      Wrap(
+                        spacing: 14,
+                        runSpacing: 14,
+                        children: upgradeCandidates.map((i) {
+                          final nextThreshold = (i["nextThreshold"] as int?) ?? 0;
+                          final currentDiamonds = i["currentDiamonds"] as num;
+                          final fraction = nextThreshold == 0 ? 1.0 : (currentDiamonds / nextThreshold).clamp(0.0, 1.0);
+                          final activityOk = (i["currentDays"] as num) >= (i["nextReqDays"] as int? ?? 0) && (i["currentHours"] as num) >= (i["nextReqHours"] as int? ?? 0);
+                          return Container(
+                            width: 300,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.08), borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.blueAccent.withOpacity(0.4))),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                TextSpan(text: (i["display_name"] as String) + ": ", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                TextSpan(text: i["recommendation"] as String, style: const TextStyle(color: Colors.white70)),
+                                Row(children: [
+                                  CircleAvatar(radius: 16, backgroundColor: Colors.white24, backgroundImage: i["avatar_url"] != null ? NetworkImage(i["avatar_url"] as String) : null, child: i["avatar_url"] == null ? const Icon(Icons.person, color: Colors.white70, size: 16) : null),
+                                  const SizedBox(width: 8),
+                                  Expanded(child: GestureDetector(onTap: () => _openDetail(i), child: Text(i["display_name"] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, decoration: TextDecoration.underline)))),
+                                ]),
+                                const SizedBox(height: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(color: Colors.greenAccent.withOpacity(0.15), borderRadius: BorderRadius.circular(4)),
+                                  child: const Text("MANUTENCAO GARANTIDA", style: TextStyle(color: Colors.greenAccent, fontSize: 9, fontWeight: FontWeight.bold)),
+                                ),
+                                const SizedBox(height: 10),
+                                Text("Tier " + i["previousLevel"].toString() + " -> Tier " + i["nextLevel"].toString(), style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 13)),
+                                const SizedBox(height: 8),
+                                Text(currentDiamonds.toStringAsFixed(0) + " / " + nextThreshold.toString() + " diamantes", style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                                const SizedBox(height: 4),
+                                ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(value: fraction, minHeight: 6, backgroundColor: Colors.white12, valueColor: const AlwaysStoppedAnimation(Colors.blueAccent))),
+                                const SizedBox(height: 8),
+                                Text("Faltam " + ((nextThreshold - currentDiamonds).clamp(0, nextThreshold)).toStringAsFixed(0) + " diamantes", style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                                const SizedBox(height: 4),
+                                Text("Dias: " + i["currentDays"].toString() + "/" + (i["nextReqDays"]?.toString() ?? "-") + "   Horas: " + i["currentHours"].toString() + "/" + (i["nextReqHours"]?.toString() ?? "-"),
+                                    style: TextStyle(color: activityOk ? Colors.greenAccent : Colors.orangeAccent, fontSize: 11)),
                               ],
                             ),
-                          ),
+                          );
+                        }).toList(),
+                      ),
+                  ],
+                );
+              }),
+              const SizedBox(height: 24),
+              Builder(builder: (context) {
+                final risingStars = _items.where((i) =>
+                  (i["currentLevelNow"] as int) < 3 &&
+                  (i["currentDiamonds"] as num) > (i["previousDiamonds"] as num)
+                ).toList()..sort((a, b) => (a["percentRemaining"] as double).compareTo(b["percentRemaining"] as double));
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _sectionHeader("Ranking de Oportunidades - candidatos ao Tier 3 (80k)"),
+                    const Text("Streamers abaixo de 80k, mas em crescimento (diamantes deste mes acima do mes passado).", style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic)),
+                    const SizedBox(height: 12),
+                    if (risingStars.isEmpty)
+                      const Text("Nenhum streamer em crescimento abaixo de 80k no momento.", style: TextStyle(color: Colors.white54, fontSize: 13))
+                    else
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(16)),
+                        child: Column(
+                          children: risingStars.take(15).toList().asMap().entries.map((entry) {
+                            final idx = entry.key;
+                            final i = entry.value;
+                            final medal = idx == 0 ? "\ud83e\udd47" : idx == 1 ? "\ud83e\udd48" : idx == 2 ? "\ud83e\udd49" : null;
+                            final growth = (i["currentDiamonds"] as num) - (i["previousDiamonds"] as num);
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              child: Row(children: [
+                                medal != null ? Text(medal, style: const TextStyle(fontSize: 18)) : SizedBox(width: 24, child: Text((idx + 1).toString(), style: const TextStyle(color: Colors.white38), textAlign: TextAlign.center)),
+                                const SizedBox(width: 10),
+                                CircleAvatar(radius: 14, backgroundColor: Colors.white24, backgroundImage: i["avatar_url"] != null ? NetworkImage(i["avatar_url"] as String) : null, child: i["avatar_url"] == null ? const Icon(Icons.person, color: Colors.white70, size: 14) : null),
+                                const SizedBox(width: 10),
+                                Expanded(child: GestureDetector(onTap: () => _openDetail(i), child: Text(i["display_name"] as String, style: const TextStyle(color: Colors.white, fontSize: 13, decoration: TextDecoration.underline)))),
+                                Text("Tier " + i["currentLevelNow"].toString() + " -> " + (i["currentDiamonds"] as num).toStringAsFixed(0), style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                                const SizedBox(width: 10),
+                                Text("+" + growth.toStringAsFixed(0), style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 12)),
+                              ]),
+                            );
+                          }).toList(),
                         ),
-                      ]),
-                    );
-                  }).toList(),
-                ),
-              ),
+                      ),
+                  ],
+                );
+              }),
+            ],
+            if (_tab == "recomendacoes") ...[
+              Builder(builder: (context) {
+                final tier3PlusLastMonth = _items.where((i) => (i["previousLevel"] as int) >= 3).toList();
+                final tier3PlusMaintained = tier3PlusLastMonth.where((i) => (i["currentLevelNow"] as int) >= (i["previousLevel"] as int)).toList();
+                final maintenanceRate = tier3PlusLastMonth.isEmpty ? 0.0 : tier3PlusMaintained.length / tier3PlusLastMonth.length;
+                final bonusBoostActive = maintenanceRate > 0.20;
+                final at80Risk = _items.where((i) => (i["previousDiamonds"] as num) > 0 && (i["ratioToLastMonth"] as double) < 0.8).toList()
+                  ..sort((a, b) => (a["ratioToLastMonth"] as double).compareTo(b["ratioToLastMonth"] as double));
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text("Impacto na Receita da Agencia", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17)),
+                    const SizedBox(height: 12),
+                    Wrap(spacing: 12, runSpacing: 12, children: [
+                      Container(
+                        width: 260,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(color: (bonusBoostActive ? Colors.greenAccent : Colors.orangeAccent).withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: (bonusBoostActive ? Colors.greenAccent : Colors.orangeAccent).withOpacity(0.4))),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text((maintenanceRate * 100).toStringAsFixed(0) + "%", style: TextStyle(color: bonusBoostActive ? Colors.greenAccent : Colors.orangeAccent, fontSize: 24, fontWeight: FontWeight.bold)),
+                            const Text("Taxa de manutencao Tier 3+", style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 4),
+                            Text(bonusBoostActive ? "Acima de 20% - bonus de progressao +1% ativo!" : "Precisa passar de 20% para ganhar +1% no bonus de progressao.", style: TextStyle(color: bonusBoostActive ? Colors.greenAccent : Colors.white54, fontSize: 11)),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        width: 260,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.redAccent.withOpacity(0.4))),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(at80Risk.length.toString(), style: const TextStyle(color: Colors.redAccent, fontSize: 24, fontWeight: FontWeight.bold)),
+                            const Text("Streamers abaixo de 80% do mes passado", style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 4),
+                            const Text("Vao perder o bonus de manutencao de nivel se nao recuperarem.", style: TextStyle(color: Colors.white54, fontSize: 11)),
+                          ],
+                        ),
+                      ),
+                    ]),
+                    const SizedBox(height: 20),
+                    const Text("Risco no Bonus de Manutencao de Nivel (80%)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                    const Text("Regra: diamantes deste mes precisam ser pelo menos 80% do mes passado, com 7+ dias e 15+ horas de live.", style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic)),
+                    const SizedBox(height: 10),
+                    if (at80Risk.isEmpty)
+                      const Text("Nenhum streamer abaixo de 80% no momento.", style: TextStyle(color: Colors.white54, fontSize: 13))
+                    else
+                      Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(14)),
+                        child: Column(
+                          children: at80Risk.take(20).map((i) {
+                            final ratio = i["ratioToLastMonth"] as double;
+                            return Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white12))),
+                              child: Row(children: [
+                                Expanded(flex: 2, child: GestureDetector(onTap: () => _openDetail(i), child: Text(i["display_name"] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13, decoration: TextDecoration.underline)))),
+                                Expanded(flex: 2, child: Text((i["previousDiamonds"] as num).toStringAsFixed(0) + " -> " + (i["currentDiamonds"] as num).toStringAsFixed(0), style: const TextStyle(color: Colors.white70, fontSize: 12))),
+                                Text((ratio * 100).toStringAsFixed(0) + "% do mes passado", style: const TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+                              ]),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    const SizedBox(height: 20),
+                    const Text("Recomendacoes Gerais", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(16)),
+                      child: Column(
+                        children: filtered.map((i) {
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              const Icon(Icons.lightbulb, color: Colors.amber, size: 16),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: RichText(
+                                  text: TextSpan(
+                                    style: const TextStyle(fontSize: 12.5),
+                                    children: [
+                                      TextSpan(text: (i["display_name"] as String) + ": ", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                      TextSpan(text: i["recommendation"] as String, style: const TextStyle(color: Colors.white70)),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ]),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
+                );
+              }),
             ],
           ],
         ),
@@ -1570,6 +1801,25 @@ class _LevelMaintenancePageState extends State<LevelMaintenancePage> {
     );
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

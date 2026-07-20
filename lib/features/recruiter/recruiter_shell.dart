@@ -195,7 +195,7 @@ class _RecruiterShellState extends State<RecruiterShell> {
           Expanded(
             child: Column(
               children: [
-                const AppTopBar(),
+                AppTopBar(onNotificationTap: () => _select("Feedbacks")),
                 Expanded(child: _buildContent()),
               ],
             ),
@@ -205,6 +205,7 @@ class _RecruiterShellState extends State<RecruiterShell> {
     );
   }
 }
+
 
 
 

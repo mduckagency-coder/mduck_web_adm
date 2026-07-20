@@ -34,7 +34,7 @@ Color categoryColor(String? iconKey) {
   }
 }
 
-const leadOrigins = ["Indicacao Streamers", "TikTok Lead", "Aplicado", "Formulario", "Indicacao CEO / Mduck"];
+const leadOrigins = ["Indicacao Streamers", "TikTok Lead", "Aplicado", "Formulario", "Indicacao CEO / Mduck", "Indicacao", "Outros"];
 
 const categoryIconOptions = [
   ("gamer", "Gamer", Icons.sports_esports),
@@ -44,4 +44,5 @@ const categoryIconOptions = [
   ("modelo", "Modelo", Icons.camera_alt),
   ("outro", "Outro", Icons.category),
 ];
+
 

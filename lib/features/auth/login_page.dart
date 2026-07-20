@@ -34,6 +34,8 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
   late Animation<Offset> _slideAnim;
 
   static const _prefsKey = "mduck_remembered_email";
+  static const _purple = Color(0xFF7A0BD4);
+  static const _darkField = Color(0xFF0C0A14);
 
   @override
   void initState() {
@@ -76,7 +78,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
     if (_isLoading) return;
     final email = _emailController.text.trim();
     if (email.isEmpty || _passwordController.text.trim().isEmpty) {
-      setState(() => _errorMessage = "Preencha e-mail e senha.");
+      setState(() => _errorMessage = "Preencha usuario e senha.");
       return;
     }
     setState(() {
@@ -201,41 +203,100 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
     }
   }
 
+  Widget _fieldLabel(String text) {
+    return Text(text, style: const TextStyle(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1));
+  }
+
+  InputDecoration _darkDecoration({Widget? suffixIcon, String? hint}) {
+    return InputDecoration(
+      filled: true,
+      fillColor: _darkField,
+      hintText: hint,
+      hintStyle: const TextStyle(color: Colors.white24),
+      suffixIcon: suffixIcon,
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.white.withOpacity(0.06))),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.white.withOpacity(0.06))),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: _purple, width: 1.2)),
+    );
+  }
+
+  Widget _smallPurpleButton({required String label, required bool loading, required VoidCallback? onPressed}) {
+    return SizedBox(
+      width: double.infinity,
+      child: Material(
+        color: _purple,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onPressed,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Center(
+              child: loading
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _purpleCheckbox(bool value, ValueChanged<bool?> onChanged) {
+    return SizedBox(
+      width: 20,
+      height: 20,
+      child: Checkbox(
+        value: value,
+        onChanged: onChanged,
+        activeColor: _purple,
+        checkColor: Colors.white,
+        side: const BorderSide(color: Colors.white38),
+      ),
+    );
+  }
+
   Widget _buildLoginForm() {
     return Column(
       key: const ValueKey("login"),
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _fieldLabel("USUARIO"),
+        const SizedBox(height: 6),
         TextField(
           controller: _emailController,
           style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(labelText: "E-mail", labelStyle: TextStyle(color: Colors.white70), prefixIcon: Icon(Icons.email_outlined, color: Colors.white54)),
+          decoration: _darkDecoration(),
           keyboardType: TextInputType.emailAddress,
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 14),
+        _fieldLabel("SENHA"),
+        const SizedBox(height: 6),
         TextField(
           controller: _passwordController,
           style: const TextStyle(color: Colors.white),
-          decoration: InputDecoration(
-            labelText: "Senha",
-            labelStyle: const TextStyle(color: Colors.white70),
-            prefixIcon: const Icon(Icons.lock_outline, color: Colors.white54),
+          decoration: _darkDecoration(
             suffixIcon: IconButton(
-              icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, color: Colors.white54),
+              icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, color: Colors.white38, size: 18),
               onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
             ),
           ),
           obscureText: _obscurePassword,
           onSubmitted: (_) => _handleLogin(),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         Row(children: [
-          Checkbox(value: _rememberEmail, onChanged: (v) => setState(() => _rememberEmail = v ?? false), activeColor: const Color(0xFF7A0BD4)),
-          const Text("Lembrar meu e-mail", style: TextStyle(color: Colors.white70, fontSize: 12)),
+          _purpleCheckbox(_rememberEmail, (v) => setState(() => _rememberEmail = v ?? false)),
+          const SizedBox(width: 8),
+          const Text("Lembrar-me", style: TextStyle(color: Colors.white, fontSize: 12)),
         ]),
         Row(children: [
-          Checkbox(value: _keepConnected, onChanged: (v) => setState(() => _keepConnected = v ?? true), activeColor: const Color(0xFF7A0BD4)),
-          const Text("Manter conectado", style: TextStyle(color: Colors.white70, fontSize: 12)),
+          _purpleCheckbox(_keepConnected, (v) => setState(() => _keepConnected = v ?? true)),
+          const SizedBox(width: 8),
+          const Text("Manter conectado", style: TextStyle(color: Colors.white, fontSize: 12)),
         ]),
         Align(
           alignment: Alignment.centerRight,
@@ -245,25 +306,12 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
               _errorMessage = null;
               _infoMessage = null;
             }),
-            child: const Text("Esqueci minha senha"),
+            child: const Text("Esqueci minha senha", style: TextStyle(color: Colors.white, fontSize: 12)),
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         _buildMessages(),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: _isLoading ? null : _handleLogin,
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14)),
-            child: _isLoading
-                ? const Row(mainAxisSize: MainAxisSize.min, children: [
-                    SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
-                    SizedBox(width: 10),
-                    Text("Entrando..."),
-                  ])
-                : const Text("Entrar"),
-          ),
-        ),
+        _smallPurpleButton(label: _isLoading ? "Entrando..." : "Entrar", loading: _isLoading, onPressed: _isLoading ? null : _handleLogin),
       ],
     );
   }
@@ -272,27 +320,19 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
     return Column(
       key: const ValueKey("forgotEmail"),
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text("Recuperar senha", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+        const Text("Recuperar senha", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
         const SizedBox(height: 6),
-        const Text("Informe seu e-mail para receber um codigo de verificacao.", style: TextStyle(color: Colors.white54, fontSize: 12), textAlign: TextAlign.center),
+        const Text("Informe seu e-mail para receber um codigo de verificacao.", style: TextStyle(color: Colors.white38, fontSize: 12)),
         const SizedBox(height: 16),
-        TextField(
-          controller: _emailController,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(labelText: "E-mail", labelStyle: TextStyle(color: Colors.white70), prefixIcon: Icon(Icons.email_outlined, color: Colors.white54)),
-        ),
+        _fieldLabel("E-MAIL"),
+        const SizedBox(height: 6),
+        TextField(controller: _emailController, style: const TextStyle(color: Colors.white), decoration: _darkDecoration()),
         const SizedBox(height: 12),
         _buildMessages(),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: _isLoading ? null : _handleSendCode,
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14)),
-            child: Text(_isLoading ? "Enviando..." : "Enviar codigo"),
-          ),
-        ),
-        TextButton(onPressed: () => setState(() => _mode = _LoginMode.login), child: const Text("Voltar para o login")),
+        _smallPurpleButton(label: _isLoading ? "Enviando..." : "Enviar codigo", loading: _isLoading, onPressed: _isLoading ? null : _handleSendCode),
+        Align(alignment: Alignment.center, child: TextButton(onPressed: () => setState(() => _mode = _LoginMode.login), child: const Text("Voltar para o login", style: TextStyle(color: Colors.white54)))),
       ],
     );
   }
@@ -301,29 +341,20 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
     return Column(
       key: const ValueKey("forgotCode"),
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text("Digite o codigo", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+        const Text("Digite o codigo", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
         const SizedBox(height: 6),
-        const Text("Verifique seu e-mail e cole o codigo recebido.", style: TextStyle(color: Colors.white54, fontSize: 12), textAlign: TextAlign.center),
+        const Text("Verifique seu e-mail e cole o codigo recebido.", style: TextStyle(color: Colors.white38, fontSize: 12)),
         const SizedBox(height: 16),
-        TextField(
-          controller: _codeController,
-          style: const TextStyle(color: Colors.white, letterSpacing: 4, fontSize: 18),
-          textAlign: TextAlign.center,
-          decoration: const InputDecoration(labelText: "Codigo", labelStyle: TextStyle(color: Colors.white70)),
-        ),
+        _fieldLabel("CODIGO"),
+        const SizedBox(height: 6),
+        TextField(controller: _codeController, style: const TextStyle(color: Colors.white, letterSpacing: 4, fontSize: 18), textAlign: TextAlign.center, decoration: _darkDecoration()),
         const SizedBox(height: 12),
         _buildMessages(),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: _isLoading ? null : _handleVerifyCode,
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14)),
-            child: Text(_isLoading ? "Validando..." : "Validar codigo"),
-          ),
-        ),
-        TextButton(onPressed: _isLoading ? null : _handleSendCode, child: const Text("Reenviar codigo")),
-        TextButton(onPressed: () => setState(() => _mode = _LoginMode.login), child: const Text("Voltar para o login")),
+        _smallPurpleButton(label: _isLoading ? "Validando..." : "Validar codigo", loading: _isLoading, onPressed: _isLoading ? null : _handleVerifyCode),
+        Align(alignment: Alignment.center, child: TextButton(onPressed: _isLoading ? null : _handleSendCode, child: const Text("Reenviar codigo", style: TextStyle(color: Colors.white54)))),
+        Align(alignment: Alignment.center, child: TextButton(onPressed: () => setState(() => _mode = _LoginMode.login), child: const Text("Voltar para o login", style: TextStyle(color: Colors.white54)))),
       ],
     );
   }
@@ -332,44 +363,33 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
     return Column(
       key: const ValueKey("forgotNewPassword"),
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text("Nova senha", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+        const Text("Nova senha", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
         const SizedBox(height: 16),
+        _fieldLabel("NOVA SENHA"),
+        const SizedBox(height: 6),
         TextField(
           controller: _newPasswordController,
           obscureText: _obscureNewPassword,
           style: const TextStyle(color: Colors.white),
-          decoration: InputDecoration(
-            labelText: "Nova senha",
-            labelStyle: const TextStyle(color: Colors.white70),
-            suffixIcon: IconButton(icon: Icon(_obscureNewPassword ? Icons.visibility_off : Icons.visibility, color: Colors.white54), onPressed: () => setState(() => _obscureNewPassword = !_obscureNewPassword)),
-          ),
+          decoration: _darkDecoration(suffixIcon: IconButton(icon: Icon(_obscureNewPassword ? Icons.visibility_off : Icons.visibility, color: Colors.white38, size: 18), onPressed: () => setState(() => _obscureNewPassword = !_obscureNewPassword))),
         ),
         const SizedBox(height: 12),
-        TextField(
-          controller: _confirmPasswordController,
-          obscureText: _obscureNewPassword,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(labelText: "Confirmar senha", labelStyle: TextStyle(color: Colors.white70)),
-        ),
+        _fieldLabel("CONFIRMAR SENHA"),
+        const SizedBox(height: 6),
+        TextField(controller: _confirmPasswordController, obscureText: _obscureNewPassword, style: const TextStyle(color: Colors.white), decoration: _darkDecoration()),
         const SizedBox(height: 12),
         _buildMessages(),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: _isLoading ? null : _handleSetNewPassword,
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14)),
-            child: Text(_isLoading ? "Salvando..." : "Confirmar senha"),
-          ),
-        ),
+        _smallPurpleButton(label: _isLoading ? "Salvando..." : "Confirmar senha", loading: _isLoading, onPressed: _isLoading ? null : _handleSetNewPassword),
       ],
     );
   }
 
   Widget _buildMessages() {
     return Column(children: [
-      if (_infoMessage != null) Padding(padding: const EdgeInsets.only(bottom: 10), child: Text(_infoMessage!, style: const TextStyle(color: Colors.greenAccent), textAlign: TextAlign.center)),
-      if (_errorMessage != null) Padding(padding: const EdgeInsets.only(bottom: 10), child: Text(_errorMessage!, style: const TextStyle(color: Colors.redAccent), textAlign: TextAlign.center)),
+      if (_infoMessage != null) Padding(padding: const EdgeInsets.only(bottom: 10), child: Text(_infoMessage!, style: const TextStyle(color: Colors.greenAccent, fontSize: 12), textAlign: TextAlign.center)),
+      if (_errorMessage != null) Padding(padding: const EdgeInsets.only(bottom: 10), child: Text(_errorMessage!, style: const TextStyle(color: Colors.redAccent, fontSize: 12), textAlign: TextAlign.center)),
     ]);
   }
 
@@ -389,44 +409,42 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
-    final cardWidth = screenWidth < 480 ? screenWidth * 0.9 : 400.0;
+    final cardWidth = screenWidth < 480 ? screenWidth * 0.9 : 380.0;
 
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
-          color: Colors.black,
+          gradient: RadialGradient(
+            center: Alignment.topCenter,
+            radius: 1.2,
+            colors: [Color(0xFF241238), Color(0xFF120A1E), Color(0xFF08060D)],
+          ),
         ),
         child: Center(
-          child: FadeTransition(
-            opacity: _fadeAnim,
-            child: SlideTransition(
-              position: _slideAnim,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(24),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-                  child: Container(
-                    width: cardWidth,
-                    padding: const EdgeInsets.all(32),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.04),
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: Colors.white.withOpacity(0.12)),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 30, offset: const Offset(0, 12))],
-                    ),
-                    child: SingleChildScrollView(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Image.asset("assets/logo/LogoMduck.png", height: 150, errorBuilder: (context, error, stack) => const Icon(Icons.hive, color: Color(0xFF7A0BD4), size: 100)),
-                          const SizedBox(height: 28),
-                          AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 250),
-                            child: _buildCurrentForm(),
-                          ),
-                        ],
+          child: SingleChildScrollView(
+            child: FadeTransition(
+              opacity: _fadeAnim,
+              child: SlideTransition(
+                position: _slideAnim,
+                child: Container(
+                  width: cardWidth,
+                  padding: const EdgeInsets.all(28),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF15101F).withOpacity(0.92),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white.withOpacity(0.06)),
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 40, offset: const Offset(0, 20))],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Image.asset("assets/logo/LogoMduck.png", height: 170, errorBuilder: (context, error, stack) => const Icon(Icons.hive, color: _purple, size: 100)),
+                      const SizedBox(height: 6),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 250),
+                        child: _buildCurrentForm(),
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ),
@@ -437,6 +455,8 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
     );
   }
 }
+
+
 
 
 

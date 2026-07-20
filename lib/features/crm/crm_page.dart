@@ -127,7 +127,7 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
     final profile = await client
         .from("profiles")
         .select(
-            "display_name, tiktok_username, tiktok_creator_id, tiktok_group_name, joined_at, is_active, recruited_by, phone, email, avatar_url, streamer_categories(name), groups!profiles_group_id_fkey(name)")
+            "display_name, tiktok_username, tiktok_creator_id, tiktok_group_name, joined_at, is_active, left_at, left_reason, recruited_by, phone, email, avatar_url, streamer_categories(name), groups!profiles_group_id_fkey(name)")
         .eq("id", widget.streamerId)
         .single();
 
@@ -201,6 +201,58 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
     setState(() => _savingContact = false);
   }
 
+  Future<void> _endParticipation(bool currentlyActive) async {
+    if (currentlyActive) {
+      final reasonController = TextEditingController();
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: const Color(0xFF1A1A1A),
+          title: const Text("Encerrar participacao do streamer?", style: TextStyle(color: Colors.white)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text("Ele sera marcado como inativo e removido de rankings e missoes atuais. O historico permanece salvo.", style: TextStyle(color: Colors.white70, fontSize: 13)),
+              const SizedBox(height: 12),
+              TextField(controller: reasonController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Motivo (opcional)", labelStyle: TextStyle(color: Colors.white54))),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text("Cancelar")),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+              child: const Text("Encerrar participacao"),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+      final client = Supabase.instance.client;
+      await client.from("profiles").update({
+        "is_active": false,
+        "left_at": DateTime.now().toIso8601String(),
+        "left_reason": reasonController.text.trim(),
+        "assigned_manager_id": null,
+      }).eq("id", widget.streamerId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Participacao encerrada. Streamer marcado como inativo."), backgroundColor: Colors.redAccent));
+      }
+    } else {
+      final client = Supabase.instance.client;
+      await client.from("profiles").update({
+        "is_active": true,
+        "left_at": null,
+        "left_reason": null,
+      }).eq("id", widget.streamerId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Streamer reativado com sucesso."), backgroundColor: Colors.greenAccent));
+      }
+    }
+    setState(() => _future = _load());
+  }
+
   Future<void> _saveNote() async {
     if (_noteController.text.trim().isEmpty) return;
     setState(() => _savingNote = true);
@@ -268,10 +320,17 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
                         Expanded(child: Text(p["display_name"] as String, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold))),
                         if (!active)
                           Container(
+                            margin: const EdgeInsets.only(right: 8),
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
                             child: const Text("INATIVO", style: TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold)),
                           ),
+                        OutlinedButton.icon(
+                          onPressed: () => _endParticipation(active),
+                          icon: Icon(active ? Icons.person_remove : Icons.person_add_alt, size: 16, color: active ? Colors.redAccent : Colors.greenAccent),
+                          label: Text(active ? "Encerrar participacao" : "Reativar", style: TextStyle(color: active ? Colors.redAccent : Colors.greenAccent, fontSize: 12)),
+                          style: OutlinedButton.styleFrom(side: BorderSide(color: active ? Colors.redAccent : Colors.greenAccent)),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -281,6 +340,8 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
                     row("Categoria", catData is Map ? catData["name"] as String? ?? "-" : "-"),
                     row("Grupo (interno)", groupData is Map ? groupData["name"] as String? ?? "Sem grupo" : "Sem grupo"),
                     row("Grupo (TikTok)", (p["tiktok_group_name"] as String?)?.isNotEmpty == true ? p["tiktok_group_name"] as String : "-"),
+                    if (!active) row("Encerrado em", p["left_at"] != null ? DateTime.parse(p["left_at"] as String).toLocal().toString().substring(0, 16) : "-"),
+                    if (!active && (p["left_reason"] as String?)?.isNotEmpty == true) row("Motivo", p["left_reason"] as String),
                     const SizedBox(height: 8),
                     Row(
                       children: [
@@ -390,3 +451,7 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
     );
   }
 }
+
+
+
+

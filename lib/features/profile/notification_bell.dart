@@ -2,7 +2,8 @@ import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 
 class NotificationBell extends StatefulWidget {
-  const NotificationBell({super.key});
+  final VoidCallback? onNotificationTap;
+  const NotificationBell({super.key, this.onNotificationTap});
 
   @override
   State<NotificationBell> createState() => _NotificationBellState();
@@ -66,7 +67,10 @@ class _NotificationBellState extends State<NotificationBell> {
             final date = DateTime.parse(n["created_at"] as String).toLocal().toString().substring(0, 16);
             return PopupMenuItem(
               value: n["id"] as String,
-              onTap: () => _markRead(n["id"] as String),
+              onTap: () {
+                _markRead(n["id"] as String);
+                widget.onNotificationTap?.call();
+              },
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 decoration: BoxDecoration(border: Border(left: BorderSide(color: isUnread ? const Color(0xFF7A0BD4) : Colors.transparent, width: 3))),
@@ -108,3 +112,4 @@ class _NotificationBellState extends State<NotificationBell> {
     );
   }
 }
+

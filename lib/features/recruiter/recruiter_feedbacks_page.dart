@@ -29,13 +29,29 @@ class _RecruiterFeedbacksPageState extends State<RecruiterFeedbacksPage> {
     return (rows as List).cast<Map<String, dynamic>>();
   }
 
-  Future<void> _markDone(String id) async {
+  Future<void> _markDone(Map<String, dynamic> feedback) async {
+    final id = feedback["id"] as String;
     try {
       final client = Supabase.instance.client;
       final result = await client.from("recruiter_feedbacks").update({"status": "concluido", "read_at": DateTime.now().toIso8601String()}).eq("id", id).select();
       if (result.isEmpty && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Nao foi possivel atualizar (0 linhas afetadas - possivel bloqueio de permissao).")));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Nao foi possivel atualizar.")));
         return;
+      }
+      if (feedback["source"] == "bug_report" && feedback["bug_report_id"] != null) {
+        final admins = await client.from("managers").select("id").or("role.eq.admin,role.eq.coordenador");
+        for (final a in (admins as List)) {
+          try {
+            await client.from("manager_notifications").insert({
+              "manager_id": a["id"],
+              "subject": "Recrutador confirmou resposta do bug",
+              "message": (feedback["title"] as String?) ?? "Bug",
+            });
+          } catch (_) {}
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Confirmado! O Dono foi avisado para fechar o chamado definitivamente.")));
+        }
       }
       _future = _load();
       setState(() {});
@@ -150,7 +166,7 @@ class _RecruiterFeedbacksPageState extends State<RecruiterFeedbacksPage> {
                               const SizedBox(height: 8),
                               Row(children: [
                                 ElevatedButton(
-                                  onPressed: () => _markDone(f["id"] as String),
+                                  onPressed: () => _markDone(f),
                                   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
                                   child: const Text("Marcar como concluido"),
                                 ),
@@ -309,3 +325,6 @@ class _NovoChamadoDialogState extends State<_NovoChamadoDialog> {
     );
   }
 }
+
+
+
