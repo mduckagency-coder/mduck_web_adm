@@ -1,8 +1,8 @@
 import "package:flutter/material.dart";
 import "dashboard_financeiro_page.dart";
+import "entradas_saidas_page.dart";
 import "colaboradores_financeiro_page.dart";
-import "contas_pagar_page.dart";
-import "historico_financeiro_page.dart";
+import "pagamentos_financeiro_page.dart";
 import "indicacoes_page.dart";
 
 class FinanceiroRhShell extends StatefulWidget {
@@ -13,7 +13,7 @@ class FinanceiroRhShell extends StatefulWidget {
 }
 
 class _FinanceiroRhShellState extends State<FinanceiroRhShell> {
-  String _tab = "dashboard";
+  String _tab = "visao_geral";
   DateTime _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
 
   void _changeMonth(int offset) {
@@ -32,7 +32,7 @@ class _FinanceiroRhShellState extends State<FinanceiroRhShell> {
           Row(children: [
             const Icon(Icons.account_balance, color: Colors.amber),
             const SizedBox(width: 10),
-            const Text("Financeiro & RH", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
+            const Text("Centro Administrativo Financeiro", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
             const SizedBox(width: 10),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -52,10 +52,10 @@ class _FinanceiroRhShellState extends State<FinanceiroRhShell> {
           ]),
           const SizedBox(height: 16),
           Wrap(spacing: 8, children: [
-            ("dashboard", "Dashboard Financeiro"),
-            ("colaboradores", "Colaboradores"),
-            ("contas_pagar", "Contas a Pagar"),
-            ("historico", "Historico Financeiro"),
+            ("visao_geral", "Visao Geral"),
+            ("entradas_saidas", "Entradas e Saidas"),
+            ("pagamentos", "Pagamentos"),
+            ("equipe", "Equipe"),
             ("indicacoes", "Indicacoes"),
           ].map((t) {
             final selected = _tab == t.$1;
@@ -69,19 +69,18 @@ class _FinanceiroRhShellState extends State<FinanceiroRhShell> {
           }).toList()),
           const SizedBox(height: 20),
           Expanded(
-            child: _tab == "dashboard"
-                ? DashboardFinanceiroPage(selectedMonth: _selectedMonth)
-                : _tab == "colaboradores"
-                    ? const ColaboradoresFinanceiroPage()
-                    : _tab == "contas_pagar"
-                        ? ContasPagarPage(selectedMonth: _selectedMonth)
-                        : _tab == "historico"
-                        ? HistoricoFinanceiroPage(selectedMonth: _selectedMonth)
-                        : const IndicacoesPage(),
+            child: _tab == "visao_geral"
+                ? VisaoGeralFinanceiroPage(selectedMonth: _selectedMonth, onNavigate: (t) => setState(() => _tab = t))
+                : _tab == "entradas_saidas"
+                    ? EntradasSaidasPage(selectedMonth: _selectedMonth)
+                    : _tab == "pagamentos"
+                        ? PagamentosFinanceiroPage(selectedMonth: _selectedMonth)
+                        : _tab == "equipe"
+                            ? const ColaboradoresFinanceiroPage()
+                            : const IndicacoesPage(),
           ),
         ],
       ),
     );
   }
 }
-

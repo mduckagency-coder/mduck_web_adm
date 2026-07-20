@@ -1,17 +1,22 @@
 import "package:flutter/material.dart";
 import "package:fl_chart/fl_chart.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
+import "payroll_generation.dart";
 
-class DashboardFinanceiroPage extends StatefulWidget {
+String _periodKey(DateTime d) => d.year.toString() + "-" + d.month.toString().padLeft(2, "0");
+
+class VisaoGeralFinanceiroPage extends StatefulWidget {
   final DateTime selectedMonth;
-  const DashboardFinanceiroPage({super.key, required this.selectedMonth});
+  final void Function(String tab)? onNavigate;
+  const VisaoGeralFinanceiroPage({super.key, required this.selectedMonth, this.onNavigate});
 
   @override
-  State<DashboardFinanceiroPage> createState() => _DashboardFinanceiroPageState();
+  State<VisaoGeralFinanceiroPage> createState() => _VisaoGeralFinanceiroPageState();
 }
 
-class _DashboardFinanceiroPageState extends State<DashboardFinanceiroPage> {
+class _VisaoGeralFinanceiroPageState extends State<VisaoGeralFinanceiroPage> {
   late Future<Map<String, dynamic>> _future;
+  bool _showDespesaDetail = false;
 
   @override
   void initState() {
@@ -20,7 +25,7 @@ class _DashboardFinanceiroPageState extends State<DashboardFinanceiroPage> {
   }
 
   @override
-  void didUpdateWidget(DashboardFinanceiroPage oldWidget) {
+  void didUpdateWidget(VisaoGeralFinanceiroPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.selectedMonth != widget.selectedMonth) {
       setState(() => _future = _load());
@@ -28,10 +33,16 @@ class _DashboardFinanceiroPageState extends State<DashboardFinanceiroPage> {
   }
 
   Future<Map<String, dynamic>> _load() async {
+    await generateMonthlyPayrollEntries();
     final client = Supabase.instance.client;
+    final userId = client.auth.currentUser!.id;
+    final manager = await client.from("managers").select("agency_id").eq("id", userId).single();
+    final agencyId = manager["agency_id"] as String;
+    final now = widget.selectedMonth;
+    final currentKey = _periodKey(now);
+
     final rows = await client.from("financial_entries").select();
     final entries = (rows as List).cast<Map<String, dynamic>>();
-    final now = widget.selectedMonth;
 
     bool isThisMonth(Map<String, dynamic> e, String dateField) {
       final d = e[dateField];
@@ -45,12 +56,12 @@ class _DashboardFinanceiroPageState extends State<DashboardFinanceiroPage> {
     }
 
     final entradasMes = sumWhere((e) => e["entry_type"] == "receita" && isThisMonth(e, "payment_date"));
-    final folhaTypes = {"salario", "comissao", "ajuda_custo"};
+    final folhaTypes = {"salario", "comissao", "ajuda_custo", "bonificacao", "premiacao", "indicacao"};
     final folhaMes = sumWhere((e) => folhaTypes.contains(e["entry_type"]) && isThisMonth(e, "due_date"));
-    final bonificacoesPrevistas = sumWhere((e) => e["entry_type"] == "bonificacao" && e["status"] == "pendente");
     final despesasFixasMes = sumWhere((e) => e["entry_type"] == "despesa" && e["is_recurring"] == true && isThisMonth(e, "due_date"));
     final despesasVariaveisMes = sumWhere((e) => e["entry_type"] == "despesa" && e["is_recurring"] != true && isThisMonth(e, "due_date"));
-    final saidasMes = folhaMes + despesasFixasMes + despesasVariaveisMes + sumWhere((e) => e["entry_type"] == "bonificacao" && isThisMonth(e, "due_date")) + sumWhere((e) => e["entry_type"] == "premiacao" && isThisMonth(e, "due_date"));
+    final despesasMes = despesasFixasMes + despesasVariaveisMes;
+    final saidasMes = folhaMes + despesasMes;
     final lucroPrevisto = entradasMes - saidasMes;
 
     final totalReceitasPagas = sumWhere((e) => e["entry_type"] == "receita" && e["status"] == "pago");
@@ -83,6 +94,37 @@ class _DashboardFinanceiroPageState extends State<DashboardFinanceiroPage> {
       }
     }
 
+    // Modulo Financeiro (campanhas/missoes/orcamento)
+    final rewards = await client.from("campaign_rewards").select("value, agency_campaigns(start_date)");
+    final missions = await client.from("missions").select("reward_value, starts_at, created_at");
+    final budgets = await client.from("agency_budgets").select().eq("agency_id", agencyId).eq("period_key", currentKey).maybeSingle();
+    double gastoCampanhasMes = 0;
+    for (final r in (rewards as List)) {
+      final campaign = r["agency_campaigns"];
+      if (campaign is Map && campaign["start_date"] != null) {
+        if (_periodKey(DateTime.parse(campaign["start_date"])) == currentKey) {
+          gastoCampanhasMes += (r["value"] as num?)?.toDouble() ?? 0;
+        }
+      }
+    }
+    for (final m in (missions as List)) {
+      final dateStr = m["starts_at"] ?? m["created_at"];
+      if (dateStr != null && _periodKey(DateTime.parse(dateStr)) == currentKey) {
+        gastoCampanhasMes += (m["reward_value"] as num?)?.toDouble() ?? 0;
+      }
+    }
+    final orcamentoCampanhasMes = (budgets?["budget"] as num?)?.toDouble() ?? 0;
+
+    // Modulo comissoes de recrutamento
+    final compensations = await client.from("recruiter_compensation").select("amount, payment_date, created_at");
+    double comissoesRecrutamentoMes = 0;
+    for (final c in (compensations as List)) {
+      final dateStr = c["payment_date"] ?? c["created_at"];
+      if (dateStr != null && _periodKey(DateTime.parse(dateStr)) == currentKey) {
+        comissoesRecrutamentoMes += (c["amount"] as num?)?.toDouble() ?? 0;
+      }
+    }
+
     return {
       "saldoAtual": saldoAtual,
       "entradasMes": entradasMes,
@@ -90,13 +132,16 @@ class _DashboardFinanceiroPageState extends State<DashboardFinanceiroPage> {
       "lucroPrevisto": lucroPrevisto,
       "despesasFixasMes": despesasFixasMes,
       "despesasVariaveisMes": despesasVariaveisMes,
+      "despesasMes": despesasMes,
       "folhaMes": folhaMes,
-      "bonificacoesPrevistas": bonificacoesPrevistas,
       "pagamentosPendentes": pagamentosPendentes.length,
       "pagamentosPendentesValor": pagamentosPendentes.fold(0.0, (s, e) => s + (e["amount"] as num).toDouble()),
       "pagamentosVencidos": pagamentosVencidos.length,
       "pagamentosVencidosValor": pagamentosVencidos.fold(0.0, (s, e) => s + (e["amount"] as num).toDouble()),
       "monthly": monthly,
+      "gastoCampanhasMes": gastoCampanhasMes,
+      "orcamentoCampanhasMes": orcamentoCampanhasMes,
+      "comissoesRecrutamentoMes": comissoesRecrutamentoMes,
     };
   }
 
@@ -104,7 +149,7 @@ class _DashboardFinanceiroPageState extends State<DashboardFinanceiroPage> {
 
   Widget _card(String label, String value, Color color, IconData icon) {
     return Container(
-      width: 200,
+      width: 210,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(colors: [color.withOpacity(0.18), Colors.white.withOpacity(0.03)], begin: Alignment.topLeft, end: Alignment.bottomRight),
@@ -122,11 +167,39 @@ class _DashboardFinanceiroPageState extends State<DashboardFinanceiroPage> {
     );
   }
 
+  Widget _moduleCard(String title, String subtitle, Color color, IconData icon, String tab) {
+    return InkWell(
+      onTap: widget.onNavigate == null ? null : () => widget.onNavigate!(tab),
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        width: 250,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(14), border: Border.all(color: color.withOpacity(0.4))),
+        child: Row(children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                const SizedBox(height: 4),
+                Text(subtitle, style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+          if (widget.onNavigate != null) const Icon(Icons.chevron_right, color: Colors.white38, size: 18),
+        ]),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<Map<String, dynamic>>(
       future: _future,
       builder: (context, snapshot) {
+        if (snapshot.hasError) return Center(child: Text("Erro ao carregar: " + snapshot.error.toString(), style: const TextStyle(color: Colors.redAccent)));
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
         final d = snapshot.data!;
         final monthly = (d["monthly"] as Map<String, Map<String, double>>);
@@ -140,12 +213,40 @@ class _DashboardFinanceiroPageState extends State<DashboardFinanceiroPage> {
                 _card("Entradas do Mes", _fmt(d["entradasMes"]), Colors.greenAccent, Icons.trending_up),
                 _card("Saidas do Mes", _fmt(d["saidasMes"]), Colors.redAccent, Icons.trending_down),
                 _card("Lucro Previsto", _fmt(d["lucroPrevisto"]), d["lucroPrevisto"] >= 0 ? Colors.tealAccent : Colors.orangeAccent, Icons.insights),
-                _card("Despesas Fixas", _fmt(d["despesasFixasMes"]), Colors.orangeAccent, Icons.repeat),
-                _card("Despesas Variaveis", _fmt(d["despesasVariaveisMes"]), Colors.deepOrangeAccent, Icons.shuffle),
-                _card("Folha de Pagamento", _fmt(d["folhaMes"]), const Color(0xFF7A0BD4), Icons.badge),
-                _card("Bonificacoes Previstas", _fmt(d["bonificacoesPrevistas"]), Colors.amber, Icons.card_giftcard),
                 _card("Pagamentos Pendentes", d["pagamentosPendentes"].toString() + " (" + _fmt(d["pagamentosPendentesValor"]) + ")", Colors.amber, Icons.hourglass_bottom),
                 _card("Pagamentos Vencidos", d["pagamentosVencidos"].toString() + " (" + _fmt(d["pagamentosVencidosValor"]) + ")", Colors.redAccent, Icons.warning_amber),
+              ]),
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: () => setState(() => _showDespesaDetail = !_showDespesaDetail),
+                icon: Icon(_showDespesaDetail ? Icons.expand_less : Icons.expand_more, size: 16),
+                label: Text("Detalhe de despesas (" + _fmt(d["despesasMes"]) + ")"),
+              ),
+              if (_showDespesaDetail)
+                Padding(
+                  padding: const EdgeInsets.only(left: 12, bottom: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("Fixas: " + _fmt(d["despesasFixasMes"]), style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                      Text("Variaveis: " + _fmt(d["despesasVariaveisMes"]), style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                      Text("Folha (salario/comissao/ajuda de custo/bonificacao/premiacao/indicacao): " + _fmt(d["folhaMes"]), style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 20),
+              const Text("Por modulo", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+              const SizedBox(height: 12),
+              Wrap(spacing: 12, runSpacing: 12, children: [
+                _moduleCard("RH / Folha", _fmt(d["folhaMes"]) + " este mes", const Color(0xFF7A0BD4), Icons.badge, "equipe"),
+                _moduleCard(
+                  "Financeiro (Campanhas)",
+                  _fmt(d["gastoCampanhasMes"]) + " de " + _fmt(d["orcamentoCampanhasMes"]),
+                  Colors.blueAccent,
+                  Icons.campaign,
+                  "equipe",
+                ),
+                _moduleCard("Comissoes de Recrutamento", _fmt(d["comissoesRecrutamentoMes"]) + " este mes", Colors.orangeAccent, Icons.groups, "equipe"),
               ]),
               const SizedBox(height: 24),
               Container(
@@ -208,4 +309,3 @@ class _DashboardFinanceiroPageState extends State<DashboardFinanceiroPage> {
     );
   }
 }
-
