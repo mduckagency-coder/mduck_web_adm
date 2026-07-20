@@ -3,8 +3,11 @@ import "package:file_picker/file_picker.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "payroll_generation.dart";
 import "relatorio_export.dart";
+import "money_utils.dart";
+import "financial_notifications.dart";
 
-const _expenseCategories = ["Aluguel", "Internet", "Energia", "Contabilidade", "Ferramentas", "Marketing", "Publicidade", "Equipamentos", "Viagens", "Impostos", "Outras despesas"];
+const _expenseCategories = ["Equipe / Colaborador", "Aluguel", "Internet", "Energia", "Contabilidade", "Ferramentas", "Marketing", "Publicidade", "Equipamentos", "Viagens", "Impostos", "Outras despesas"];
+const _customCategorySentinel = "__custom__";
 
 const _typeLabels = {
   "despesa": "Despesa",
@@ -88,7 +91,7 @@ class _PagamentosFinanceiroPageState extends State<PagamentosFinanceiroPage> {
 
   Future<List<Map<String, dynamic>>> _load() async {
     final client = Supabase.instance.client;
-    final rows = await client.from("financial_entries").select("*, managers!financial_entries_manager_id_fkey(login_email), external_collaborators(full_name)").order("created_at", ascending: false);
+    final rows = await client.from("financial_entries").select("*, managers!financial_entries_manager_id_fkey(login_email, contract_type), external_collaborators(full_name)").order("created_at", ascending: false);
     return (rows as List).cast<Map<String, dynamic>>();
   }
 
@@ -102,9 +105,25 @@ class _PagamentosFinanceiroPageState extends State<PagamentosFinanceiroPage> {
     showDialog(context: context, builder: (context) => EntryHistoryDialog(entry: entry));
   }
 
-  Future<void> _markPaid(String id) async {
+  Future<void> _markPaid(Map<String, dynamic> entry) async {
     final client = Supabase.instance.client;
+    final id = entry["id"] as String;
     await client.from("financial_entries").update({"status": "pago", "payment_date": DateTime.now().toIso8601String().substring(0, 10)}).eq("id", id);
+
+    final managerId = entry["manager_id"] as String?;
+    final entryType = entry["entry_type"] as String?;
+    if (managerId != null && payrollEntryTypes.contains(entryType)) {
+      final managerData = entry["managers"];
+      final contractType = managerData is Map ? managerData["contract_type"] as String? : null;
+      if (isPjContract(contractType)) {
+        await notifyPaymentSent(
+          managerId: managerId,
+          description: (entry["description"] as String?)?.isNotEmpty == true ? entry["description"] as String : (_typeLabels[entryType] ?? "Pagamento"),
+          amount: entry["amount"] as num,
+        );
+        await client.from("financial_entries").update({"notified_at": DateTime.now().toIso8601String()}).eq("id", id);
+      }
+    }
     setState(() => _future = _load());
   }
 
@@ -228,7 +247,7 @@ class _PagamentosFinanceiroPageState extends State<PagamentosFinanceiroPage> {
                             child: Text(isLate ? "ATRASADO" : (e["status"] as String).toUpperCase(), style: TextStyle(color: statusColor, fontSize: 9, fontWeight: FontWeight.bold)),
                           ),
                           if (e["status"] != "pago" && e["status"] != "cancelado")
-                            TextButton(onPressed: () => _markPaid(e["id"] as String), child: const Text("Marcar pago", style: TextStyle(fontSize: 11))),
+                            TextButton(onPressed: () => _markPaid(e), child: const Text("Marcar pago", style: TextStyle(fontSize: 11))),
                         ],
                       ),
                     ),
@@ -327,6 +346,7 @@ class _ExpenseFormDialog extends StatefulWidget {
 
 class _ExpenseFormDialogState extends State<_ExpenseFormDialog> {
   String _category = _expenseCategories.first;
+  final _customCategoryController = TextEditingController();
   final _supplierController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _amountController = TextEditingController();
@@ -344,7 +364,13 @@ class _ExpenseFormDialogState extends State<_ExpenseFormDialog> {
     super.initState();
     final e = widget.existing;
     if (e != null) {
-      _category = e["category"] ?? _category;
+      final existingCategory = e["category"] as String?;
+      if (existingCategory != null && !_expenseCategories.contains(existingCategory)) {
+        _category = _customCategorySentinel;
+        _customCategoryController.text = existingCategory;
+      } else {
+        _category = existingCategory ?? _category;
+      }
       _supplierController.text = e["supplier"] ?? "";
       _descriptionController.text = e["description"] ?? "";
       _amountController.text = (e["amount"] as num).toString();
@@ -390,10 +416,10 @@ class _ExpenseFormDialogState extends State<_ExpenseFormDialog> {
     final data = {
       "agency_id": manager["agency_id"],
       "entry_type": "despesa",
-      "category": _category,
+      "category": _category == _customCategorySentinel ? _customCategoryController.text.trim() : _category,
       "supplier": _supplierController.text.trim(),
       "description": _descriptionController.text.trim(),
-      "amount": double.tryParse(_amountController.text) ?? 0,
+      "amount": parseAmount(_amountController.text),
       "due_date": _dueDate.toIso8601String().substring(0, 10),
       "status": _status,
       "payment_date": _status == "pago" ? DateTime.now().toIso8601String().substring(0, 10) : null,
@@ -440,9 +466,16 @@ class _ExpenseFormDialogState extends State<_ExpenseFormDialog> {
                   isExpanded: true,
                   dropdownColor: const Color(0xFF1A1A1A),
                   style: const TextStyle(color: Colors.white),
-                  items: _expenseCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                  items: [
+                    ..._expenseCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))),
+                    const DropdownMenuItem(value: _customCategorySentinel, child: Text("+ Nova categoria")),
+                  ],
                   onChanged: (v) => setState(() => _category = v!),
                 ),
+                if (_category == _customCategorySentinel) ...[
+                  const SizedBox(height: 8),
+                  TextField(controller: _customCategoryController, autofocus: true, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Nome da categoria", labelStyle: TextStyle(color: Colors.white54))),
+                ],
                 const SizedBox(height: 8),
                 TextField(controller: _supplierController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Fornecedor", labelStyle: TextStyle(color: Colors.white54))),
                 const SizedBox(height: 8),

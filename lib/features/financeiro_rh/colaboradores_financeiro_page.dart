@@ -1,5 +1,6 @@
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
+import "money_utils.dart";
 
 class ColaboradoresFinanceiroPage extends StatefulWidget {
   const ColaboradoresFinanceiroPage({super.key});
@@ -63,8 +64,8 @@ class _ColaboradoresFinanceiroPageState extends State<ColaboradoresFinanceiroPag
     });
   }
 
-  void _openAddExternal() {
-    showDialog(context: context, builder: (context) => const _ExternalCollaboratorDialog(collaborator: null)).then((saved) {
+  void _openAddCollaborator() {
+    showDialog(context: context, builder: (context) => const _AddCollaboratorChoiceDialog()).then((saved) {
       if (saved == true) setState(() => _future = _load());
     });
   }
@@ -87,7 +88,7 @@ class _ColaboradoresFinanceiroPageState extends State<ColaboradoresFinanceiroPag
           ),
           const Spacer(),
           OutlinedButton.icon(
-            onPressed: _openAddExternal,
+            onPressed: _openAddCollaborator,
             icon: const Icon(Icons.person_add_alt, size: 16),
             label: const Text("Adicionar colaborador"),
           ),
@@ -175,6 +176,126 @@ class _ColaboradoresFinanceiroPageState extends State<ColaboradoresFinanceiroPag
   }
 }
 
+/// First step of "Adicionar colaborador": asks whether this person already
+/// has a system account (search + open their existing financial profile,
+/// avoiding a duplicate external cadastro) or is truly external (no login).
+class _AddCollaboratorChoiceDialog extends StatefulWidget {
+  const _AddCollaboratorChoiceDialog();
+
+  @override
+  State<_AddCollaboratorChoiceDialog> createState() => _AddCollaboratorChoiceDialogState();
+}
+
+class _AddCollaboratorChoiceDialogState extends State<_AddCollaboratorChoiceDialog> {
+  bool? _isSystemMember;
+  String _search = "";
+  late Future<List<Map<String, dynamic>>> _managersFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _managersFuture = _loadManagers();
+  }
+
+  Future<List<Map<String, dynamic>>> _loadManagers() async {
+    final client = Supabase.instance.client;
+    final rows = await client.from("managers").select("id, login_email, full_name, position_title").order("login_email");
+    return (rows as List).cast<Map<String, dynamic>>();
+  }
+
+  Future<void> _pickManager(Map<String, dynamic> manager) async {
+    await showDialog(context: context, builder: (context) => _CollaboratorFinanceDialog(collaborator: manager));
+    if (mounted) Navigator.of(context).pop(true);
+  }
+
+  Future<void> _goExternal() async {
+    final saved = await showDialog(context: context, builder: (context) => const _ExternalCollaboratorDialog(collaborator: null));
+    if (mounted) Navigator.of(context).pop(saved == true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF1A1A1A),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460, maxHeight: 600),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text("Adicionar colaborador", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              const Text("Essa pessoa ja tem cadastro/login no sistema, ou e externa (freelancer, terceirizado)?", style: TextStyle(color: Colors.white54, fontSize: 12)),
+              const SizedBox(height: 16),
+              Row(children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => setState(() => _isSystemMember = true),
+                    icon: const Icon(Icons.badge_outlined, size: 16),
+                    label: const Text("Ja faz parte da equipe"),
+                    style: OutlinedButton.styleFrom(foregroundColor: _isSystemMember == true ? Colors.amber : Colors.white70, side: BorderSide(color: _isSystemMember == true ? Colors.amber : Colors.white24)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _goExternal,
+                    icon: const Icon(Icons.person_outline, size: 16),
+                    label: const Text("E externo(a)"),
+                    style: OutlinedButton.styleFrom(foregroundColor: Colors.white70, side: const BorderSide(color: Colors.white24)),
+                  ),
+                ),
+              ]),
+              if (_isSystemMember == true) ...[
+                const SizedBox(height: 16),
+                TextField(
+                  autofocus: true,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(prefixIcon: Icon(Icons.search, color: Colors.white54), hintText: "Buscar por nome ou e-mail", hintStyle: TextStyle(color: Colors.white38), isDense: true),
+                  onChanged: (v) => setState(() => _search = v),
+                ),
+                const SizedBox(height: 8),
+                Flexible(
+                  child: FutureBuilder<List<Map<String, dynamic>>>(
+                    future: _managersFuture,
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) return const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator()));
+                      final list = snapshot.data!.where((m) {
+                        if (_search.isEmpty) return true;
+                        final name = ((m["full_name"] as String?) ?? (m["login_email"] as String? ?? "")).toLowerCase();
+                        final email = (m["login_email"] as String? ?? "").toLowerCase();
+                        return name.contains(_search.toLowerCase()) || email.contains(_search.toLowerCase());
+                      }).toList();
+                      if (list.isEmpty) return const Padding(padding: EdgeInsets.all(16), child: Text("Ninguem encontrado.", style: TextStyle(color: Colors.white54)));
+                      return ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: list.length,
+                        itemBuilder: (context, index) {
+                          final m = list[index];
+                          return ListTile(
+                            dense: true,
+                            title: Text((m["full_name"] as String?)?.isNotEmpty == true ? m["full_name"] as String : m["login_email"] as String, style: const TextStyle(color: Colors.white)),
+                            subtitle: Text((m["position_title"] as String? ?? m["login_email"] as String), style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                            onTap: () => _pickManager(m),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text("Cancelar"))),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _CollaboratorFinanceDialog extends StatefulWidget {
   final Map<String, dynamic> collaborator;
   const _CollaboratorFinanceDialog({required this.collaborator});
@@ -220,8 +341,8 @@ class _CollaboratorFinanceDialogState extends State<_CollaboratorFinanceDialog> 
       context: context,
       builder: (context) => _QuickPaymentDialog(
         managerId: widget.collaborator["id"] as String,
-        defaultSalary: double.tryParse(_salaryController.text),
-        defaultCostAssistance: double.tryParse(_costAssistanceController.text),
+        defaultSalary: parseAmountOrNull(_salaryController.text),
+        defaultCostAssistance: parseAmountOrNull(_costAssistanceController.text),
         paymentDay: _paymentDay,
       ),
     );
@@ -256,9 +377,9 @@ class _CollaboratorFinanceDialogState extends State<_CollaboratorFinanceDialog> 
     final userId = client.auth.currentUser!.id;
     await client.from("collaborator_financial_profile").upsert({
       "manager_id": widget.collaborator["id"],
-      "base_salary": double.tryParse(_salaryController.text),
-      "commission_rate": double.tryParse(_commissionController.text),
-      "cost_assistance": double.tryParse(_costAssistanceController.text),
+      "base_salary": parseAmountOrNull(_salaryController.text),
+      "commission_rate": parseAmountOrNull(_commissionController.text),
+      "cost_assistance": parseAmountOrNull(_costAssistanceController.text),
       "bank_account": _bankAccountController.text.trim(),
       "notes": _notesController.text.trim(),
       "payment_method": _paymentMethod,
@@ -453,8 +574,8 @@ class _BonusTierFormDialogState extends State<_BonusTierFormDialog> {
       "manager_id": widget.managerId,
       "goal_type": _goalType,
       "goal_category": _goalType == "personalizada" ? _categoryController.text.trim() : null,
-      "threshold_value": double.tryParse(_thresholdController.text) ?? 0,
-      "bonus_amount": double.tryParse(_amountController.text) ?? 0,
+      "threshold_value": parseAmount(_thresholdController.text),
+      "bonus_amount": parseAmount(_amountController.text),
       "created_by": userId,
     });
     if (mounted) Navigator.of(context).pop(true);
@@ -566,7 +687,7 @@ class _QuickPaymentDialogState extends State<_QuickPaymentDialog> {
       "manager_id": widget.managerId,
       "external_collaborator_id": widget.externalCollaboratorId,
       "description": _descriptionController.text.trim().isEmpty ? _typeLabels[_type] : _descriptionController.text.trim(),
-      "amount": double.tryParse(_amountController.text) ?? 0,
+      "amount": parseAmount(_amountController.text),
       "due_date": _dueDate.toIso8601String().substring(0, 10),
       "status": "pendente",
       "created_by": userId,
@@ -678,8 +799,8 @@ class _ExternalCollaboratorDialogState extends State<_ExternalCollaboratorDialog
       context: context,
       builder: (context) => _QuickPaymentDialog(
         externalCollaboratorId: widget.collaborator!["id"] as String,
-        defaultSalary: double.tryParse(_salaryController.text),
-        defaultCostAssistance: double.tryParse(_costAssistanceController.text),
+        defaultSalary: parseAmountOrNull(_salaryController.text),
+        defaultCostAssistance: parseAmountOrNull(_costAssistanceController.text),
         paymentDay: _paymentDay,
       ),
     );
@@ -698,9 +819,9 @@ class _ExternalCollaboratorDialogState extends State<_ExternalCollaboratorDialog
       "position_title": _positionController.text.trim(),
       "contract_type": _contractController.text.trim(),
       "employment_status": _status,
-      "base_salary": double.tryParse(_salaryController.text),
-      "commission_rate": double.tryParse(_commissionController.text),
-      "cost_assistance": double.tryParse(_costAssistanceController.text),
+      "base_salary": parseAmountOrNull(_salaryController.text),
+      "commission_rate": parseAmountOrNull(_commissionController.text),
+      "cost_assistance": parseAmountOrNull(_costAssistanceController.text),
       "payment_method": _paymentMethod,
       "payment_day": _paymentDay,
       "bank_account": _bankAccountController.text.trim(),
@@ -720,6 +841,42 @@ class _ExternalCollaboratorDialogState extends State<_ExternalCollaboratorDialog
     setState(() => _saving = true);
     final client = Supabase.instance.client;
     await client.from("external_collaborators").delete().eq("id", widget.collaborator!["id"]);
+    if (mounted) Navigator.of(context).pop(true);
+  }
+
+  /// Person went from freelancer/terceirizado to having a real login: link
+  /// this external cadastro to the chosen manager, copy the financial data
+  /// over to collaborator_financial_profile, reassign any financial_entries
+  /// already launched for them, then drop the now-redundant external row.
+  Future<void> _convertToSystem() async {
+    final manager = await showDialog<Map<String, dynamic>>(context: context, builder: (context) => const _PickManagerDialog());
+    if (manager == null) return;
+    setState(() => _saving = true);
+    final client = Supabase.instance.client;
+    final userId = client.auth.currentUser!.id;
+    final externalId = widget.collaborator!["id"] as String;
+    final managerId = manager["id"] as String;
+
+    await client.from("collaborator_financial_profile").upsert({
+      "manager_id": managerId,
+      "base_salary": parseAmountOrNull(_salaryController.text),
+      "commission_rate": parseAmountOrNull(_commissionController.text),
+      "cost_assistance": parseAmountOrNull(_costAssistanceController.text),
+      "bank_account": _bankAccountController.text.trim(),
+      "notes": _notesController.text.trim(),
+      "payment_method": _paymentMethod,
+      "payment_day": _paymentDay,
+      "updated_at": DateTime.now().toIso8601String(),
+      "updated_by": userId,
+    }, onConflict: "manager_id");
+
+    await client.from("financial_entries").update({
+      "manager_id": managerId,
+      "external_collaborator_id": null,
+    }).eq("external_collaborator_id", externalId);
+
+    await client.from("external_collaborators").delete().eq("id", externalId);
+
     if (mounted) Navigator.of(context).pop(true);
   }
 
@@ -800,11 +957,18 @@ class _ExternalCollaboratorDialogState extends State<_ExternalCollaboratorDialog
                 TextField(controller: _notesController, maxLines: 2, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Observacoes", labelStyle: TextStyle(color: Colors.white54))),
                 if (isEditing) ...[
                   const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    onPressed: _openQuickPayment,
-                    icon: const Icon(Icons.payments_outlined, size: 16),
-                    label: const Text("Lancar pagamento do mes"),
-                  ),
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    OutlinedButton.icon(
+                      onPressed: _openQuickPayment,
+                      icon: const Icon(Icons.payments_outlined, size: 16),
+                      label: const Text("Lancar pagamento do mes"),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _saving ? null : _convertToSystem,
+                      icon: const Icon(Icons.sync_alt, size: 16),
+                      label: const Text("Converter em colaborador do sistema"),
+                    ),
+                  ]),
                 ],
                 const SizedBox(height: 16),
                 Row(mainAxisAlignment: isEditing ? MainAxisAlignment.spaceBetween : MainAxisAlignment.end, children: [
@@ -825,6 +989,88 @@ class _ExternalCollaboratorDialogState extends State<_ExternalCollaboratorDialog
                 ]),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PickManagerDialog extends StatefulWidget {
+  const _PickManagerDialog();
+
+  @override
+  State<_PickManagerDialog> createState() => _PickManagerDialogState();
+}
+
+class _PickManagerDialogState extends State<_PickManagerDialog> {
+  String _search = "";
+  late Future<List<Map<String, dynamic>>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  Future<List<Map<String, dynamic>>> _load() async {
+    final client = Supabase.instance.client;
+    final rows = await client.from("managers").select("id, login_email, full_name, position_title").order("login_email");
+    return (rows as List).cast<Map<String, dynamic>>();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF1A1A1A),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420, maxHeight: 520),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text("Vincular a qual colaborador do sistema?", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              TextField(
+                autofocus: true,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(prefixIcon: Icon(Icons.search, color: Colors.white54), hintText: "Buscar por nome ou e-mail", hintStyle: TextStyle(color: Colors.white38), isDense: true),
+                onChanged: (v) => setState(() => _search = v),
+              ),
+              const SizedBox(height: 8),
+              Flexible(
+                child: FutureBuilder<List<Map<String, dynamic>>>(
+                  future: _future,
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) return const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator()));
+                    final list = snapshot.data!.where((m) {
+                      if (_search.isEmpty) return true;
+                      final name = ((m["full_name"] as String?) ?? (m["login_email"] as String? ?? "")).toLowerCase();
+                      final email = (m["login_email"] as String? ?? "").toLowerCase();
+                      return name.contains(_search.toLowerCase()) || email.contains(_search.toLowerCase());
+                    }).toList();
+                    if (list.isEmpty) return const Padding(padding: EdgeInsets.all(16), child: Text("Ninguem encontrado.", style: TextStyle(color: Colors.white54)));
+                    return ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: list.length,
+                      itemBuilder: (context, index) {
+                        final m = list[index];
+                        return ListTile(
+                          dense: true,
+                          title: Text((m["full_name"] as String?)?.isNotEmpty == true ? m["full_name"] as String : m["login_email"] as String, style: const TextStyle(color: Colors.white)),
+                          subtitle: Text((m["position_title"] as String? ?? m["login_email"] as String), style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                          onTap: () => Navigator.of(context).pop(m),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+              Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text("Cancelar"))),
+            ],
           ),
         ),
       ),

@@ -58,6 +58,7 @@ class _RecruiterShellState extends State<RecruiterShell> {
   String _selected = "Dashboard";
   bool _isCoordenadorOrAdmin = false;
   bool _loadingRole = true;
+  String? _loadError;
 
   void _select(String value) {
     setState(() => _selected = value);
@@ -75,11 +76,25 @@ class _RecruiterShellState extends State<RecruiterShell> {
   Future<void> _checkRole() async {
     final client = Supabase.instance.client;
     final userId = client.auth.currentUser!.id;
-    final manager = await client.from("managers").select("role").eq("id", userId).single();
-    setState(() {
-      _isCoordenadorOrAdmin = manager["role"] == "coordenador" || manager["role"] == "admin";
-      _loadingRole = false;
-    });
+    try {
+      final manager = await client.from("managers").select("role").eq("id", userId).maybeSingle();
+      if (manager == null) {
+        setState(() {
+          _loadError = "Sua conta ainda nao esta configurada no sistema (falta o cadastro na tabela de colaboradores). Fale com o administrador.";
+          _loadingRole = false;
+        });
+        return;
+      }
+      setState(() {
+        _isCoordenadorOrAdmin = manager["role"] == "coordenador" || manager["role"] == "admin";
+        _loadingRole = false;
+      });
+    } catch (e) {
+      setState(() {
+        _loadError = "Erro ao carregar sua conta: " + e.toString();
+        _loadingRole = false;
+      });
+    }
   }
 
   Widget _buildContent() {
@@ -129,6 +144,27 @@ class _RecruiterShellState extends State<RecruiterShell> {
   @override
   Widget build(BuildContext context) {
     if (_loadingRole) return const Scaffold(backgroundColor: Color(0xFF121212), body: Center(child: CircularProgressIndicator()));
+
+    if (_loadError != null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF121212),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
+                const SizedBox(height: 16),
+                Text(_loadError!, style: const TextStyle(color: Colors.white70), textAlign: TextAlign.center),
+                const SizedBox(height: 16),
+                TextButton(onPressed: () => Supabase.instance.client.auth.signOut(), child: const Text("Sair")),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       body: Row(

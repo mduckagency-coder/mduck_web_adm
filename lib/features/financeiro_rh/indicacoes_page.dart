@@ -1,5 +1,6 @@
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
+import "money_utils.dart";
 
 class IndicacoesPage extends StatefulWidget {
   const IndicacoesPage({super.key});
@@ -208,7 +209,7 @@ class _ReferralBonusDialogState extends State<_ReferralBonusDialog> {
       "description": "Bonus de indicacao - " + widget.leadName,
       "notes": pix.isEmpty ? null : "Chave PIX: " + pix,
       "related_lead_id": widget.leadId,
-      "amount": double.tryParse(_amountController.text) ?? 0,
+      "amount": parseAmount(_amountController.text),
       "due_date": DateTime.now().toIso8601String().substring(0, 10),
       "status": "pendente",
       "created_by": userId,

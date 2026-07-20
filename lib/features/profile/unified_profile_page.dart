@@ -254,7 +254,7 @@ class _UnifiedProfilePageState extends State<UnifiedProfilePage> {
       case "Historico":
         return _HistoricoTab(managerId: me["id"] as String);
       case "Financeiro":
-        return _FinanceiroTab(managerId: me["id"] as String);
+        return _FinanceiroTab(managerId: me["id"] as String, isSelf: _isSelf);
       case "Conta":
         return _ContaTab(manager: me);
       default:
@@ -463,7 +463,8 @@ class _HistoricoTabState extends State<_HistoricoTab> {
 
 class _FinanceiroTab extends StatefulWidget {
   final String managerId;
-  const _FinanceiroTab({required this.managerId});
+  final bool isSelf;
+  const _FinanceiroTab({required this.managerId, required this.isSelf});
 
   @override
   State<_FinanceiroTab> createState() => _FinanceiroTabState();
@@ -482,7 +483,24 @@ class _FinanceiroTabState extends State<_FinanceiroTab> {
     final client = Supabase.instance.client;
     final profile = await client.from("collaborator_financial_profile").select().eq("manager_id", widget.managerId).maybeSingle();
     final tiers = await client.from("collaborator_bonus_tiers").select().eq("manager_id", widget.managerId).order("order_index");
-    return {"profile": profile, "tiers": (tiers as List).cast<Map<String, dynamic>>()};
+    final pendingInvoices = await client
+        .from("financial_entries")
+        .select()
+        .eq("manager_id", widget.managerId)
+        .not("notified_at", "is", null)
+        .isFilter("invoice_confirmed_at", null)
+        .order("payment_date", ascending: false);
+    return {
+      "profile": profile,
+      "tiers": (tiers as List).cast<Map<String, dynamic>>(),
+      "pendingInvoices": (pendingInvoices as List).cast<Map<String, dynamic>>(),
+    };
+  }
+
+  Future<void> _confirmInvoiceSent(String entryId) async {
+    final client = Supabase.instance.client;
+    await client.from("financial_entries").update({"invoice_confirmed_at": DateTime.now().toIso8601String()}).eq("id", entryId);
+    setState(() => _future = _load());
   }
 
   @override
@@ -493,37 +511,72 @@ class _FinanceiroTabState extends State<_FinanceiroTab> {
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
         final profile = snapshot.data!["profile"] as Map<String, dynamic>?;
         final tiers = snapshot.data!["tiers"] as List<Map<String, dynamic>>;
-
-        if (profile == null) {
-          return const Text("Nenhum dado financeiro cadastrado ainda. Fale com o Financeiro/Dono.", style: TextStyle(color: Colors.white54));
-        }
+        final pendingInvoices = snapshot.data!["pendingInvoices"] as List<Map<String, dynamic>>;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(14)),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (profile["base_salary"] != null) Text("Salario: R\$ " + (profile["base_salary"] as num).toStringAsFixed(2), style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
-                  if (profile["commission_rate"] != null) Text("Comissao: " + (profile["commission_rate"] as num).toString() + "%", style: const TextStyle(color: Colors.white70)),
-                  if (profile["cost_assistance"] != null) Text("Ajuda de custo: R\$ " + (profile["cost_assistance"] as num).toStringAsFixed(2), style: const TextStyle(color: Colors.white70)),
-                  Text("Pagamento: " + (profile["payment_method"] as String? ?? "-") + " - todo dia " + (profile["payment_day"]?.toString() ?? "-"), style: const TextStyle(color: Colors.white70)),
-                ],
+            if (widget.isSelf && pendingInvoices.isNotEmpty) ...[
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(color: Colors.amber.withOpacity(0.08), borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.amber.withOpacity(0.4))),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text("Confirmar envio de nota fiscal", style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 14)),
+                    const Text("Envie a nota fiscal para mduckagency@gmail.com e confirme abaixo.", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                    const SizedBox(height: 12),
+                    ...pendingInvoices.map((e) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Row(children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text((e["description"] as String?) ?? "Pagamento", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                                  Text("R\$ " + (e["amount"] as num).toStringAsFixed(2) + (e["payment_date"] != null ? "  -  " + e["payment_date"] : ""), style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                                ],
+                              ),
+                            ),
+                            ElevatedButton(
+                              onPressed: () => _confirmInvoiceSent(e["id"] as String),
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black),
+                              child: const Text("Confirmar envio", style: TextStyle(fontSize: 12)),
+                            ),
+                          ]),
+                        )),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            const Text("Regras de Bonificacao", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-            const SizedBox(height: 8),
-            if (tiers.isEmpty)
-              const Text("Nenhuma faixa cadastrada.", style: TextStyle(color: Colors.white38, fontSize: 12))
-            else
-              ...tiers.map((t) => Text(
-                    (t["goal_type"] as String) + ": " + (t["threshold_value"] as num).toStringAsFixed(0) + " -> + R\$ " + (t["bonus_amount"] as num).toStringAsFixed(2),
-                    style: const TextStyle(color: Colors.amber, fontSize: 13),
-                  )),
+              const SizedBox(height: 16),
+            ],
+            if (profile == null)
+              const Text("Nenhum dado financeiro cadastrado ainda. Fale com o Financeiro/Dono.", style: TextStyle(color: Colors.white54))
+            else ...[
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(14)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (profile["base_salary"] != null) Text("Salario: R\$ " + (profile["base_salary"] as num).toStringAsFixed(2), style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
+                    if (profile["commission_rate"] != null) Text("Comissao: " + (profile["commission_rate"] as num).toString() + "%", style: const TextStyle(color: Colors.white70)),
+                    if (profile["cost_assistance"] != null) Text("Ajuda de custo: R\$ " + (profile["cost_assistance"] as num).toStringAsFixed(2), style: const TextStyle(color: Colors.white70)),
+                    Text("Pagamento: " + (profile["payment_method"] as String? ?? "-") + " - todo dia " + (profile["payment_day"]?.toString() ?? "-"), style: const TextStyle(color: Colors.white70)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text("Regras de Bonificacao", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+              const SizedBox(height: 8),
+              if (tiers.isEmpty)
+                const Text("Nenhuma faixa cadastrada.", style: TextStyle(color: Colors.white38, fontSize: 12))
+              else
+                ...tiers.map((t) => Text(
+                      (t["goal_type"] as String) + ": " + (t["threshold_value"] as num).toStringAsFixed(0) + " -> + R\$ " + (t["bonus_amount"] as num).toStringAsFixed(2),
+                      style: const TextStyle(color: Colors.amber, fontSize: 13),
+                    )),
+            ],
           ],
         );
       },

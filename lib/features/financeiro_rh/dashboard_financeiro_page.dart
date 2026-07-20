@@ -55,7 +55,10 @@ class _VisaoGeralFinanceiroPageState extends State<VisaoGeralFinanceiroPage> {
       return entries.where(test).fold(0.0, (sum, e) => sum + (e["amount"] as num).toDouble());
     }
 
-    final entradasMes = sumWhere((e) => e["entry_type"] == "receita" && isThisMonth(e, "payment_date"));
+    // "Previsto" = tudo com vencimento/previsao neste mes, pago ou nao -- mesma base
+    // usada para as saidas abaixo, senao uma despesa pendente derruba o lucro
+    // previsto sem uma receita pendente equivalente do outro lado.
+    final entradasMes = sumWhere((e) => e["entry_type"] == "receita" && isThisMonth(e, "due_date"));
     final folhaTypes = {"salario", "comissao", "ajuda_custo", "bonificacao", "premiacao", "indicacao"};
     final folhaMes = sumWhere((e) => folhaTypes.contains(e["entry_type"]) && isThisMonth(e, "due_date"));
     final despesasFixasMes = sumWhere((e) => e["entry_type"] == "despesa" && e["is_recurring"] == true && isThisMonth(e, "due_date"));
@@ -82,9 +85,8 @@ class _VisaoGeralFinanceiroPageState extends State<VisaoGeralFinanceiroPage> {
       monthly[key] = {"entradas": 0, "saidas": 0};
     }
     for (final e in entries) {
-      final dateField = e["entry_type"] == "receita" ? "payment_date" : "due_date";
-      if (e[dateField] == null) continue;
-      final d = DateTime.parse(e[dateField]);
+      if (e["due_date"] == null) continue;
+      final d = DateTime.parse(e["due_date"]);
       final key = d.month.toString().padLeft(2, "0") + "/" + d.year.toString();
       if (!monthly.containsKey(key)) continue;
       if (e["entry_type"] == "receita") {
@@ -216,6 +218,11 @@ class _VisaoGeralFinanceiroPageState extends State<VisaoGeralFinanceiroPage> {
                 _card("Pagamentos Pendentes", d["pagamentosPendentes"].toString() + " (" + _fmt(d["pagamentosPendentesValor"]) + ")", Colors.amber, Icons.hourglass_bottom),
                 _card("Pagamentos Vencidos", d["pagamentosVencidos"].toString() + " (" + _fmt(d["pagamentosVencidosValor"]) + ")", Colors.redAccent, Icons.warning_amber),
               ]),
+              const SizedBox(height: 6),
+              const Text(
+                "Saldo Atual = so o que ja foi pago/recebido. Entradas, Saidas e Lucro Previsto do mes somam tudo com vencimento no mes, pago ou pendente -- e por isso uma conta a pagar pendente entra no calculo.",
+                style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic),
+              ),
               const SizedBox(height: 8),
               TextButton.icon(
                 onPressed: () => setState(() => _showDespesaDetail = !_showDespesaDetail),

@@ -1,5 +1,6 @@
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
+import "money_utils.dart";
 
 const _entryIcons = {
   "receita": Icons.attach_money,
@@ -23,7 +24,8 @@ const _entryLabels = {
   "indicacao": "Indicacao",
 };
 
-const _expenseCategories = ["Aluguel", "Internet", "Energia", "Contabilidade", "Ferramentas", "Marketing", "Publicidade", "Equipamentos", "Viagens", "Impostos", "Outras despesas"];
+const _expenseCategories = ["Equipe / Colaborador", "Aluguel", "Internet", "Energia", "Contabilidade", "Ferramentas", "Marketing", "Publicidade", "Equipamentos", "Viagens", "Impostos", "Outras despesas"];
+const _customCategorySentinel = "__custom__";
 
 bool _isEntrada(Map<String, dynamic> e) => e["entry_type"] == "receita";
 
@@ -218,6 +220,7 @@ class _EntryFormDialogState extends State<_EntryFormDialog> {
   final _descriptionController = TextEditingController();
   final _amountController = TextEditingController();
   final _notesController = TextEditingController();
+  final _customCategoryController = TextEditingController();
   String _direction = "entrada";
   String _category = _expenseCategories.first;
   DateTime _dueDate = DateTime.now();
@@ -238,7 +241,13 @@ class _EntryFormDialogState extends State<_EntryFormDialog> {
       _notesController.text = (e["notes"] as String?) ?? "";
       _dueDate = e["due_date"] != null ? DateTime.parse(e["due_date"]) : DateTime.now();
       _status = (e["status"] as String?) ?? "pendente";
-      _category = (e["category"] as String?) ?? _category;
+      final existingCategory = e["category"] as String?;
+      if (existingCategory != null && !_expenseCategories.contains(existingCategory)) {
+        _category = _customCategorySentinel;
+        _customCategoryController.text = existingCategory;
+      } else {
+        _category = existingCategory ?? _category;
+      }
       _isRecurring = e["is_recurring"] as bool? ?? false;
       _recurrenceDay = (e["recurrence_day"] as int?) ?? 5;
     }
@@ -255,10 +264,10 @@ class _EntryFormDialogState extends State<_EntryFormDialog> {
     final data = {
       "agency_id": manager["agency_id"],
       "entry_type": isEntrada ? "receita" : "despesa",
-      "category": isEntrada ? null : _category,
+      "category": isEntrada ? null : (_category == _customCategorySentinel ? _customCategoryController.text.trim() : _category),
       "supplier": _sourceController.text.trim(),
       "description": _descriptionController.text.trim(),
-      "amount": double.tryParse(_amountController.text) ?? 0,
+      "amount": parseAmount(_amountController.text),
       "due_date": _dueDate.toIso8601String().substring(0, 10),
       "payment_date": _status == "pago" ? DateTime.now().toIso8601String().substring(0, 10) : null,
       "status": _status,
@@ -328,9 +337,16 @@ class _EntryFormDialogState extends State<_EntryFormDialog> {
                     isExpanded: true,
                     dropdownColor: const Color(0xFF1A1A1A),
                     style: const TextStyle(color: Colors.white),
-                    items: _expenseCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                    items: [
+                      ..._expenseCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))),
+                      const DropdownMenuItem(value: _customCategorySentinel, child: Text("+ Nova categoria")),
+                    ],
                     onChanged: (v) => setState(() => _category = v!),
                   ),
+                  if (_category == _customCategorySentinel) ...[
+                    const SizedBox(height: 8),
+                    TextField(controller: _customCategoryController, autofocus: true, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Nome da categoria", labelStyle: TextStyle(color: Colors.white54))),
+                  ],
                   const SizedBox(height: 8),
                 ],
                 TextField(controller: _sourceController, style: const TextStyle(color: Colors.white), decoration: InputDecoration(labelText: isEntrada ? "Origem / Cliente" : "Fornecedor", labelStyle: const TextStyle(color: Colors.white54))),
