@@ -1,6 +1,8 @@
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "money_utils.dart";
+import "collaborator_picker.dart";
+import "financial_notifications.dart";
 
 const _entryIcons = {
   "receita": Icons.attach_money,
@@ -97,48 +99,53 @@ class _EntradasSaidasPageState extends State<EntradasSaidasPage> {
               Text("R\$ " + total.toStringAsFixed(2), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 14)),
             ]),
             const Divider(color: Colors.white12),
-            if (items.isEmpty)
-              Padding(padding: const EdgeInsets.symmetric(vertical: 16), child: Text("Nenhum lancamento.", style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12)))
-            else
-              ...items.map((e) {
-                final isLate = e["status"] == "pendente" && e["due_date"] != null && DateTime.parse(e["due_date"]).isBefore(DateTime.now());
-                final statusColor = e["status"] == "pago" ? Colors.greenAccent : e["status"] == "cancelado" ? Colors.white38 : isLate ? Colors.redAccent : Colors.amber;
-                final personLabel = _personLabel(e);
-                return InkWell(
-                  onTap: () => _openForm(existing: e),
-                  borderRadius: BorderRadius.circular(8),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    child: Row(children: [
-                      Icon(_entryIcons[e["entry_type"]] ?? Icons.receipt_long, color: color, size: 18),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text((e["description"] as String? ?? e["category"] as String? ?? _entryLabels[e["entry_type"]] ?? "-"), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
-                            Text(
-                              (_entryLabels[e["entry_type"]] ?? "-") + (personLabel.isNotEmpty ? "  -  " + personLabel : "") + "  -  " + (e["due_date"] as String? ?? "-"),
-                              style: const TextStyle(color: Colors.white54, fontSize: 10),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text("R\$ " + (e["amount"] as num).toStringAsFixed(2), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-                          Text((isLate ? "ATRASADO" : (e["status"] as String).toUpperCase()), style: TextStyle(color: statusColor, fontSize: 9, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                      if (isEntrada && e["status"] != "pago" && e["status"] != "cancelado")
-                        IconButton(icon: const Icon(Icons.check_circle_outline, size: 16), color: Colors.greenAccent, tooltip: "Marcar recebido", onPressed: () => _markReceived(e["id"] as String)),
-                    ]),
-                  ),
-                );
-              }),
+            Expanded(
+              child: items.isEmpty
+                  ? Padding(padding: const EdgeInsets.symmetric(vertical: 16), child: Text("Nenhum lancamento.", style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12)))
+                  : ListView.builder(
+                      itemCount: items.length,
+                      itemBuilder: (context, index) {
+                        final e = items[index];
+                        final isLate = e["status"] == "pendente" && e["due_date"] != null && DateTime.parse(e["due_date"]).isBefore(DateTime.now());
+                        final statusColor = e["status"] == "pago" ? Colors.greenAccent : e["status"] == "cancelado" ? Colors.white38 : isLate ? Colors.redAccent : Colors.amber;
+                        final personLabel = _personLabel(e);
+                        return InkWell(
+                          onTap: () => _openForm(existing: e),
+                          borderRadius: BorderRadius.circular(8),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            child: Row(children: [
+                              Icon(_entryIcons[e["entry_type"]] ?? Icons.receipt_long, color: color, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text((e["description"] as String? ?? e["category"] as String? ?? _entryLabels[e["entry_type"]] ?? "-"), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    Text(
+                                      (_entryLabels[e["entry_type"]] ?? "-") + (personLabel.isNotEmpty ? "  -  " + personLabel : "") + "  -  " + (e["due_date"] as String? ?? "-"),
+                                      style: const TextStyle(color: Colors.white54, fontSize: 10),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text("R\$ " + (e["amount"] as num).toStringAsFixed(2), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                                  Text((isLate ? "ATRASADO" : (e["status"] as String).toUpperCase()), style: TextStyle(color: statusColor, fontSize: 9, fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                              if (isEntrada && e["status"] != "pago" && e["status"] != "cancelado")
+                                IconButton(icon: const Icon(Icons.check_circle_outline, size: 16), color: Colors.greenAccent, tooltip: "Marcar recebido", onPressed: () => _markReceived(e["id"] as String)),
+                            ]),
+                          ),
+                        );
+                      },
+                    ),
+            ),
           ],
         ),
       ),
@@ -225,9 +232,11 @@ class _EntryFormDialogState extends State<_EntryFormDialog> {
   String _category = _expenseCategories.first;
   DateTime _dueDate = DateTime.now();
   String _status = "pendente";
+  String _initialStatus = "pendente";
   bool _isRecurring = false;
   int _recurrenceDay = 5;
   bool _saving = false;
+  CollaboratorRef? _linkedCollaborator;
 
   @override
   void initState() {
@@ -241,6 +250,7 @@ class _EntryFormDialogState extends State<_EntryFormDialog> {
       _notesController.text = (e["notes"] as String?) ?? "";
       _dueDate = e["due_date"] != null ? DateTime.parse(e["due_date"]) : DateTime.now();
       _status = (e["status"] as String?) ?? "pendente";
+      _initialStatus = _status;
       final existingCategory = e["category"] as String?;
       if (existingCategory != null && !_expenseCategories.contains(existingCategory)) {
         _category = _customCategorySentinel;
@@ -250,7 +260,19 @@ class _EntryFormDialogState extends State<_EntryFormDialog> {
       }
       _isRecurring = e["is_recurring"] as bool? ?? false;
       _recurrenceDay = (e["recurrence_day"] as int?) ?? 5;
+      final managerData = e["managers"];
+      final externalData = e["external_collaborators"];
+      if (e["manager_id"] != null && managerData is Map) {
+        _linkedCollaborator = CollaboratorRef(managerId: e["manager_id"] as String, label: managerData["login_email"] as String? ?? "Colaborador");
+      } else if (e["external_collaborator_id"] != null && externalData is Map) {
+        _linkedCollaborator = CollaboratorRef(externalCollaboratorId: e["external_collaborator_id"] as String, label: (externalData["full_name"] as String? ?? "Colaborador") + " (externo)");
+      }
     }
+  }
+
+  Future<void> _pickCollaborator() async {
+    final ref = await pickCollaborator(context);
+    if (ref != null) setState(() => _linkedCollaborator = ref);
   }
 
   Future<void> _save() async {
@@ -275,13 +297,30 @@ class _EntryFormDialogState extends State<_EntryFormDialog> {
       "recurrence_day": (!isEntrada && _isRecurring) ? _recurrenceDay : null,
       "notes": _notesController.text.trim(),
       "created_by": userId,
+      "manager_id": isEntrada ? null : _linkedCollaborator?.managerId,
+      "external_collaborator_id": isEntrada ? null : _linkedCollaborator?.externalCollaboratorId,
     };
 
+    String entryId;
     if (widget.existing != null) {
-      await client.from("financial_entries").update(data).eq("id", widget.existing!["id"]);
+      entryId = widget.existing!["id"] as String;
+      await client.from("financial_entries").update(data).eq("id", entryId);
     } else {
-      await client.from("financial_entries").insert(data);
+      final inserted = await client.from("financial_entries").insert(data).select("id").single();
+      entryId = inserted["id"] as String;
     }
+
+    if (!isEntrada && _status == "pago" && _initialStatus != "pago" && _linkedCollaborator?.managerId != null) {
+      final linkedManager = await client.from("managers").select("contract_type").eq("id", _linkedCollaborator!.managerId!).maybeSingle();
+      await maybeNotifyPayment(
+        entryId: entryId,
+        managerId: _linkedCollaborator!.managerId,
+        contractType: linkedManager?["contract_type"] as String?,
+        description: _descriptionController.text.trim().isEmpty ? "Pagamento" : _descriptionController.text.trim(),
+        amount: parseAmount(_amountController.text),
+      );
+    }
+
     if (mounted) Navigator.of(context).pop(true);
   }
 
@@ -346,6 +385,16 @@ class _EntryFormDialogState extends State<_EntryFormDialog> {
                   if (_category == _customCategorySentinel) ...[
                     const SizedBox(height: 8),
                     TextField(controller: _customCategoryController, autofocus: true, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Nome da categoria", labelStyle: TextStyle(color: Colors.white54))),
+                  ],
+                  if (_category == "Equipe / Colaborador") ...[
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: _pickCollaborator,
+                      icon: const Icon(Icons.person_search, size: 16),
+                      label: Text(_linkedCollaborator?.label ?? "Selecionar colaborador"),
+                    ),
+                    if (_linkedCollaborator != null)
+                      Align(alignment: Alignment.centerLeft, child: TextButton(onPressed: () => setState(() => _linkedCollaborator = null), child: const Text("Remover vinculo", style: TextStyle(fontSize: 12)))),
                   ],
                   const SizedBox(height: 8),
                 ],

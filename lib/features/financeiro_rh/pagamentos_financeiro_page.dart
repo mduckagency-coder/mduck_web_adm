@@ -5,6 +5,7 @@ import "payroll_generation.dart";
 import "relatorio_export.dart";
 import "money_utils.dart";
 import "financial_notifications.dart";
+import "collaborator_picker.dart";
 
 const _expenseCategories = ["Equipe / Colaborador", "Aluguel", "Internet", "Energia", "Contabilidade", "Ferramentas", "Marketing", "Publicidade", "Equipamentos", "Viagens", "Impostos", "Outras despesas"];
 const _customCategorySentinel = "__custom__";
@@ -110,20 +111,14 @@ class _PagamentosFinanceiroPageState extends State<PagamentosFinanceiroPage> {
     final id = entry["id"] as String;
     await client.from("financial_entries").update({"status": "pago", "payment_date": DateTime.now().toIso8601String().substring(0, 10)}).eq("id", id);
 
-    final managerId = entry["manager_id"] as String?;
-    final entryType = entry["entry_type"] as String?;
-    if (managerId != null && payrollEntryTypes.contains(entryType)) {
-      final managerData = entry["managers"];
-      final contractType = managerData is Map ? managerData["contract_type"] as String? : null;
-      if (isPjContract(contractType)) {
-        await notifyPaymentSent(
-          managerId: managerId,
-          description: (entry["description"] as String?)?.isNotEmpty == true ? entry["description"] as String : (_typeLabels[entryType] ?? "Pagamento"),
-          amount: entry["amount"] as num,
-        );
-        await client.from("financial_entries").update({"notified_at": DateTime.now().toIso8601String()}).eq("id", id);
-      }
-    }
+    final managerData = entry["managers"];
+    await maybeNotifyPayment(
+      entryId: id,
+      managerId: entry["manager_id"] as String?,
+      contractType: managerData is Map ? managerData["contract_type"] as String? : null,
+      description: (entry["description"] as String?)?.isNotEmpty == true ? entry["description"] as String : (_typeLabels[entry["entry_type"]] ?? "Pagamento"),
+      amount: entry["amount"] as num,
+    );
     setState(() => _future = _load());
   }
 
@@ -353,11 +348,13 @@ class _ExpenseFormDialogState extends State<_ExpenseFormDialog> {
   final _notesController = TextEditingController();
   DateTime _dueDate = DateTime.now();
   String _status = "pendente";
+  String _initialStatus = "pendente";
   bool _isRecurring = false;
   int _recurrenceDay = 5;
   String? _receiptUrl;
   bool _uploading = false;
   bool _saving = false;
+  CollaboratorRef? _linkedCollaborator;
 
   @override
   void initState() {
@@ -377,10 +374,23 @@ class _ExpenseFormDialogState extends State<_ExpenseFormDialog> {
       _notesController.text = e["notes"] ?? "";
       _dueDate = e["due_date"] != null ? DateTime.parse(e["due_date"]) : DateTime.now();
       _status = e["status"] ?? "pendente";
+      _initialStatus = _status;
       _isRecurring = e["is_recurring"] ?? false;
       _recurrenceDay = e["recurrence_day"] ?? 5;
       _receiptUrl = e["receipt_url"];
+      final managerData = e["managers"];
+      final externalData = e["external_collaborators"];
+      if (e["manager_id"] != null && managerData is Map) {
+        _linkedCollaborator = CollaboratorRef(managerId: e["manager_id"] as String, label: managerData["login_email"] as String? ?? "Colaborador");
+      } else if (e["external_collaborator_id"] != null && externalData is Map) {
+        _linkedCollaborator = CollaboratorRef(externalCollaboratorId: e["external_collaborator_id"] as String, label: (externalData["full_name"] as String? ?? "Colaborador") + " (externo)");
+      }
     }
+  }
+
+  Future<void> _pickCollaborator() async {
+    final ref = await pickCollaborator(context);
+    if (ref != null) setState(() => _linkedCollaborator = ref);
   }
 
   Future<void> _uploadReceipt() async {
@@ -428,12 +438,28 @@ class _ExpenseFormDialogState extends State<_ExpenseFormDialog> {
       "receipt_url": _receiptUrl,
       "notes": _notesController.text.trim(),
       "created_by": userId,
+      "manager_id": _linkedCollaborator?.managerId,
+      "external_collaborator_id": _linkedCollaborator?.externalCollaboratorId,
     };
 
+    String entryId;
     if (widget.existing != null) {
-      await client.from("financial_entries").update(data).eq("id", widget.existing!["id"]);
+      entryId = widget.existing!["id"] as String;
+      await client.from("financial_entries").update(data).eq("id", entryId);
     } else {
-      await client.from("financial_entries").insert(data);
+      final inserted = await client.from("financial_entries").insert(data).select("id").single();
+      entryId = inserted["id"] as String;
+    }
+
+    if (_status == "pago" && _initialStatus != "pago" && _linkedCollaborator?.managerId != null) {
+      final linkedManager = await client.from("managers").select("contract_type").eq("id", _linkedCollaborator!.managerId!).maybeSingle();
+      await maybeNotifyPayment(
+        entryId: entryId,
+        managerId: _linkedCollaborator!.managerId,
+        contractType: linkedManager?["contract_type"] as String?,
+        description: _descriptionController.text.trim().isEmpty ? "Pagamento" : _descriptionController.text.trim(),
+        amount: parseAmount(_amountController.text),
+      );
     }
 
     if (mounted) Navigator.of(context).pop(true);
@@ -475,6 +501,16 @@ class _ExpenseFormDialogState extends State<_ExpenseFormDialog> {
                 if (_category == _customCategorySentinel) ...[
                   const SizedBox(height: 8),
                   TextField(controller: _customCategoryController, autofocus: true, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Nome da categoria", labelStyle: TextStyle(color: Colors.white54))),
+                ],
+                if (_category == "Equipe / Colaborador") ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: _pickCollaborator,
+                    icon: const Icon(Icons.person_search, size: 16),
+                    label: Text(_linkedCollaborator?.label ?? "Selecionar colaborador"),
+                  ),
+                  if (_linkedCollaborator != null)
+                    Align(alignment: Alignment.centerLeft, child: TextButton(onPressed: () => setState(() => _linkedCollaborator = null), child: const Text("Remover vinculo", style: TextStyle(fontSize: 12)))),
                 ],
                 const SizedBox(height: 8),
                 TextField(controller: _supplierController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Fornecedor", labelStyle: TextStyle(color: Colors.white54))),

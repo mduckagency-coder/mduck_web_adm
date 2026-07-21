@@ -9,6 +9,9 @@ class DashboardPage extends StatefulWidget {
   State<DashboardPage> createState() => _DashboardPageState();
 }
 
+String _periodKey(DateTime d) => d.year.toString() + "-" + d.month.toString().padLeft(2, "0");
+const streamers80kThreshold = 80000;
+
 class _DashboardPageState extends State<DashboardPage> {
   late Future<Map<String, dynamic>> _future;
 
@@ -20,6 +23,22 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Future<Map<String, dynamic>> _load() async {
     final client = Supabase.instance.client;
+    final userId = client.auth.currentUser!.id;
+    final me = await client.from("managers").select("agency_id, financial_role").eq("id", userId).maybeSingle();
+    final agencyId = me?["agency_id"] as String?;
+    final isDono = me?["financial_role"] == "dono";
+    final now = DateTime.now();
+    final periodKey = _periodKey(now);
+    Map<String, dynamic>? goals;
+    if (agencyId != null) {
+      try {
+        goals = await client.from("agency_goals").select().eq("agency_id", agencyId).eq("period_key", periodKey).maybeSingle();
+      } catch (_) {
+        // Table not migrated yet on this environment -- fall back to no goals
+        // set instead of breaking the whole dashboard for everyone.
+        goals = null;
+      }
+    }
 
     final profiles = await client
         .from("profiles")
@@ -38,7 +57,6 @@ class _DashboardPageState extends State<DashboardPage> {
       cumulativeDaysMap[sid] = (cumulativeDaysMap[sid] ?? 0) + ((m["days_live"] as int?) ?? 0);
     }
 
-    final now = DateTime.now();
     int totalDiamondsAtual = 0;
     double totalHorasAtual = 0;
     int totalDiamondsPassado = 0;
@@ -89,7 +107,20 @@ class _DashboardPageState extends State<DashboardPage> {
       return ((atual - passado) / passado) * 100;
     }
 
+    final streamersComLive = streamers.where((s) => (s["days"] as int) > 0).length;
+    final liveOpenPct = streamers.isEmpty ? 0.0 : (streamersComLive / streamers.length) * 100;
+    final streamers80k = streamers.where((s) => (s["diamonds"] as int) >= streamers80kThreshold).length;
+
     return {
+      "isDono": isDono,
+      "agencyId": agencyId,
+      "periodKey": periodKey,
+      "diamondsGoal": (goals?["diamonds_goal"] as num?)?.toDouble(),
+      "recruitmentGoal": goals?["recruitment_goal"] as int?,
+      "liveOpenPctGoal": (goals?["live_open_pct_goal"] as num?)?.toDouble(),
+      "streamers80kGoal": goals?["streamers_80k_goal"] as int?,
+      "liveOpenPct": liveOpenPct,
+      "streamers80k": streamers80k,
       "totalDiamondsAtual": totalDiamondsAtual,
       "totalDiamondsPassado": totalDiamondsPassado,
       "diamondsChange": pctChange(totalDiamondsAtual, totalDiamondsPassado),
@@ -103,6 +134,45 @@ class _DashboardPageState extends State<DashboardPage> {
       "topDiasAcumulado": topDiasAcumulado.take(10).toList(),
       "totalStreamers": streamers.length,
     };
+  }
+
+  void _openEditGoals(Map<String, dynamic> d) {
+    showDialog(
+      context: context,
+      builder: (context) => _EditGoalsDialog(
+        agencyId: d["agencyId"] as String,
+        periodKey: d["periodKey"] as String,
+        diamondsGoal: d["diamondsGoal"] as double?,
+        recruitmentGoal: d["recruitmentGoal"] as int?,
+        liveOpenPctGoal: d["liveOpenPctGoal"] as double?,
+        streamers80kGoal: d["streamers80kGoal"] as int?,
+      ),
+    ).then((saved) {
+      if (saved == true) setState(() => _future = _load());
+    });
+  }
+
+  Widget _goalCard(String label, IconData icon, Color color, double atual, double? meta, String Function(double) fmt) {
+    final hasGoal = meta != null && meta > 0;
+    final fraction = hasGoal ? (atual / meta).clamp(0.0, 1.0) : 0.0;
+    return Container(
+      width: 240,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(14), border: Border.all(color: color.withOpacity(0.4))),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [Icon(icon, color: color, size: 18), const SizedBox(width: 6), Expanded(child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)))]),
+          const SizedBox(height: 10),
+          Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
+            Text(fmt(atual), style: TextStyle(color: color, fontSize: 22, fontWeight: FontWeight.bold)),
+            Text(" / " + (hasGoal ? fmt(meta) : "sem meta"), style: const TextStyle(color: Colors.white38, fontSize: 13)),
+          ]),
+          const SizedBox(height: 8),
+          ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(value: hasGoal ? fraction : 0, minHeight: 6, backgroundColor: Colors.white12, valueColor: AlwaysStoppedAnimation(color))),
+        ],
+      ),
+    );
   }
 
   Widget _metricCard(IconData icon, String label, String value, Color color, {String? change}) {
@@ -247,6 +317,7 @@ class _DashboardPageState extends State<DashboardPage> {
             child: FutureBuilder<Map<String, dynamic>>(
               future: _future,
               builder: (context, snapshot) {
+                if (snapshot.hasError) return Center(child: Text("Erro ao carregar: " + snapshot.error.toString(), style: const TextStyle(color: Colors.redAccent)));
                 if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
                 final d = snapshot.data!;
                 String pctText(double v) => (v >= 0 ? "+" : "") + v.toStringAsFixed(0) + "%";
@@ -255,6 +326,20 @@ class _DashboardPageState extends State<DashboardPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Row(children: [
+                        const Text("Metas do Mes", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                        const Spacer(),
+                        if (d["isDono"] == true)
+                          TextButton.icon(onPressed: () => _openEditGoals(d), icon: const Icon(Icons.edit, size: 16), label: const Text("Editar metas")),
+                      ]),
+                      const SizedBox(height: 12),
+                      Wrap(spacing: 16, runSpacing: 16, children: [
+                        _goalCard("Diamantes", Icons.diamond, const Color(0xFF7A0BD4), (d["totalDiamondsAtual"] as int).toDouble(), d["diamondsGoal"] as double?, (v) => v.toStringAsFixed(0)),
+                        _goalCard("Recrutamento", Icons.person_add, Colors.blueAccent, (d["novosAgenciados"] as int).toDouble(), (d["recruitmentGoal"] as int?)?.toDouble(), (v) => v.toStringAsFixed(0)),
+                        _goalCard("Abertura de live", Icons.live_tv, Colors.orangeAccent, d["liveOpenPct"] as double, d["liveOpenPctGoal"] as double?, (v) => v.toStringAsFixed(0) + "%"),
+                        _goalCard("Streamers acima de " + streamers80kThreshold.toString(), Icons.diamond_outlined, Colors.greenAccent, (d["streamers80k"] as int).toDouble(), (d["streamers80kGoal"] as int?)?.toDouble(), (v) => v.toStringAsFixed(0)),
+                      ]),
+                      const SizedBox(height: 28),
                       Wrap(spacing: 16, runSpacing: 16, children: [
                         _metricCard(Icons.diamond, "Diamantes (mes atual)", d["totalDiamondsAtual"].toString(), const Color(0xFF7A0BD4), change: pctText(d["diamondsChange"])),
                         _metricCard(Icons.access_time, "Horas de live (mes atual)", (d["totalHorasAtual"] as double).toStringAsFixed(0), Colors.orangeAccent, change: pctText(d["horasChange"])),
@@ -282,6 +367,104 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _EditGoalsDialog extends StatefulWidget {
+  final String agencyId;
+  final String periodKey;
+  final double? diamondsGoal;
+  final int? recruitmentGoal;
+  final double? liveOpenPctGoal;
+  final int? streamers80kGoal;
+  const _EditGoalsDialog({
+    required this.agencyId,
+    required this.periodKey,
+    this.diamondsGoal,
+    this.recruitmentGoal,
+    this.liveOpenPctGoal,
+    this.streamers80kGoal,
+  });
+
+  @override
+  State<_EditGoalsDialog> createState() => _EditGoalsDialogState();
+}
+
+class _EditGoalsDialogState extends State<_EditGoalsDialog> {
+  late final _diamondsController = TextEditingController(text: widget.diamondsGoal?.toStringAsFixed(0) ?? "");
+  late final _recruitmentController = TextEditingController(text: widget.recruitmentGoal?.toString() ?? "");
+  late final _liveOpenPctController = TextEditingController(text: widget.liveOpenPctGoal?.toStringAsFixed(0) ?? "");
+  late final _streamers80kController = TextEditingController(text: widget.streamers80kGoal?.toString() ?? "");
+  bool _saving = false;
+  String? _error;
+
+  Future<void> _save() async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final client = Supabase.instance.client;
+      final userId = client.auth.currentUser!.id;
+      await client.from("agency_goals").upsert({
+        "agency_id": widget.agencyId,
+        "period_key": widget.periodKey,
+        "diamonds_goal": double.tryParse(_diamondsController.text.trim()),
+        "recruitment_goal": int.tryParse(_recruitmentController.text.trim()),
+        "live_open_pct_goal": double.tryParse(_liveOpenPctController.text.trim()),
+        "streamers_80k_goal": int.tryParse(_streamers80kController.text.trim()),
+        "updated_at": DateTime.now().toIso8601String(),
+        "updated_by": userId,
+      }, onConflict: "agency_id,period_key");
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      setState(() {
+        _saving = false;
+        _error = e.toString();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF1A1A1A),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text("Editar metas do mes", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              TextField(controller: _diamondsController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Meta de diamantes", labelStyle: TextStyle(color: Colors.white54))),
+              const SizedBox(height: 8),
+              TextField(controller: _recruitmentController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Meta de recrutamento (novos agenciados)", labelStyle: TextStyle(color: Colors.white54))),
+              const SizedBox(height: 8),
+              TextField(controller: _liveOpenPctController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Meta de abertura de live (%)", labelStyle: TextStyle(color: Colors.white54))),
+              const SizedBox(height: 8),
+              TextField(controller: _streamers80kController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: InputDecoration(labelText: "Meta de streamers acima de " + streamers80kThreshold.toString(), labelStyle: const TextStyle(color: Colors.white54))),
+              if (_error != null) ...[
+                const SizedBox(height: 8),
+                Text("Erro ao salvar: " + _error!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+              ],
+              const SizedBox(height: 16),
+              Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text("Cancelar")),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: _saving ? null : _save,
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black),
+                  child: Text(_saving ? "Salvando..." : "Salvar"),
+                ),
+              ]),
+            ],
+          ),
+        ),
       ),
     );
   }
