@@ -3,6 +3,7 @@ import "package:supabase_flutter/supabase_flutter.dart";
 import "dart:html" as html;
 import "../shell/admin_shell.dart";
 import "../recruiter/recruiter_shell.dart";
+import "../gestor/gestor_shell.dart";
 
 class AreaChoicePage extends StatelessWidget {
   const AreaChoicePage({super.key});
@@ -31,7 +32,7 @@ class AreaChoicePage extends StatelessWidget {
               alignment: WrapAlignment.center,
               children: [
                 _AreaCard(icon: Icons.dashboard, title: "Home Central", subtitle: "Gestao geral da agencia", onTap: () => _goTo(context, "admin", const AdminShell())),
-                _AreaCard(icon: Icons.groups, title: "Area do Gestor", subtitle: "Em construcao", onTap: () => _goTo(context, "gestor", const _StubAreaPage(title: "Area do Gestor"))),
+                _AreaCard(icon: Icons.groups, title: "Area do Gestor", subtitle: "Calendario e agenda pessoal", onTap: () => _goTo(context, "gestor", const GestorShell())),
                 _AreaCard(icon: Icons.person_search, title: "Area do Recrutador", subtitle: "Dashboard e leads", onTap: () => _goTo(context, "recruiter", const RecruiterShell())),
               ],
             ),
@@ -76,20 +77,6 @@ class _AreaCard extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _StubAreaPage extends StatelessWidget {
-  final String title;
-  const _StubAreaPage({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF121212),
-      appBar: AppBar(backgroundColor: Colors.black, title: Text(title)),
-      body: const Center(child: Text("Em construcao", style: TextStyle(color: Colors.white54, fontSize: 18))),
     );
   }
 }

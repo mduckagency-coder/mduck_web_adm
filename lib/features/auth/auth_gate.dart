@@ -6,6 +6,7 @@ import "login_page.dart";
 import "../area_choice/area_choice_page.dart";
 import "../shell/admin_shell.dart";
 import "../recruiter/recruiter_shell.dart";
+import "../gestor/gestor_shell.dart";
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -21,6 +22,7 @@ class AuthGate extends StatelessWidget {
           final area = html.window.localStorage["mduck_area"];
           if (area == "admin") return const AdminShell();
           if (area == "recruiter") return const RecruiterShell();
+          if (area == "gestor") return const GestorShell();
           return const AreaChoicePage();
         }
         return const AdminLoginPage();

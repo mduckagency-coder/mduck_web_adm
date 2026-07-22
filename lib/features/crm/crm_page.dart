@@ -2,7 +2,13 @@ import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 
 class CrmPage extends StatefulWidget {
-  const CrmPage({super.key});
+  /// Quando informado, restringe a lista aos streamers ligados a esse
+  /// colaborador — como gestor responsavel (assigned_manager_id) OU como
+  /// agente/recrutador responsavel (recruited_by_manager_id). Sem isso,
+  /// mostra todos os streamers da agencia (uso do Home Central /
+  /// Coordenacao Geral).
+  final String? managerId;
+  const CrmPage({super.key, this.managerId});
 
   @override
   State<CrmPage> createState() => _CrmPageState();
@@ -20,7 +26,11 @@ class _CrmPageState extends State<CrmPage> {
 
   Future<List<Map<String, dynamic>>> _load() async {
     final client = Supabase.instance.client;
-    final rows = await client.from("profiles").select("id, display_name, tiktok_creator_id, joined_at, is_active, recruited_by").order("display_name");
+    dynamic query = client.from("profiles").select("id, display_name, tiktok_creator_id, joined_at, is_active, recruited_by");
+    if (widget.managerId != null) {
+      query = query.or("assigned_manager_id.eq." + widget.managerId! + ",recruited_by_manager_id.eq." + widget.managerId!);
+    }
+    final rows = await query.order("display_name");
     return (rows as List).cast<Map<String, dynamic>>();
   }
 
@@ -121,6 +131,30 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
     _future = _load();
   }
 
+  static const _actionLabels = {
+    "criacao": "Lead criado",
+    "mudanca_etapa": "Mudanca de etapa",
+    "transferencia": "Transferencia entre recrutadores",
+    "transferencia_gestor": "Transferencia para o gestor",
+    "observacao": "Observacao",
+    "informacoes_atualizadas": "Informacoes atualizadas",
+    "onboarding_convite_enviado": "Convite enviado",
+    "onboarding_convite_aceito": "Convite aceito",
+    "onboarding_entrou_agencia": "Entrou para a agencia",
+    "onboarding_grupo_individual_criado": "Grupo individual criado",
+    "onboarding_material_boas_vindas": "Materiais de boas-vindas enviados",
+    "onboarding_apresentacao_gestores": "Apresentacao dos gestores",
+    "onboarding_concluido": "Onboarding concluido",
+  };
+
+  static const _phaseActionLabels = {
+    "entrada_onboarding": "Entrou no Onboarding 0-15 Dias",
+    "mudanca_etapa": "Mudanca de etapa (Onboarding 0-15)",
+    "checklist_item": "Item de checklist concluido",
+    "observacao": "Observacao (Onboarding 0-15)",
+    "onboarding_concluido": "Onboarding 0-15 Dias concluido",
+  };
+
   Future<Map<String, dynamic>> _load() async {
     final client = Supabase.instance.client;
 
@@ -152,6 +186,43 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
         .eq("streamer_id", widget.streamerId)
         .order("created_at", ascending: false);
 
+    final assignmentHistory = await client
+        .from("manager_assignment_history")
+        .select("manager_id, assigned_at, managers(login_email)")
+        .eq("streamer_id", widget.streamerId)
+        .order("assigned_at");
+
+    final phaseHistory = await client
+        .from("streamer_phase_history")
+        .select()
+        .eq("streamer_id", widget.streamerId)
+        .order("created_at");
+
+    final lead = await client.from("leads").select("id, created_at, converted_at, recruiter_id").eq("converted_streamer_id", widget.streamerId).maybeSingle();
+
+    List<Map<String, dynamic>> leadHistory = [];
+    Map<String, dynamic>? handoff;
+    String? creatorEmail;
+    String? currentRecruiterEmail;
+    if (lead != null) {
+      final leadId = lead["id"] as String;
+      final histRows = await client.from("lead_history").select().eq("lead_id", leadId).order("created_at");
+      leadHistory = (histRows as List).cast<Map<String, dynamic>>();
+
+      handoff = await client.from("lead_recruitment_handoff").select().eq("lead_id", leadId).maybeSingle();
+
+      final managerIds = <String>{
+        lead["recruiter_id"] as String,
+        ...leadHistory.map((h) => h["performed_by"] as String?).whereType<String>(),
+      };
+      final managerRows = await client.from("managers").select("id, login_email").inFilter("id", managerIds.toList());
+      final managerMap = {for (final m in (managerRows as List)) m["id"] as String: m["login_email"] as String};
+
+      currentRecruiterEmail = managerMap[lead["recruiter_id"]];
+      final creationEntry = leadHistory.where((h) => h["action"] == "criacao").firstOrNull;
+      creatorEmail = creationEntry != null ? managerMap[creationEntry["performed_by"]] : null;
+    }
+
     final timeline = <Map<String, dynamic>>[];
 
     for (final r in (campaignRewards as List)) {
@@ -178,10 +249,40 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
         "text": "[" + (n["context"] as String) + "] " + (n["manager_label"] ?? "Gestor") + ": " + (n["message_sent"] as String? ?? ""),
       });
     }
+    for (final a in (assignmentHistory as List)) {
+      final m = a["managers"];
+      timeline.add({
+        "date": a["assigned_at"],
+        "type": "gestor",
+        "text": "Gestor definido: " + (m is Map ? m["login_email"] as String? ?? "-" : "-"),
+      });
+    }
+    for (final h in (phaseHistory as List)) {
+      timeline.add({
+        "date": h["created_at"],
+        "type": "onboarding",
+        "text": (_phaseActionLabels[h["action"]] ?? h["action"] as String) + ((h["detail"] as String?)?.isNotEmpty == true ? ": " + (h["detail"] as String) : ""),
+      });
+    }
+    for (final h in leadHistory) {
+      timeline.add({
+        "date": h["created_at"],
+        "type": "recrutamento",
+        "text": (_actionLabels[h["action"]] ?? h["action"] as String) + ((h["detail"] as String?)?.isNotEmpty == true ? ": " + (h["detail"] as String) : ""),
+      });
+    }
 
     timeline.sort((a, b) => (b["date"] as String).compareTo(a["date"] as String));
 
-    return {"profile": profile, "timeline": timeline};
+    return {
+      "profile": profile,
+      "timeline": timeline,
+      "lead": lead,
+      "leadHistory": leadHistory,
+      "handoff": handoff,
+      "creatorEmail": creatorEmail,
+      "currentRecruiterEmail": currentRecruiterEmail,
+    };
   }
 
   Future<void> _saveRecruitedBy() async {
@@ -271,12 +372,231 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
     });
   }
 
+  Widget _infoRow(String label, String value) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          children: [
+            SizedBox(width: 140, child: Text(label, style: const TextStyle(color: Colors.white54))),
+            Expanded(child: Text(value, style: const TextStyle(color: Colors.white))),
+          ],
+        ),
+      );
+
+  Widget _buildPerfilTab(Map<String, dynamic> p) {
+    final groupData = p["groups"];
+    final catData = p["streamer_categories"];
+    final active = p["is_active"] as bool? ?? true;
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 12),
+          _infoRow("ID TikTok", (p["tiktok_creator_id"] as String?) ?? "-"),
+          _infoRow("Nick TikTok", (p["tiktok_username"] as String?) ?? "-"),
+          _infoRow("Entrada na agencia", DateTime.parse(p["joined_at"] as String).toLocal().toString().substring(0, 10)),
+          _infoRow("Categoria", catData is Map ? catData["name"] as String? ?? "-" : "-"),
+          _infoRow("Grupo (interno)", groupData is Map ? groupData["name"] as String? ?? "Sem grupo" : "Sem grupo"),
+          _infoRow("Grupo (TikTok)", (p["tiktok_group_name"] as String?)?.isNotEmpty == true ? p["tiktok_group_name"] as String : "-"),
+          if (!active) _infoRow("Encerrado em", p["left_at"] != null ? DateTime.parse(p["left_at"] as String).toLocal().toString().substring(0, 16) : "-"),
+          if (!active && (p["left_reason"] as String?)?.isNotEmpty == true) _infoRow("Motivo", p["left_reason"] as String),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _phoneController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(labelText: "Telefone / WhatsApp", labelStyle: TextStyle(color: Colors.white54)),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _emailController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(labelText: "E-mail", labelStyle: TextStyle(color: Colors.white54)),
+                ),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: _savingContact ? null : _saveContact,
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
+                child: Text(_savingContact ? "..." : "Salvar"),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _recruitedByController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(labelText: "Recrutado por (legado)", labelStyle: TextStyle(color: Colors.white54)),
+                ),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: _savingRecruited ? null : _saveRecruitedBy,
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
+                child: Text(_savingRecruited ? "..." : "Salvar"),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecrutamentoTab(Map<String, dynamic> data) {
+    final lead = data["lead"] as Map<String, dynamic>?;
+    if (lead == null) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 24),
+        child: Center(
+          child: Text("Este streamer nao esta vinculado a um lead de recrutamento (cadastro antigo ou manual).", style: TextStyle(color: Colors.white54), textAlign: TextAlign.center),
+        ),
+      );
+    }
+    final handoff = data["handoff"] as Map<String, dynamic>?;
+    final leadHistory = data["leadHistory"] as List<Map<String, dynamic>>;
+    final creatorEmail = data["creatorEmail"] as String?;
+    final currentRecruiterEmail = data["currentRecruiterEmail"] as String?;
+    final etapaEvents = leadHistory.where((h) => h["action"] == "mudanca_etapa" || h["action"] == "transferencia").toList();
+    final observations = leadHistory.where((h) => h["action"] == "observacao").toList();
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 12),
+          _infoRow("Encontrado por", creatorEmail ?? "-"),
+          _infoRow("Recrutador responsavel", currentRecruiterEmail ?? "-"),
+          _infoRow("Lead criado em", DateTime.parse(lead["created_at"] as String).toLocal().toString().substring(0, 16)),
+          if (lead["converted_at"] != null) _infoRow("Agenciado em", DateTime.parse(lead["converted_at"] as String).toLocal().toString().substring(0, 16)),
+          const SizedBox(height: 16),
+          const Text("Resumo da transferencia para o gestor", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          if (handoff == null)
+            const Text("Ainda nao preenchido.", style: TextStyle(color: Colors.white38, fontSize: 12))
+          else ...[
+            _infoRow("Nicho", (handoff["niche"] as String?)?.isNotEmpty == true ? handoff["niche"] as String : "-"),
+            _infoRow("Categoria", (handoff["category"] as String?)?.isNotEmpty == true ? handoff["category"] as String : "-"),
+            _infoRow("Dias disponiveis", (handoff["available_days"] as String?)?.isNotEmpty == true ? handoff["available_days"] as String : "-"),
+            _infoRow("Horarios disponiveis", (handoff["available_hours"] as String?)?.isNotEmpty == true ? handoff["available_hours"] as String : "-"),
+            _infoRow("Experiencia anterior", (handoff["previous_experience"] as String?)?.isNotEmpty == true ? handoff["previous_experience"] as String : "-"),
+            _infoRow("Objetivos", (handoff["objectives"] as String?)?.isNotEmpty == true ? handoff["objectives"] as String : "-"),
+            _infoRow("Pontos de atencao", (handoff["attention_points"] as String?)?.isNotEmpty == true ? handoff["attention_points"] as String : "-"),
+            if ((handoff["recruitment_summary"] as String?)?.isNotEmpty == true) ...[
+              const SizedBox(height: 6),
+              const Text("Resumo do recrutamento", style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
+              Text(handoff["recruitment_summary"] as String, style: const TextStyle(color: Colors.white, fontSize: 13)),
+            ],
+            if ((handoff["notes"] as String?)?.isNotEmpty == true) ...[
+              const SizedBox(height: 6),
+              const Text("Observacoes para o gestor", style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
+              Text(handoff["notes"] as String, style: const TextStyle(color: Colors.white, fontSize: 13)),
+            ],
+          ],
+          const SizedBox(height: 16),
+          const Text("Mudancas de etapa e transferencias entre recrutadores", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          if (etapaEvents.isEmpty)
+            const Text("Nenhum registro.", style: TextStyle(color: Colors.white38, fontSize: 12))
+          else
+            ...etapaEvents.map((h) {
+              final date = DateTime.parse(h["created_at"] as String).toLocal().toString().substring(0, 16);
+              return Padding(padding: const EdgeInsets.only(bottom: 4), child: Text("- (" + date + ") " + (h["detail"] as String? ?? ""), style: const TextStyle(color: Colors.white70, fontSize: 12)));
+            }),
+          const SizedBox(height: 16),
+          const Text("Observacoes adicionadas", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          if (observations.isEmpty)
+            const Text("Nenhuma observacao.", style: TextStyle(color: Colors.white38, fontSize: 12))
+          else
+            ...observations.map((h) {
+              final date = DateTime.parse(h["created_at"] as String).toLocal().toString().substring(0, 16);
+              return Padding(padding: const EdgeInsets.only(bottom: 4), child: Text("- (" + date + ") " + (h["detail"] as String? ?? ""), style: const TextStyle(color: Colors.white70, fontSize: 12)));
+            }),
+          const SizedBox(height: 8),
+          const Text("Estas informacoes sao historicas e nao mudam apos a entrada na agencia.", style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimelineTab(List<Map<String, dynamic>> timeline) {
+    return Column(
+      children: [
+        Expanded(
+          child: timeline.isEmpty
+              ? const Center(child: Text("Nenhum registro ainda.", style: TextStyle(color: Colors.white54)))
+              : ListView.builder(
+                  itemCount: timeline.length,
+                  itemBuilder: (context, index) {
+                    final t = timeline[index];
+                    final color = t["type"] == "premio"
+                        ? Colors.amber
+                        : t["type"] == "missao"
+                            ? Colors.greenAccent
+                            : t["type"] == "gestor"
+                                ? Colors.tealAccent
+                                : t["type"] == "recrutamento"
+                                    ? const Color(0xFF7A0BD4)
+                                    : t["type"] == "onboarding"
+                                        ? Colors.lightBlueAccent
+                                        : Colors.white70;
+                    final date = DateTime.parse(t["date"] as String).toLocal().toString().substring(0, 16);
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.circle, size: 8, color: color),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(date, style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                                Text(t["text"] as String, style: TextStyle(color: color, fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _noteController,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(labelText: "Nota geral do CRM", labelStyle: TextStyle(color: Colors.white54)),
+              ),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton(
+              onPressed: _savingNote ? null : _saveNote,
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFB026FF), foregroundColor: Colors.white),
+              child: Text(_savingNote ? "..." : "Salvar"),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: const Color(0xFF1A1A1A),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 560, maxHeight: 800),
+        constraints: const BoxConstraints(maxWidth: 560, maxHeight: 800, minHeight: 800),
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: FutureBuilder<Map<String, dynamic>>(
@@ -287,25 +607,14 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
               }
               if (!snapshot.hasData) return const SizedBox(height: 300, child: Center(child: CircularProgressIndicator()));
 
-              final p = snapshot.data!["profile"] as Map<String, dynamic>;
-              final timeline = snapshot.data!["timeline"] as List<Map<String, dynamic>>;
-              final groupData = p["groups"];
-              final catData = p["streamer_categories"];
+              final data = snapshot.data!;
+              final p = data["profile"] as Map<String, dynamic>;
+              final timeline = data["timeline"] as List<Map<String, dynamic>>;
               final active = p["is_active"] as bool? ?? true;
 
-              Widget row(String label, String value) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 3),
-                    child: Row(
-                      children: [
-                        SizedBox(width: 140, child: Text(label, style: const TextStyle(color: Colors.white54))),
-                        Expanded(child: Text(value, style: const TextStyle(color: Colors.white))),
-                      ],
-                    ),
-                  );
-
-              return SingleChildScrollView(
+              return DefaultTabController(
+                length: 3,
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
@@ -333,113 +642,25 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    row("ID TikTok", (p["tiktok_creator_id"] as String?) ?? "-"),
-                    row("Nick TikTok", (p["tiktok_username"] as String?) ?? "-"),
-                    row("Entrada na agencia", DateTime.parse(p["joined_at"] as String).toLocal().toString().substring(0, 10)),
-                    row("Categoria", catData is Map ? catData["name"] as String? ?? "-" : "-"),
-                    row("Grupo (interno)", groupData is Map ? groupData["name"] as String? ?? "Sem grupo" : "Sem grupo"),
-                    row("Grupo (TikTok)", (p["tiktok_group_name"] as String?)?.isNotEmpty == true ? p["tiktok_group_name"] as String : "-"),
-                    if (!active) row("Encerrado em", p["left_at"] != null ? DateTime.parse(p["left_at"] as String).toLocal().toString().substring(0, 16) : "-"),
-                    if (!active && (p["left_reason"] as String?)?.isNotEmpty == true) row("Motivo", p["left_reason"] as String),
                     const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _phoneController,
-                            style: const TextStyle(color: Colors.white),
-                            decoration: const InputDecoration(labelText: "Telefone / WhatsApp", labelStyle: TextStyle(color: Colors.white54)),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: TextField(
-                            controller: _emailController,
-                            style: const TextStyle(color: Colors.white),
-                            decoration: const InputDecoration(labelText: "E-mail", labelStyle: TextStyle(color: Colors.white54)),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        ElevatedButton(
-                          onPressed: _savingContact ? null : _saveContact,
-                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
-                          child: Text(_savingContact ? "..." : "Salvar"),
-                        ),
+                    const TabBar(
+                      labelColor: Colors.white,
+                      unselectedLabelColor: Colors.white54,
+                      indicatorColor: Color(0xFF7A0BD4),
+                      tabs: [
+                        Tab(text: "Perfil"),
+                        Tab(text: "Recrutamento"),
+                        Tab(text: "Timeline"),
                       ],
                     ),
+                    Expanded(
+                      child: TabBarView(children: [
+                        _buildPerfilTab(p),
+                        _buildRecrutamentoTab(data),
+                        _buildTimelineTab(timeline),
+                      ]),
+                    ),
                     const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _recruitedByController,
-                            style: const TextStyle(color: Colors.white),
-                            decoration: const InputDecoration(labelText: "Recrutado por", labelStyle: TextStyle(color: Colors.white54)),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        ElevatedButton(
-                          onPressed: _savingRecruited ? null : _saveRecruitedBy,
-                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
-                          child: Text(_savingRecruited ? "..." : "Salvar"),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    const Text("Historico completo (premios, missoes e notas)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      height: 220,
-                      child: timeline.isEmpty
-                          ? const Center(child: Text("Nenhum registro ainda.", style: TextStyle(color: Colors.white54)))
-                          : ListView.builder(
-                              itemCount: timeline.length,
-                              itemBuilder: (context, index) {
-                                final t = timeline[index];
-                                final color = t["type"] == "premio" ? Colors.amber : t["type"] == "missao" ? Colors.greenAccent : Colors.white70;
-                                final date = DateTime.parse(t["date"] as String).toLocal().toString().substring(0, 16);
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 4),
-                                  child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Icon(Icons.circle, size: 8, color: color),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(date, style: const TextStyle(color: Colors.white38, fontSize: 11)),
-                                            Text(t["text"] as String, style: TextStyle(color: color, fontSize: 13)),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _noteController,
-                            style: const TextStyle(color: Colors.white),
-                            decoration: const InputDecoration(labelText: "Nota geral do CRM", labelStyle: TextStyle(color: Colors.white54)),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        ElevatedButton(
-                          onPressed: _savingNote ? null : _saveNote,
-                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFB026FF), foregroundColor: Colors.white),
-                          child: Text(_savingNote ? "..." : "Salvar"),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
                     Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text("Fechar"))),
                   ],
                 ),

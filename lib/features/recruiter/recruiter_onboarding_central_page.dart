@@ -1,5 +1,7 @@
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
+import "lead_handoff_dialog.dart";
+import "../gestor/onboarding_phase_service.dart";
 
 const onboardingSteps = [
   ("convite_enviado", "Convite enviado", Icons.send),
@@ -263,6 +265,28 @@ class _RecruiterOnboardingCentralPageState extends State<RecruiterOnboardingCent
         fieldKey + "_by": wasDone ? null : userId,
         "updated_at": DateTime.now().toIso8601String(),
       }).eq("lead_id", item["id"]);
+      if (!wasDone) {
+        final label = onboardingSteps.firstWhere((s) => s.$1 == fieldKey, orElse: () => (fieldKey, fieldKey, Icons.check)).$2;
+        await client.from("lead_history").insert({
+          "lead_id": item["id"],
+          "action": "onboarding_" + fieldKey,
+          "detail": label,
+          "performed_by": userId,
+        });
+
+        if (fieldKey == "concluido") {
+          final streamerId = item["converted_streamer_id"] as String?;
+          if (streamerId != null) {
+            try {
+              await createOnboardingPhaseCardIfNeeded(streamerId: streamerId);
+            } catch (_) {}
+          } else if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Vincule o streamer oficial (\"Vincular Streamer\") para iniciar o Onboarding 0-15 Dias na Gestao.")),
+            );
+          }
+        }
+      }
     } catch (e) {
       setState(() {
         checklist[fieldKey] = wasDone;
@@ -277,6 +301,15 @@ class _RecruiterOnboardingCentralPageState extends State<RecruiterOnboardingCent
 
   void _openVincularStreamer(Map<String, dynamic> item) {
     showDialog(context: context, builder: (context) => _VincularStreamerDialog(leadId: item["id"] as String)).then((_) => _load());
+  }
+
+  void _openHandoff(Map<String, dynamic> item) {
+    showDialog(
+      context: context,
+      builder: (context) => LeadHandoffDialog(leadId: item["id"] as String, leadName: item["name"] as String, initialCategory: item["category_interest"] as String?),
+    ).then((confirmed) {
+      if (confirmed == true) _load();
+    });
   }
 
   Widget _compactMetric(String key, IconData icon, String label, String value, Color color, String tooltip) {
@@ -402,11 +435,16 @@ class _RecruiterOnboardingCentralPageState extends State<RecruiterOnboardingCent
                 final index = entry.key;
                 final step = entry.value;
                 final isGestorStep = step.$1 == "gestor";
+                final isConviteEnviadoStep = step.$1 == "convite_enviado";
                 final stepDone = isGestorStep ? gestores.isNotEmpty : checklist[step.$1] == true;
                 return Row(children: [
                   if (index > 0) const Padding(padding: EdgeInsets.symmetric(horizontal: 4), child: Icon(Icons.arrow_forward, color: Colors.white24, size: 14)),
                   InkWell(
-                    onTap: () => isGestorStep ? _openGestorSelector(item) : _toggleStep(item, step.$1),
+                    onTap: () => isGestorStep
+                        ? _openGestorSelector(item)
+                        : (isConviteEnviadoStep && !stepDone)
+                            ? _openHandoff(item)
+                            : _toggleStep(item, step.$1),
                     borderRadius: BorderRadius.circular(20),
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 150),
@@ -616,6 +654,7 @@ class _GestorPickerDialog extends StatefulWidget {
 
 class _GestorPickerDialogState extends State<_GestorPickerDialog> {
   List<Map<String, dynamic>> _gestores = [];
+  final Set<String> _selected = {};
   String _search = "";
   bool _saving = false;
 
@@ -627,24 +666,40 @@ class _GestorPickerDialogState extends State<_GestorPickerDialog> {
 
   Future<void> _load() async {
     final client = Supabase.instance.client;
-    final rows = await client.from("managers").select("id, login_email, photo_url, department").eq("role", "gestor");
+    final rows = await client.from("managers").select("id, login_email, photo_url, department");
     final gestoresList = (rows as List).cast<Map<String, dynamic>>();
     for (final g in gestoresList) {
       final count = await client.from("profiles").select("id").eq("assigned_manager_id", g["id"]).eq("is_active", true);
       g["activeCount"] = (count as List).length;
     }
-    setState(() => _gestores = gestoresList);
+    final current = await client.from("lead_onboarding_gestores").select("manager_id").eq("lead_id", widget.leadId);
+    setState(() {
+      _gestores = gestoresList;
+      _selected.addAll((current as List).map((c) => c["manager_id"] as String));
+    });
   }
 
-  Future<void> _select(String managerId) async {
+  Future<void> _save() async {
     setState(() => _saving = true);
     final client = Supabase.instance.client;
-    await client.from("lead_onboarding_gestores").delete().eq("lead_id", widget.leadId);
-    await client.from("lead_onboarding_gestores").insert({"lead_id": widget.leadId, "manager_id": managerId});
-    await client.from("manager_notifications").insert({
-      "manager_id": managerId,
-      "message": "Voce foi selecionado como gestor de: " + widget.leadName,
-    });
+    final existing = await client.from("lead_onboarding_gestores").select("manager_id").eq("lead_id", widget.leadId);
+    final existingIds = (existing as List).map((e) => e["manager_id"] as String).toSet();
+
+    final toAdd = _selected.difference(existingIds);
+    final toRemove = existingIds.difference(_selected);
+
+    for (final id in toAdd) {
+      await client.from("lead_onboarding_gestores").insert({"lead_id": widget.leadId, "manager_id": id});
+      await client.from("manager_notifications").insert({
+        "manager_id": id,
+        "message": "Voce foi selecionado como gestor de: " + widget.leadName,
+      });
+      await propagateManagerToProfile(leadId: widget.leadId, managerId: id);
+    }
+    for (final id in toRemove) {
+      await client.from("lead_onboarding_gestores").delete().eq("lead_id", widget.leadId).eq("manager_id", id);
+    }
+
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -661,8 +716,10 @@ class _GestorPickerDialogState extends State<_GestorPickerDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text("Selecionar gestor para " + widget.leadName, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
+              Text("Selecionar gestor(es) para " + widget.leadName, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              const Text("Pode selecionar mais de um colaborador.", style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic)),
+              const SizedBox(height: 8),
               TextField(
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(prefixIcon: Icon(Icons.search, color: Colors.white54), hintText: "Pesquisar gestor", hintStyle: TextStyle(color: Colors.white38), isDense: true),
@@ -676,10 +733,16 @@ class _GestorPickerDialogState extends State<_GestorPickerDialog> {
                         itemCount: filtered.length,
                         itemBuilder: (context, index) {
                           final g = filtered[index];
-                          return ListTile(
+                          final id = g["id"] as String;
+                          return CheckboxListTile(
                             enabled: !_saving,
-                            onTap: () => _select(g["id"] as String),
-                            leading: CircleAvatar(
+                            value: _selected.contains(id),
+                            onChanged: (v) => setState(() {
+                              if (v == true) { _selected.add(id); } else { _selected.remove(id); }
+                            }),
+                            controlAffinity: ListTileControlAffinity.leading,
+                            activeColor: const Color(0xFF7A0BD4),
+                            secondary: CircleAvatar(
                               radius: 18,
                               backgroundColor: Colors.white24,
                               backgroundImage: g["photo_url"] != null ? NetworkImage(g["photo_url"] as String) : null,
@@ -695,7 +758,15 @@ class _GestorPickerDialogState extends State<_GestorPickerDialog> {
                       ),
               ),
               const SizedBox(height: 8),
-              Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text("Cancelar"))),
+              Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text("Cancelar")),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: _saving ? null : _save,
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
+                  child: Text(_saving ? "Salvando..." : "Salvar"),
+                ),
+              ]),
             ],
           ),
         ),
@@ -748,6 +819,20 @@ class _VincularStreamerDialogState extends State<_VincularStreamerDialog> {
     setState(() => _saving = true);
     final client = Supabase.instance.client;
     await client.from("leads").update({"converted_streamer_id": _selectedId}).eq("id", widget.leadId);
+
+    final gestores = await client.from("lead_onboarding_gestores").select("manager_id").eq("lead_id", widget.leadId);
+    final currentGestor = (gestores as List).isNotEmpty ? (gestores.first["manager_id"] as String) : null;
+    if (currentGestor != null) {
+      await propagateManagerToProfile(leadId: widget.leadId, managerId: currentGestor);
+    }
+
+    final checklist = await client.from("lead_onboarding_checklist").select("concluido").eq("lead_id", widget.leadId).maybeSingle();
+    if (checklist?["concluido"] == true) {
+      try {
+        await createOnboardingPhaseCardIfNeeded(streamerId: _selectedId!);
+      } catch (_) {}
+    }
+
     if (mounted) Navigator.of(context).pop(true);
   }
 

@@ -64,7 +64,10 @@ class _UnifiedProfilePageState extends State<UnifiedProfilePage> {
     final file = result.files.first;
     final client = Supabase.instance.client;
     final userId = client.auth.currentUser!.id;
-    final path = userId + "_" + DateTime.now().millisecondsSinceEpoch.toString() + "_" + file.name;
+    final dotIndex = file.name.lastIndexOf(".");
+    final rawExt = dotIndex != -1 ? file.name.substring(dotIndex + 1) : "";
+    final ext = RegExp(r"^[a-zA-Z0-9]{1,5}$").hasMatch(rawExt) ? rawExt.toLowerCase() : "jpg";
+    final path = userId + "_" + DateTime.now().millisecondsSinceEpoch.toString() + "." + ext;
     try {
       await client.storage.from("avatars").uploadBinary(path, file.bytes!);
       final url = client.storage.from("avatars").getPublicUrl(path);

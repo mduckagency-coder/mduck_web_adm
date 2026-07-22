@@ -26,14 +26,11 @@ class _RecruiterHistoricoPageState extends State<RecruiterHistoricoPage> {
     final leadIds = (leads as List).map((l) => l["id"] as String).toList();
     final leadNames = {for (final l in leads) l["id"] as String: l["name"] as String};
 
-    for (final l in leads) {
-      events.add({"date": l["created_at"], "text": "Lead cadastrado: " + (l["name"] as String)});
-    }
-
     if (leadIds.isNotEmpty) {
       final leadHist = await client.from("lead_history").select().inFilter("lead_id", leadIds).order("created_at", ascending: false);
       for (final h in (leadHist as List)) {
-        events.add({"date": h["created_at"], "text": "[" + (h["action"] as String) + "] " + ((h["detail"] as String?) ?? "")});
+        final leadName = leadNames[h["lead_id"]] ?? "-";
+        events.add({"date": h["created_at"], "text": "(" + leadName + ") [" + (h["action"] as String) + "] " + ((h["detail"] as String?) ?? "")});
       }
     }
 

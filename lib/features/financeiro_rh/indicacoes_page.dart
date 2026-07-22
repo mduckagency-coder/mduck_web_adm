@@ -283,7 +283,7 @@ class _AddReferralDialogState extends State<_AddReferralDialog> {
     var initialStage = await client.from("lead_kanban_stages").select("stage_key").eq("agency_id", agencyId).eq("is_initial", true).eq("is_active", true).maybeSingle();
     initialStage ??= await client.from("lead_kanban_stages").select("stage_key").eq("agency_id", agencyId).eq("is_active", true).order("order_index").limit(1).maybeSingle();
 
-    await client.from("leads").insert({
+    final inserted = await client.from("leads").insert({
       "agency_id": agencyId,
       "recruiter_id": userId,
       "name": _nameController.text.trim(),
@@ -293,6 +293,13 @@ class _AddReferralDialogState extends State<_AddReferralDialog> {
       "origin_detail": _indicatedByController.text.trim(),
       "pix_key": _pixController.text.trim(),
       "status": initialStage != null ? initialStage["stage_key"] : "novo",
+    }).select("id").single();
+
+    await client.from("lead_history").insert({
+      "lead_id": inserted["id"],
+      "action": "criacao",
+      "detail": "Lead cadastrado",
+      "performed_by": userId,
     });
 
     if (mounted) Navigator.of(context).pop(true);

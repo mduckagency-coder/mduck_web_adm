@@ -606,7 +606,7 @@ class _TransferDialogState extends State<TransferDialog> {
 
   Future<void> _loadManagers() async {
     final client = Supabase.instance.client;
-    final rows = await client.from("managers").select("id, login_email").eq("role", "gestor");
+    final rows = await client.from("managers").select("id, login_email");
     setState(() => _managers = (rows as List).cast<Map<String, dynamic>>());
   }
 

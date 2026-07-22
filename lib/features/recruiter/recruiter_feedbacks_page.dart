@@ -221,12 +221,7 @@ class _NovoChamadoDialogState extends State<_NovoChamadoDialog> {
     final client = Supabase.instance.client;
     final userId = client.auth.currentUser!.id;
     final rows = await client.from("managers").select("id, login_email, role, financial_role").neq("id", userId);
-    final list = (rows as List).cast<Map<String, dynamic>>().where((m) {
-      final role = m["role"] as String?;
-      final financialRole = m["financial_role"] as String?;
-      return role == "gestor" || role == "coordenador" || role == "admin" || financialRole == "dono";
-    }).toList();
-    setState(() => _recipients = list);
+    setState(() => _recipients = (rows as List).cast<Map<String, dynamic>>());
   }
 
   String? _errorMessage;

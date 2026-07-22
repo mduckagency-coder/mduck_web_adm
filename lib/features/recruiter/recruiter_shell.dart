@@ -22,9 +22,11 @@ import "team/team_sla_page.dart";
 import "team/team_missions_page.dart";
 import "team/team_materials_admin_page.dart";
 import "recruiter_settings_page.dart";
+import "../calendario/calendar_board_page.dart";
 
 const _menuItems = [
   (Icons.dashboard, "Dashboard"),
+  (Icons.calendar_month, "Calendario"),
   (Icons.person_search, "Leads"),
   (Icons.groups, "Streamers Agenciados"),
   (Icons.query_stats, "Metricas"),
@@ -101,6 +103,8 @@ class _RecruiterShellState extends State<RecruiterShell> {
     switch (_selected) {
       case "Dashboard":
         return RecruiterDashboardPage(onNavigateToFeedbacks: () => _select("Feedbacks"));
+      case "Calendario":
+        return const CalendarBoardPage(mode: CalendarBoardMode.mine);
       case "Leads":
         return const RecruiterLeadsPage();
       case "Streamers Agenciados":

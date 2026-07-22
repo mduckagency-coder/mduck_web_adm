@@ -1,5 +1,7 @@
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
+import "lead_handoff_dialog.dart";
+import "../gestor/onboarding_phase_service.dart";
 
 class RecruiterOnboardingSection extends StatefulWidget {
   const RecruiterOnboardingSection({super.key});
@@ -20,7 +22,12 @@ class _RecruiterOnboardingSectionState extends State<RecruiterOnboardingSection>
   Future<List<Map<String, dynamic>>> _load() async {
     final client = Supabase.instance.client;
     final userId = client.auth.currentUser!.id;
-    final leads = await client.from("leads").select("id, name, tiktok_username, converted_at").eq("recruiter_id", userId).eq("status", "agenciado").order("converted_at", ascending: false);
+    final leads = await client
+        .from("leads")
+        .select("id, name, tiktok_username, category_interest, converted_at, converted_streamer_id")
+        .eq("recruiter_id", userId)
+        .eq("status", "agenciado")
+        .order("converted_at", ascending: false);
     final leadsList = (leads as List).cast<Map<String, dynamic>>();
 
     for (final l in leadsList) {
@@ -34,15 +41,55 @@ class _RecruiterOnboardingSectionState extends State<RecruiterOnboardingSection>
     return leadsList;
   }
 
-  Future<void> _toggleField(String leadId, String field, bool current) async {
+  static const _stepLabels = {
+    "convite_enviado": "Convite enviado",
+    "convite_aceito": "Convite aceito",
+    "entrou_agencia": "Entrou para Agencia",
+    "grupo_individual_criado": "Grupo Individual",
+    "material_boas_vindas": "Materiais de Boas-vindas",
+    "apresentacao_gestores": "Apresentacao dos Gestores",
+    "concluido": "Onboarding Concluido",
+  };
+
+  Future<void> _toggleField(String leadId, String field, bool current, {String? convertedStreamerId}) async {
     final client = Supabase.instance.client;
+    final userId = client.auth.currentUser!.id;
     await client.from("lead_onboarding_checklist").update({field: !current, "updated_at": DateTime.now().toIso8601String()}).eq("lead_id", leadId);
+    if (!current) {
+      await client.from("lead_history").insert({
+        "lead_id": leadId,
+        "action": "onboarding_" + field,
+        "detail": _stepLabels[field] ?? field,
+        "performed_by": userId,
+      });
+
+      if (field == "concluido") {
+        if (convertedStreamerId != null) {
+          try {
+            await createOnboardingPhaseCardIfNeeded(streamerId: convertedStreamerId);
+          } catch (_) {}
+        } else if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Vincule o streamer oficial (\"Vincular Streamer\") para iniciar o Onboarding 0-15 Dias na Gestao.")),
+          );
+        }
+      }
+    }
     setState(() => _future = _load());
   }
 
   void _openGestorSelector(Map<String, dynamic> lead) {
     showDialog(context: context, builder: (context) => _GestorSelectorDialog(leadId: lead["id"] as String, leadName: lead["name"] as String)).then((_) {
       setState(() => _future = _load());
+    });
+  }
+
+  void _openHandoff(Map<String, dynamic> lead) {
+    showDialog(
+      context: context,
+      builder: (context) => LeadHandoffDialog(leadId: lead["id"] as String, leadName: lead["name"] as String, initialCategory: lead["category_interest"] as String?),
+    ).then((confirmed) {
+      if (confirmed == true) setState(() => _future = _load());
     });
   }
 
@@ -114,7 +161,11 @@ class _RecruiterOnboardingSectionState extends State<RecruiterOnboardingSection>
                       ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(value: fraction, minHeight: 5, backgroundColor: Colors.white12, valueColor: const AlwaysStoppedAnimation(Color(0xFF7A0BD4)))),
                       const SizedBox(height: 10),
                       Wrap(spacing: 8, runSpacing: 8, children: [
-                        _stepChip("Convite Enviado", checklist["convite_enviado"] == true, () => _toggleField(l["id"] as String, "convite_enviado", checklist["convite_enviado"] == true)),
+                        _stepChip(
+                          "Convite Enviado",
+                          checklist["convite_enviado"] == true,
+                          checklist["convite_enviado"] == true ? () => _toggleField(l["id"] as String, "convite_enviado", true) : () => _openHandoff(l),
+                        ),
                         _stepChip("Convite Aceito", checklist["convite_aceito"] == true, () => _toggleField(l["id"] as String, "convite_aceito", checklist["convite_aceito"] == true)),
                         _stepChip("Entrou p/ Agencia", checklist["entrou_agencia"] == true, () => _toggleField(l["id"] as String, "entrou_agencia", checklist["entrou_agencia"] == true)),
                         InkWell(
@@ -140,7 +191,11 @@ class _RecruiterOnboardingSectionState extends State<RecruiterOnboardingSection>
                         _stepChip("Grupo Individual", checklist["grupo_individual_criado"] == true, () => _toggleField(l["id"] as String, "grupo_individual_criado", checklist["grupo_individual_criado"] == true)),
                         _stepChip("Material Boas-vindas", checklist["material_boas_vindas"] == true, () => _toggleField(l["id"] as String, "material_boas_vindas", checklist["material_boas_vindas"] == true)),
                         _stepChip("Apresentacao Gestores", checklist["apresentacao_gestores"] == true, () => _toggleField(l["id"] as String, "apresentacao_gestores", checklist["apresentacao_gestores"] == true)),
-                        _stepChip("Concluido", checklist["concluido"] == true, () => _toggleField(l["id"] as String, "concluido", checklist["concluido"] == true)),
+                        _stepChip(
+                          "Concluido",
+                          checklist["concluido"] == true,
+                          () => _toggleField(l["id"] as String, "concluido", checklist["concluido"] == true, convertedStreamerId: l["converted_streamer_id"] as String?),
+                        ),
                       ]),
                       if (gestores.isNotEmpty)
                         Padding(
@@ -181,7 +236,7 @@ class _GestorSelectorDialogState extends State<_GestorSelectorDialog> {
 
   Future<void> _load() async {
     final client = Supabase.instance.client;
-    final rows = await client.from("managers").select("id, login_email").eq("role", "gestor");
+    final rows = await client.from("managers").select("id, login_email");
     final current = await client.from("lead_onboarding_gestores").select("manager_id").eq("lead_id", widget.leadId);
     setState(() {
       _gestores = (rows as List).cast<Map<String, dynamic>>();
@@ -204,6 +259,7 @@ class _GestorSelectorDialogState extends State<_GestorSelectorDialog> {
         "manager_id": id,
         "message": "Voce foi selecionado para acompanhar o onboarding de: " + widget.leadName,
       });
+      await propagateManagerToProfile(leadId: widget.leadId, managerId: id);
     }
     for (final id in toRemove) {
       await client.from("lead_onboarding_gestores").delete().eq("lead_id", widget.leadId).eq("manager_id", id);

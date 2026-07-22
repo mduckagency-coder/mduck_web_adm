@@ -16,8 +16,11 @@ import "../missoes_atividades/missoes_atividades_page.dart";
 import "../ilha_top_duckers/ilha_top_duckers_page.dart";
 import "../metricas/level_maintenance_page.dart";
 import "../financeiro_rh/financeiro_rh_shell.dart";
+import "../calendario/agenda_agencia_page.dart";
+import "../calendario/agenda_streamers_page.dart";
 import "../admin/bug_reports_page.dart";
 import "../admin/bug_reports_page.dart";
+import "../eventos/eventos_page.dart";
 import "../profile/profile_avatar_menu.dart";
 import "../profile/app_top_bar.dart";
 
@@ -46,11 +49,15 @@ const _menuGroups = [
   _MenuGroup(icon: Icons.sports_esports, label: "Operacoes APP", children: [
     (Icons.leaderboard, "Ranking"),
     (Icons.landscape, "Ilha Top Duckers"),
-    (Icons.calendar_month, "Calendario"),
     (Icons.backpack, "Inventario"),
     (Icons.emoji_events, "Conquistas"),
     (Icons.military_tech, "Brasoes e Titulos"),
     (Icons.school, "MAX Aulas"),
+  ]),
+  _MenuGroup(icon: Icons.calendar_month, label: "Calendario", children: [
+    (Icons.apartment, "Agenda da Agencia"),
+    (Icons.groups, "Agenda dos Streamers"),
+    (Icons.inbox, "Solicitacoes"),
   ]),
   _MenuGroup(icon: Icons.movie_filter, label: "Configuracao Animacao APP", children: [
     (Icons.image, "Background Home"),
@@ -142,10 +149,16 @@ class _AdminShellState extends State<AdminShell> {
         return const RankingPage();
       case "CRM":
         return const CrmPage();
+      case "Eventos":
+        return const EventosPage();
       case "Missoes Atividades":
         return const MissoesAtividadesPage();
       case "Ilha Top Duckers":
         return const IlhaTopDuckersPage();
+      case "Agenda da Agencia":
+        return const AgendaAgenciaPage();
+      case "Agenda dos Streamers":
+        return const AgendaStreamersPage();
       default:
         return Center(child: Text(_selected + " - em construcao", style: const TextStyle(fontSize: 18, color: Colors.white70)));
     }
@@ -182,6 +195,12 @@ class _AdminShellState extends State<AdminShell> {
                         title: Text("Dashboard",
                             style: TextStyle(color: _selected == "Dashboard" ? const Color(0xFF7A0BD4) : Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
                         onTap: () => _select("Dashboard"),
+                      ),
+                      ListTile(
+                        leading: Icon(Icons.event, color: _selected == "Eventos" ? const Color(0xFF7A0BD4) : Colors.white70, size: 20),
+                        title: Text("Eventos",
+                            style: TextStyle(color: _selected == "Eventos" ? const Color(0xFF7A0BD4) : Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                        onTap: () => _select("Eventos"),
                       ),
                       const Divider(color: Colors.white12, height: 12),
                       ..._menuGroups.map((group) {

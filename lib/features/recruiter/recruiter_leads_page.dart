@@ -29,6 +29,10 @@ class _RecruiterLeadsPageState extends State<RecruiterLeadsPage> {
   final Set<String> _selectedIds = {};
   final _horizontalController = ScrollController();
 
+  bool _isCoordOrAdmin = false;
+  String _scope = "mine";
+  Map<String, String> _recruiterEmails = {};
+
   @override
   void initState() {
     super.initState();
@@ -43,42 +47,75 @@ class _RecruiterLeadsPageState extends State<RecruiterLeadsPage> {
     try {
       final client = Supabase.instance.client;
       final userId = client.auth.currentUser!.id;
+      final me = await client.from("managers").select("role").eq("id", userId).maybeSingle();
+      _isCoordOrAdmin = me != null && (me["role"] == "coordenador" || me["role"] == "admin");
+      if (!_isCoordOrAdmin) _scope = "mine";
+
       final stagesRows = await client.from("lead_kanban_stages").select().eq("is_active", true).order("order_index");
       final categoriesRows = await client.from("lead_categories").select().eq("is_active", true).order("order_index");
-      final rows = await client.from("leads").select().eq("recruiter_id", userId).order("created_at", ascending: false);
+
+      List<Map<String, dynamic>> leadsList;
+      if (_isCoordOrAdmin) {
+        final allManagers = await client.from("managers").select("id, login_email");
+        _recruiterEmails = {for (final m in (allManagers as List)) m["id"] as String: m["login_email"] as String? ?? "-"};
+      } else {
+        _recruiterEmails = {};
+      }
+
+      if (_scope == "mine") {
+        final rows = await client.from("leads").select().eq("recruiter_id", userId).order("created_at", ascending: false);
+        leadsList = (rows as List).cast<Map<String, dynamic>>();
+      } else if (_scope == "team") {
+        final team = await client.from("managers").select("id").eq("coordinator_id", userId);
+        final teamIds = (team as List).map((m) => m["id"] as String).toList();
+        if (teamIds.isEmpty) {
+          leadsList = [];
+        } else {
+          final rows = await client.from("leads").select().inFilter("recruiter_id", teamIds).order("created_at", ascending: false);
+          leadsList = (rows as List).cast<Map<String, dynamic>>();
+        }
+      } else {
+        final rows = await client.from("leads").select().order("created_at", ascending: false);
+        leadsList = (rows as List).cast<Map<String, dynamic>>();
+      }
 
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
-      final leadsList = (rows as List).cast<Map<String, dynamic>>();
 
-      final dailyTargets = await client.from("recruiter_targets").select().or("recruiter_id.eq." + userId + ",recruiter_id.is.null").eq("metric", "leads").eq("period_type", "diario");
-      double metaDiaria = 0;
-      for (final t in (dailyTargets as List)) {
-        final start = DateTime.parse(t["starts_at"]);
-        final end = DateTime.parse(t["ends_at"]);
-        if (!now.isBefore(start) && !now.isAfter(end)) metaDiaria = (t["target_value"] as num).toDouble();
-      }
-      final leadsHoje = leadsList.where((l) => DateTime.parse(l["created_at"]).isAfter(today)).length;
+      // Painel de meta e sempre pessoal, mesmo com escopo Equipe/Todos selecionado.
+      Map<String, dynamic>? metaData;
+      if (_scope == "mine") {
+        final myLeads = leadsList;
+        final dailyTargets = await client.from("recruiter_targets").select().or("recruiter_id.eq." + userId + ",recruiter_id.is.null").eq("metric", "leads").eq("period_type", "diario");
+        double metaDiaria = 0;
+        for (final t in (dailyTargets as List)) {
+          final start = DateTime.parse(t["starts_at"]);
+          final end = DateTime.parse(t["ends_at"]);
+          if (!now.isBefore(start) && !now.isAfter(end)) metaDiaria = (t["target_value"] as num).toDouble();
+        }
+        final leadsHoje = myLeads.where((l) => DateTime.parse(l["created_at"]).isAfter(today)).length;
 
-      final monthlyTargets = await client.from("recruiter_targets").select().or("recruiter_id.eq." + userId + ",recruiter_id.is.null").eq("metric", "agenciamentos").eq("period_type", "mensal");
-      double metaMensal = 0;
-      for (final t in (monthlyTargets as List)) {
-        final start = DateTime.parse(t["starts_at"]);
-        final end = DateTime.parse(t["ends_at"]);
-        if (!now.isBefore(start) && !now.isAfter(end)) metaMensal = (t["target_value"] as num).toDouble();
+        final monthlyTargets = await client.from("recruiter_targets").select().or("recruiter_id.eq." + userId + ",recruiter_id.is.null").eq("metric", "agenciamentos").eq("period_type", "mensal");
+        double metaMensal = 0;
+        for (final t in (monthlyTargets as List)) {
+          final start = DateTime.parse(t["starts_at"]);
+          final end = DateTime.parse(t["ends_at"]);
+          if (!now.isBefore(start) && !now.isAfter(end)) metaMensal = (t["target_value"] as num).toDouble();
+        }
+        final agenciadosMes = myLeads.where((l) {
+          if (l["status"] != "agenciado" || l["converted_at"] == null) return false;
+          final d = DateTime.parse(l["converted_at"]);
+          return d.year == now.year && d.month == now.month;
+        }).length;
+        metaData = {"metaDiaria": metaDiaria, "leadsHoje": leadsHoje, "metaMensal": metaMensal, "agenciadosMes": agenciadosMes};
       }
-      final agenciadosMes = leadsList.where((l) {
-        if (l["status"] != "agenciado" || l["converted_at"] == null) return false;
-        final d = DateTime.parse(l["converted_at"]);
-        return d.year == now.year && d.month == now.month;
-      }).length;
 
       setState(() {
         _stages = (stagesRows as List).cast<Map<String, dynamic>>();
         _categories = (categoriesRows as List).cast<Map<String, dynamic>>();
         _leads = leadsList;
         if (_visibleStages.isEmpty) _visibleStages = _stages.map((s) => s["stage_key"] as String).toSet();
-        _metaData = {"metaDiaria": metaDiaria, "leadsHoje": leadsHoje, "metaMensal": metaMensal, "agenciadosMes": agenciadosMes};
+        _metaData = metaData;
         _loading = false;
       });
     } catch (e) {
@@ -131,14 +168,26 @@ class _RecruiterLeadsPageState extends State<RecruiterLeadsPage> {
     }
   }
 
+  String _stageName(String stageKey) {
+    final stage = _stages.firstWhere((s) => s["stage_key"] == stageKey, orElse: () => {"name": stageKey});
+    return stage["name"] as String? ?? stageKey;
+  }
+
   Future<void> _updateStatus(String leadId, String newStatus) async {
     final index = _leads.indexWhere((l) => l["id"] == leadId);
     if (index == -1) return;
-    final oldStatus = _leads[index]["status"];
+    final oldStatus = _leads[index]["status"] as String;
+    if (oldStatus == newStatus) return;
     setState(() => _leads[index]["status"] = newStatus);
     final client = Supabase.instance.client;
     try {
       await client.from("leads").update({"status": newStatus}).eq("id", leadId);
+      await client.from("lead_history").insert({
+        "lead_id": leadId,
+        "action": "mudanca_etapa",
+        "detail": _stageName(oldStatus) + " → " + _stageName(newStatus),
+        "performed_by": client.auth.currentUser!.id,
+      });
     } catch (e) {
       setState(() => _leads[index]["status"] = oldStatus);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erro ao mover: " + e.toString())));
@@ -203,7 +252,9 @@ class _RecruiterLeadsPageState extends State<RecruiterLeadsPage> {
   }
 
   void _openDetail(Map<String, dynamic> lead) {
-    showDialog(context: context, builder: (context) => LeadDetailDialog(lead: lead)).then((changed) {
+    final userId = Supabase.instance.client.auth.currentUser!.id;
+    final canTransfer = _isCoordOrAdmin || lead["recruiter_id"] == userId;
+    showDialog(context: context, builder: (context) => LeadDetailDialog(lead: lead, canTransfer: canTransfer)).then((changed) {
       if (changed == true) _load();
     });
   }
@@ -303,6 +354,21 @@ class _RecruiterLeadsPageState extends State<RecruiterLeadsPage> {
               ),
             ],
           ),
+          if (_isCoordOrAdmin) ...[
+            const SizedBox(height: 12),
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(value: "mine", label: Text("Meus Leads")),
+                ButtonSegment(value: "team", label: Text("Leads da Equipe")),
+                ButtonSegment(value: "all", label: Text("Todos os Leads")),
+              ],
+              selected: {_scope},
+              onSelectionChanged: (s) {
+                setState(() => _scope = s.first);
+                _load();
+              },
+            ),
+          ],
           const SizedBox(height: 16),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -491,16 +557,17 @@ class _RecruiterLeadsPageState extends State<RecruiterLeadsPage> {
                                             final lead = columnLeads[index];
                                             final leadId = lead["id"] as String;
                                             final isSelected = _selectedIds.contains(leadId);
+                                            final responsibleEmail = _scope != "mine" ? _recruiterEmails[lead["recruiter_id"]] : null;
                                             return Draggable<Map<String, dynamic>>(
                                               data: lead,
-                                              feedback: Material(color: Colors.transparent, child: SizedBox(width: 220, child: LeadCard(lead: lead, statusColor: stageColor, categories: _categories))),
-                                              childWhenDragging: Opacity(opacity: 0.3, child: LeadCard(lead: lead, statusColor: stageColor, categories: _categories)),
+                                              feedback: Material(color: Colors.transparent, child: SizedBox(width: 220, child: LeadCard(lead: lead, statusColor: stageColor, categories: _categories, responsibleEmail: responsibleEmail))),
+                                              childWhenDragging: Opacity(opacity: 0.3, child: LeadCard(lead: lead, statusColor: stageColor, categories: _categories, responsibleEmail: responsibleEmail)),
                                               child: GestureDetector(
                                                 onTap: () => _openDetail(lead),
                                                 onLongPress: () => _toggleSelect(leadId),
                                                 child: Stack(
                                                   children: [
-                                                    LeadCard(lead: lead, statusColor: stageColor, categories: _categories, selected: isSelected),
+                                                    LeadCard(lead: lead, statusColor: stageColor, categories: _categories, selected: isSelected, responsibleEmail: responsibleEmail),
                                                     Positioned(
                                                       top: 4,
                                                       left: 4,
@@ -548,7 +615,8 @@ class LeadCard extends StatelessWidget {
   final Color statusColor;
   final List<Map<String, dynamic>> categories;
   final bool selected;
-  const LeadCard({super.key, required this.lead, required this.statusColor, this.categories = const [], this.selected = false});
+  final String? responsibleEmail;
+  const LeadCard({super.key, required this.lead, required this.statusColor, this.categories = const [], this.selected = false, this.responsibleEmail});
 
   @override
   Widget build(BuildContext context) {
@@ -596,6 +664,7 @@ class LeadCard extends StatelessWidget {
                 Text(lead["name"] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12), overflow: TextOverflow.ellipsis),
                 if (lead["tiktok_username"] != null && (lead["tiktok_username"] as String).isNotEmpty) Text("@" + lead["tiktok_username"], style: const TextStyle(color: Colors.white54, fontSize: 10)),
                 if (lead["category_interest"] != null && (lead["category_interest"] as String).isNotEmpty) Text(lead["category_interest"], style: TextStyle(color: statusColor, fontSize: 10)),
+                if (responsibleEmail != null) Text(responsibleEmail!, style: const TextStyle(color: Colors.white38, fontSize: 9, fontStyle: FontStyle.italic), overflow: TextOverflow.ellipsis),
               ],
             ),
           ),
@@ -643,7 +712,7 @@ class _LeadFormDialogState extends State<LeadFormDialog> {
     var initialStage = await client.from("lead_kanban_stages").select("stage_key").eq("agency_id", manager["agency_id"]).eq("is_initial", true).eq("is_active", true).maybeSingle();
     initialStage ??= await client.from("lead_kanban_stages").select("stage_key").eq("agency_id", manager["agency_id"]).eq("is_active", true).order("order_index").limit(1).maybeSingle();
 
-    await client.from("leads").insert({
+    final inserted = await client.from("leads").insert({
       "agency_id": manager["agency_id"],
       "recruiter_id": userId,
       "name": _nameController.text.trim(),
@@ -653,6 +722,13 @@ class _LeadFormDialogState extends State<LeadFormDialog> {
       "origin": _selectedOrigin,
       "origin_detail": _originDetailController.text.trim(),
       "status": initialStage != null ? initialStage["stage_key"] : "novo",
+    }).select("id").single();
+
+    await client.from("lead_history").insert({
+      "lead_id": inserted["id"],
+      "action": "criacao",
+      "detail": "Lead cadastrado",
+      "performed_by": userId,
     });
 
     if (_selectedOrigin == "Indicacao") {
@@ -745,7 +821,8 @@ class _LeadFormDialogState extends State<LeadFormDialog> {
 
 class LeadDetailDialog extends StatefulWidget {
   final Map<String, dynamic> lead;
-  const LeadDetailDialog({super.key, required this.lead});
+  final bool canTransfer;
+  const LeadDetailDialog({super.key, required this.lead, this.canTransfer = false});
 
   @override
   State<LeadDetailDialog> createState() => _LeadDetailDialogState();
@@ -760,6 +837,7 @@ class _LeadDetailDialogState extends State<LeadDetailDialog> {
   String? _selectedEditCategory;
   String? _selectedEditOrigin;
   late Future<List<Map<String, dynamic>>> _historyFuture;
+  late Future<String?> _responsibleFuture;
   bool _savingObs = false;
   bool _savingEdit = false;
   bool _editing = false;
@@ -768,6 +846,7 @@ class _LeadDetailDialogState extends State<LeadDetailDialog> {
   void initState() {
     super.initState();
     _historyFuture = _loadHistory();
+    _responsibleFuture = _loadResponsible();
     _nameController = TextEditingController(text: widget.lead["name"] as String? ?? "");
     _tiktokController = TextEditingController(text: widget.lead["tiktok_username"] as String? ?? "");
     _phoneController = TextEditingController(text: widget.lead["phone"] as String? ?? "");
@@ -786,6 +865,22 @@ class _LeadDetailDialogState extends State<LeadDetailDialog> {
     final client = Supabase.instance.client;
     final rows = await client.from("lead_history").select().eq("lead_id", widget.lead["id"]).order("created_at", ascending: false);
     return (rows as List).cast<Map<String, dynamic>>();
+  }
+
+  Future<String?> _loadResponsible() async {
+    final recruiterId = widget.lead["recruiter_id"] as String?;
+    if (recruiterId == null) return null;
+    final client = Supabase.instance.client;
+    final row = await client.from("managers").select("login_email").eq("id", recruiterId).maybeSingle();
+    return row?["login_email"] as String?;
+  }
+
+  void _openTransfer() {
+    showDialog<bool>(context: context, builder: (context) => LeadTransferDialog(lead: widget.lead)).then((done) {
+      // Fecha tambem o dialogo de detalhe: o responsavel mudou, entao a
+      // lista (e o proprio dialogo, se reaberto) refletem o novo dono.
+      if (done == true && mounted) Navigator.of(context).pop(true);
+    });
   }
 
   Future<void> _saveObservation() async {
@@ -867,9 +962,22 @@ class _LeadDetailDialogState extends State<LeadDetailDialog> {
             children: [
               Row(children: [
                 Expanded(child: Text(lead["name"] as String, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold))),
+                if (widget.canTransfer)
+                  IconButton(icon: const Icon(Icons.swap_horiz, color: Colors.white54, size: 18), tooltip: "Transferir Lead", onPressed: _openTransfer),
                 IconButton(icon: Icon(_editing ? Icons.close : Icons.edit, color: Colors.white54, size: 18), onPressed: () => setState(() => _editing = !_editing)),
                 IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18), onPressed: _confirmDelete),
               ]),
+              FutureBuilder<String?>(
+                future: _responsibleFuture,
+                builder: (context, snapshot) {
+                  final email = snapshot.data;
+                  if (email == null) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text("Responsavel: " + email, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                  );
+                },
+              ),
               if (_editing) ...[
                 const SizedBox(height: 8),
                 TextField(controller: _nameController, style: const TextStyle(color: Colors.white, fontSize: 13), decoration: const InputDecoration(labelText: "Nome", labelStyle: TextStyle(color: Colors.white54, fontSize: 12))),
@@ -1013,12 +1121,18 @@ class _BulkImportDialogState extends State<BulkImportDialog> {
 
     var created = 0;
     for (final handle in handles) {
-      await client.from("leads").insert({
+      final inserted = await client.from("leads").insert({
         "agency_id": manager["agency_id"],
         "recruiter_id": userId,
         "name": handle,
         "tiktok_username": handle,
         "status": statusKey,
+      }).select("id").single();
+      await client.from("lead_history").insert({
+        "lead_id": inserted["id"],
+        "action": "criacao",
+        "detail": "Lead cadastrado",
+        "performed_by": userId,
       });
       created++;
     }
@@ -1078,7 +1192,139 @@ class _BulkImportDialogState extends State<BulkImportDialog> {
   }
 }
 
+/// Retorna true quando o lead foi transferido, para a tela chamadora recarregar.
+class LeadTransferDialog extends StatefulWidget {
+  final Map<String, dynamic> lead;
+  const LeadTransferDialog({super.key, required this.lead});
 
+  @override
+  State<LeadTransferDialog> createState() => _LeadTransferDialogState();
+}
+
+class _LeadTransferDialogState extends State<LeadTransferDialog> {
+  List<Map<String, dynamic>> _recruiters = [];
+  String? _currentResponsibleEmail;
+  String? _selectedId;
+  final _reasonController = TextEditingController();
+  bool _loading = true;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final client = Supabase.instance.client;
+    final currentId = widget.lead["recruiter_id"] as String?;
+    final rows = await client.from("managers").select("id, login_email").order("login_email");
+    final all = (rows as List).cast<Map<String, dynamic>>();
+    setState(() {
+      _recruiters = all.where((m) => m["id"] != currentId).toList();
+      _currentResponsibleEmail = all.firstWhere((m) => m["id"] == currentId, orElse: () => {"login_email": "-"})["login_email"] as String?;
+      _loading = false;
+    });
+  }
+
+  bool get _canConfirm => _selectedId != null && _reasonController.text.trim().isNotEmpty;
+
+  Future<void> _confirm() async {
+    if (!_canConfirm) return;
+    setState(() => _saving = true);
+    final client = Supabase.instance.client;
+    final userId = client.auth.currentUser!.id;
+    final leadId = widget.lead["id"] as String;
+    final previousRecruiterId = widget.lead["recruiter_id"] as String?;
+    final newRecruiterId = _selectedId!;
+    final newEmail = _recruiters.firstWhere((m) => m["id"] == newRecruiterId)["login_email"] as String;
+    final reason = _reasonController.text.trim();
+
+    await client.from("leads").update({"recruiter_id": newRecruiterId}).eq("id", leadId);
+
+    await client.from("lead_transfers").insert({
+      "lead_id": leadId,
+      "previous_recruiter_id": previousRecruiterId,
+      "new_recruiter_id": newRecruiterId,
+      "performed_by": userId,
+      "reason": reason,
+    });
+
+    await client.from("lead_history").insert({
+      "lead_id": leadId,
+      "action": "transferencia",
+      "detail": "De " + (_currentResponsibleEmail ?? "-") + " para " + newEmail + ". Motivo: " + reason,
+      "performed_by": userId,
+    });
+
+    try {
+      await client.from("manager_notifications").insert({
+        "manager_id": newRecruiterId,
+        "subject": "Lead transferido para voce",
+        "message": (widget.lead["name"] as String? ?? "Lead") + " foi transferido para voce. Motivo: " + reason,
+      });
+    } catch (_) {}
+
+    if (mounted) Navigator.of(context).pop(true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF1A1A1A),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: _loading
+              ? const SizedBox(height: 120, child: Center(child: CircularProgressIndicator()))
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text("Transferir Lead", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    Text(widget.lead["name"] as String? ?? "", style: const TextStyle(color: Colors.white54, fontSize: 13)),
+                    const SizedBox(height: 16),
+                    Text("Responsavel atual: " + (_currentResponsibleEmail ?? "-"), style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                    const SizedBox(height: 12),
+                    DropdownButton<String>(
+                      value: _selectedId,
+                      isExpanded: true,
+                      hint: const Text("Novo responsavel", style: TextStyle(color: Colors.white54)),
+                      dropdownColor: const Color(0xFF1A1A1A),
+                      style: const TextStyle(color: Colors.white),
+                      items: _recruiters.map((m) => DropdownMenuItem(value: m["id"] as String, child: Text(m["login_email"] as String))).toList(),
+                      onChanged: (v) => setState(() => _selectedId = v),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _reasonController,
+                      maxLines: 3,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: const InputDecoration(labelText: "Motivo da transferencia", labelStyle: TextStyle(color: Colors.white54), border: OutlineInputBorder()),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text("Cancelar")),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: (_canConfirm && !_saving) ? _confirm : null,
+                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
+                          child: Text(_saving ? "Transferindo..." : "Confirmar transferencia"),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+}
 
 
 
