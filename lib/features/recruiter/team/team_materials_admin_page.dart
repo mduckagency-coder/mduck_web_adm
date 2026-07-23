@@ -292,16 +292,20 @@ class _MaterialAdminFormDialogState extends State<_MaterialAdminFormDialog> {
                 TextField(controller: _linkController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Link (opcional)", labelStyle: TextStyle(color: Colors.white54))),
                 const SizedBox(height: 12),
                 Row(children: [
-                  OutlinedButton.icon(
-                    onPressed: _uploadingFile ? null : () => _pickFile(isImage: false),
-                    icon: const Icon(Icons.attach_file, size: 16),
-                    label: Text(_uploadingFile ? "Enviando..." : (_fileName ?? "Anexar arquivo")),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _uploadingFile ? null : () => _pickFile(isImage: false),
+                      icon: const Icon(Icons.attach_file, size: 16),
+                      label: Text(_uploadingFile ? "Enviando..." : (_fileName ?? "Anexar arquivo"), overflow: TextOverflow.ellipsis),
+                    ),
                   ),
                   const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: _uploadingImage ? null : () => _pickFile(isImage: true),
-                    icon: const Icon(Icons.image, size: 16),
-                    label: Text(_uploadingImage ? "Enviando..." : (_imageName ?? "Anexar imagem")),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _uploadingImage ? null : () => _pickFile(isImage: true),
+                      icon: const Icon(Icons.image, size: 16),
+                      label: Text(_uploadingImage ? "Enviando..." : (_imageName ?? "Anexar imagem"), overflow: TextOverflow.ellipsis),
+                    ),
                   ),
                 ]),
                 if (_fileUrl != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text("Arquivo pronto.", style: const TextStyle(color: Colors.greenAccent, fontSize: 11))),

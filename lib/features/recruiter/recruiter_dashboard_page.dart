@@ -38,9 +38,9 @@ class _RecruiterDashboardPageState extends State<RecruiterDashboardPage> {
     }
     final posicao = d["minhaPosicao"] as int?;
     if (posicao != null && posicao <= 3) {
-      options.add("Voce esta em " + posicao.toString() + "บ lugar no ranking. Continue assim!");
+      options.add("Voce esta em " + posicao.toString() + "ยบ lugar no ranking. Continue assim!");
     } else if (posicao != null) {
-      options.add("Voce esta em " + posicao.toString() + "บ lugar no ranking. Bora subir?");
+      options.add("Voce esta em " + posicao.toString() + "ยบ lugar no ranking. Bora subir?");
     }
     final onboardingsPendentes = d["onboardingsPendentes"] as int;
     if (onboardingsPendentes > 0) {
@@ -421,7 +421,7 @@ class _RecruiterDashboardPageState extends State<RecruiterDashboardPage> {
             );
           }),
           if (minhaPosicao > 5)
-            Padding(padding: const EdgeInsets.only(top: 4), child: Text("Voce esta em " + minhaPosicao.toString() + "บ lugar.", style: const TextStyle(color: Color(0xFF7A0BD4), fontSize: 12, fontWeight: FontWeight.bold))),
+            Padding(padding: const EdgeInsets.only(top: 4), child: Text("Voce esta em " + minhaPosicao.toString() + "ยบ lugar.", style: const TextStyle(color: Color(0xFF7A0BD4), fontSize: 12, fontWeight: FontWeight.bold))),
         ],
       ],
     );

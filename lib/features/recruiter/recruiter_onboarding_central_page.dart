@@ -274,7 +274,11 @@ class _RecruiterOnboardingCentralPageState extends State<RecruiterOnboardingCent
           "performed_by": userId,
         });
 
-        if (fieldKey == "concluido") {
+        if (fieldKey == "convite_enviado") {
+          try {
+            await createOnboardingLeadCardIfNeeded(leadId: item["id"] as String);
+          } catch (_) {}
+        } else if (fieldKey == "concluido") {
           final streamerId = item["converted_streamer_id"] as String?;
           if (streamerId != null) {
             try {
@@ -442,7 +446,7 @@ class _RecruiterOnboardingCentralPageState extends State<RecruiterOnboardingCent
                   InkWell(
                     onTap: () => isGestorStep
                         ? _openGestorSelector(item)
-                        : (isConviteEnviadoStep && !stepDone)
+                        : isConviteEnviadoStep
                             ? _openHandoff(item)
                             : _toggleStep(item, step.$1),
                     borderRadius: BorderRadius.circular(20),
@@ -700,6 +704,21 @@ class _GestorPickerDialogState extends State<_GestorPickerDialog> {
       await client.from("lead_onboarding_gestores").delete().eq("lead_id", widget.leadId).eq("manager_id", id);
     }
 
+    // Se o gestor foi definido aqui antes de qualquer "Convite enviado", o
+    // card do Onboarding 0-15 ainda pode nao existir -- propagateManagerToProfile
+    // so atualiza um card ja existente, nunca cria um novo.
+    if (toAdd.isNotEmpty) {
+      try {
+        final leadRow = await client.from("leads").select("converted_streamer_id").eq("id", widget.leadId).maybeSingle();
+        final streamerId = leadRow?["converted_streamer_id"] as String?;
+        if (streamerId != null) {
+          await createOnboardingPhaseCardIfNeeded(streamerId: streamerId);
+        } else {
+          await createOnboardingLeadCardIfNeeded(leadId: widget.leadId);
+        }
+      } catch (_) {}
+    }
+
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -818,22 +837,29 @@ class _VincularStreamerDialogState extends State<_VincularStreamerDialog> {
     if (_selectedId == null) return;
     setState(() => _saving = true);
     final client = Supabase.instance.client;
-    await client.from("leads").update({"converted_streamer_id": _selectedId}).eq("id", widget.leadId);
+    try {
+      await client.from("leads").update({"converted_streamer_id": _selectedId}).eq("id", widget.leadId);
 
-    final gestores = await client.from("lead_onboarding_gestores").select("manager_id").eq("lead_id", widget.leadId);
-    final currentGestor = (gestores as List).isNotEmpty ? (gestores.first["manager_id"] as String) : null;
-    if (currentGestor != null) {
-      await propagateManagerToProfile(leadId: widget.leadId, managerId: currentGestor);
-    }
+      final gestores = await client.from("lead_onboarding_gestores").select("manager_id").eq("lead_id", widget.leadId);
+      final currentGestor = (gestores as List).isNotEmpty ? (gestores.first["manager_id"] as String) : null;
+      if (currentGestor != null) {
+        await propagateManagerToProfile(leadId: widget.leadId, managerId: currentGestor);
+      }
 
-    final checklist = await client.from("lead_onboarding_checklist").select("concluido").eq("lead_id", widget.leadId).maybeSingle();
-    if (checklist?["concluido"] == true) {
+      // Vincular o streamer oficial ja e suficiente pra promover o card no
+      // Onboarding 0-15 do gestor -- nao faz sentido exigir tambem
+      // "Onboarding Concluido" aqui, senao o card fica preso como
+      // "pre-vinculo" mesmo depois do streamer ja estar oficialmente
+      // vinculado.
       try {
         await createOnboardingPhaseCardIfNeeded(streamerId: _selectedId!);
       } catch (_) {}
-    }
 
-    if (mounted) Navigator.of(context).pop(true);
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      setState(() => _saving = false);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erro ao vincular: " + e.toString())));
+    }
   }
 
   @override

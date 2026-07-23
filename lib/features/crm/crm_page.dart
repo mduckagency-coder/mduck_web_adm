@@ -1,5 +1,6 @@
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
+import "../gestor/onboarding_phase_service.dart";
 
 class CrmPage extends StatefulWidget {
   /// Quando informado, restringe a lista aos streamers ligados a esse
@@ -39,6 +40,9 @@ class _CrmPageState extends State<CrmPage> {
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _future,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text("Erro ao carregar: " + snapshot.error.toString(), style: const TextStyle(color: Colors.redAccent), textAlign: TextAlign.center)));
+        }
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
         final all = snapshot.data!;
         final filtered = _search.isEmpty
@@ -148,12 +152,29 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
   };
 
   static const _phaseActionLabels = {
-    "entrada_onboarding": "Entrou no Onboarding 0-15 Dias",
-    "mudanca_etapa": "Mudanca de etapa (Onboarding 0-15)",
+    "entrada_onboarding": "Entrou nesta fase",
+    "entrada_onboarding_lead": "Convite enviado -- streamer a caminho da agencia",
+    "vinculado_streamer": "Streamer oficial vinculado ao card",
+    "mudanca_etapa": "Mudanca de etapa",
     "checklist_item": "Item de checklist concluido",
-    "observacao": "Observacao (Onboarding 0-15)",
-    "onboarding_concluido": "Onboarding 0-15 Dias concluido",
+    "observacao": "Observacao",
+    "editado": "Dados editados pelo gestor",
+    "avaliacao_final": "Avaliacao final",
+    "onboarding_concluido": "Fase concluida",
   };
+
+  /// Fases do acompanhamento do streamer, na mesma ordem/rotulo usado no
+  /// Material Acompanhamento (area do Gestor) -- so a primeira tem
+  /// phase_key real hoje (as demais ainda nao tem quadro proprio, mas ja
+  /// ficam com aba pronta pra quando existirem, sem precisar mexer aqui).
+  static const _phaseTabs = [
+    (onboardingPhaseKey, "Onboarding 15"),
+    ("onboarding_30", "Onboarding 30 Dias"),
+    ("novato_2m", "2 Meses (Novato)"),
+    ("novato_3m", "3 Meses (Novato)"),
+    ("veterano", "Veterano"),
+    ("pro", "Pro"),
+  ];
 
   Future<Map<String, dynamic>> _load() async {
     final client = Supabase.instance.client;
@@ -161,7 +182,7 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
     final profile = await client
         .from("profiles")
         .select(
-            "display_name, tiktok_username, tiktok_creator_id, tiktok_group_name, joined_at, is_active, left_at, left_reason, recruited_by, phone, email, avatar_url, streamer_categories(name), groups!profiles_group_id_fkey(name)")
+            "display_name, tiktok_username, tiktok_creator_id, tiktok_group_name, joined_at, is_active, left_at, left_reason, recruited_by, phone, email, avatar_url, category_id, group_id, streamer_categories(name), groups!profiles_group_id_fkey(name)")
         .eq("id", widget.streamerId)
         .single();
 
@@ -188,15 +209,19 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
 
     final assignmentHistory = await client
         .from("manager_assignment_history")
-        .select("manager_id, assigned_at, managers(login_email)")
+        .select("manager_id, assigned_at, managers!manager_assignment_history_manager_id_fkey(login_email)")
         .eq("streamer_id", widget.streamerId)
         .order("assigned_at");
 
-    final phaseHistory = await client
+    final phaseHistoryRows = await client
         .from("streamer_phase_history")
         .select()
         .eq("streamer_id", widget.streamerId)
         .order("created_at");
+    final phaseHistoryByPhase = <String, List<Map<String, dynamic>>>{};
+    for (final h in (phaseHistoryRows as List)) {
+      phaseHistoryByPhase.putIfAbsent(h["phase_key"] as String, () => []).add(h as Map<String, dynamic>);
+    }
 
     final lead = await client.from("leads").select("id, created_at, converted_at, recruiter_id").eq("converted_streamer_id", widget.streamerId).maybeSingle();
 
@@ -257,13 +282,6 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
         "text": "Gestor definido: " + (m is Map ? m["login_email"] as String? ?? "-" : "-"),
       });
     }
-    for (final h in (phaseHistory as List)) {
-      timeline.add({
-        "date": h["created_at"],
-        "type": "onboarding",
-        "text": (_phaseActionLabels[h["action"]] ?? h["action"] as String) + ((h["detail"] as String?)?.isNotEmpty == true ? ": " + (h["detail"] as String) : ""),
-      });
-    }
     for (final h in leadHistory) {
       timeline.add({
         "date": h["created_at"],
@@ -282,6 +300,7 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
       "handoff": handoff,
       "creatorEmail": creatorEmail,
       "currentRecruiterEmail": currentRecruiterEmail,
+      "phaseHistoryByPhase": phaseHistoryByPhase,
     };
   }
 
@@ -382,6 +401,12 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
         ),
       );
 
+  void _openEditProfile(Map<String, dynamic> p) {
+    showDialog<bool>(context: context, builder: (context) => _EditProfileDialog(streamerId: widget.streamerId, profile: p)).then((saved) {
+      if (saved == true) setState(() => _future = _load());
+    });
+  }
+
   Widget _buildPerfilTab(Map<String, dynamic> p) {
     final groupData = p["groups"];
     final catData = p["streamer_categories"];
@@ -391,6 +416,15 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () => _openEditProfile(p),
+              icon: const Icon(Icons.edit, size: 16, color: Color(0xFF7A0BD4)),
+              label: const Text("Editar perfil", style: TextStyle(color: Color(0xFF7A0BD4))),
+            ),
+          ),
+          _infoRow("Nome", (p["display_name"] as String?) ?? "-"),
           _infoRow("ID TikTok", (p["tiktok_creator_id"] as String?) ?? "-"),
           _infoRow("Nick TikTok", (p["tiktok_username"] as String?) ?? "-"),
           _infoRow("Entrada na agencia", DateTime.parse(p["joined_at"] as String).toLocal().toString().substring(0, 10)),
@@ -525,6 +559,45 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
     );
   }
 
+  /// Aba de uma fase do acompanhamento (Onboarding 15, Onboarding 30 Dias,
+  /// etc.) -- mostra so o que aconteceu naquela fase (entrada, mudancas de
+  /// etapa, checklist concluido, observacoes, avaliacao final), na ordem em
+  /// que aconteceu. Fases que ainda nao existem como quadro proprio (so
+  /// Onboarding 15 tem hoje) simplesmente ainda nao tem registro nenhum.
+  Widget _buildPhaseHistoryTab(List<Map<String, dynamic>> entries) {
+    if (entries.isEmpty) {
+      return const Center(child: Text("Streamer ainda nao iniciou esta fase.", style: TextStyle(color: Colors.white38)));
+    }
+    return ListView.builder(
+      itemCount: entries.length,
+      itemBuilder: (context, index) {
+        final h = entries[index];
+        final date = DateTime.parse(h["created_at"] as String).toLocal().toString().substring(0, 16);
+        final label = _phaseActionLabels[h["action"]] ?? h["action"] as String;
+        final detail = h["detail"] as String?;
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.circle, size: 8, color: Colors.lightBlueAccent),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(date, style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                    Text(label + (detail?.isNotEmpty == true ? ": " + detail! : ""), style: const TextStyle(color: Colors.lightBlueAccent, fontSize: 13)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildTimelineTab(List<Map<String, dynamic>> timeline) {
     return Column(
       children: [
@@ -610,10 +683,11 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
               final data = snapshot.data!;
               final p = data["profile"] as Map<String, dynamic>;
               final timeline = data["timeline"] as List<Map<String, dynamic>>;
+              final phaseHistoryByPhase = data["phaseHistoryByPhase"] as Map<String, List<Map<String, dynamic>>>;
               final active = p["is_active"] as bool? ?? true;
 
               return DefaultTabController(
-                length: 3,
+                length: 3 + _phaseTabs.length,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -643,20 +717,23 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    const TabBar(
+                    TabBar(
+                      isScrollable: true,
                       labelColor: Colors.white,
                       unselectedLabelColor: Colors.white54,
-                      indicatorColor: Color(0xFF7A0BD4),
+                      indicatorColor: const Color(0xFF7A0BD4),
                       tabs: [
-                        Tab(text: "Perfil"),
-                        Tab(text: "Recrutamento"),
-                        Tab(text: "Timeline"),
+                        const Tab(text: "Perfil"),
+                        const Tab(text: "Recrutamento"),
+                        ..._phaseTabs.map((t) => Tab(text: t.$2)),
+                        const Tab(text: "Atividades"),
                       ],
                     ),
                     Expanded(
                       child: TabBarView(children: [
                         _buildPerfilTab(p),
                         _buildRecrutamentoTab(data),
+                        ..._phaseTabs.map((t) => _buildPhaseHistoryTab(phaseHistoryByPhase[t.$1] ?? const [])),
                         _buildTimelineTab(timeline),
                       ]),
                     ),
@@ -673,6 +750,149 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
   }
 }
 
+/// Edicao dos dados cadastrais do streamer, a partir da aba Perfil do CRM.
+/// Telefone/e-mail e "recrutado por" ja tinham edicao inline; aqui cobre
+/// o resto (nome, IDs do TikTok, categoria, grupo interno).
+class _EditProfileDialog extends StatefulWidget {
+  final String streamerId;
+  final Map<String, dynamic> profile;
+  const _EditProfileDialog({required this.streamerId, required this.profile});
 
+  @override
+  State<_EditProfileDialog> createState() => _EditProfileDialogState();
+}
+
+class _EditProfileDialogState extends State<_EditProfileDialog> {
+  late final _nameController = TextEditingController(text: widget.profile["display_name"] as String? ?? "");
+  late final _tiktokIdController = TextEditingController(text: widget.profile["tiktok_creator_id"] as String? ?? "");
+  late final _tiktokUsernameController = TextEditingController(text: widget.profile["tiktok_username"] as String? ?? "");
+  late final _tiktokGroupController = TextEditingController(text: widget.profile["tiktok_group_name"] as String? ?? "");
+  String? _categoryId;
+  String? _groupId;
+  List<Map<String, dynamic>> _categories = [];
+  List<Map<String, dynamic>> _groups = [];
+  bool _loading = true;
+  bool _saving = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _categoryId = widget.profile["category_id"] as String?;
+    _groupId = widget.profile["group_id"] as String?;
+    _load();
+  }
+
+  Future<void> _load() async {
+    final client = Supabase.instance.client;
+    final categories = await client.from("streamer_categories").select("id, name").order("name");
+    final groups = await client.from("groups").select("id, name").order("name");
+    if (mounted) setState(() {
+      _categories = (categories as List).cast<Map<String, dynamic>>();
+      _groups = (groups as List).cast<Map<String, dynamic>>();
+      _loading = false;
+    });
+  }
+
+  Future<void> _save() async {
+    if (_nameController.text.trim().isEmpty) {
+      setState(() => _errorMessage = "Informe um nome.");
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _errorMessage = null;
+    });
+    try {
+      await Supabase.instance.client.from("profiles").update({
+        "display_name": _nameController.text.trim(),
+        "tiktok_creator_id": _tiktokIdController.text.trim(),
+        "tiktok_username": _tiktokUsernameController.text.trim(),
+        "tiktok_group_name": _tiktokGroupController.text.trim(),
+        "category_id": _categoryId,
+        "group_id": _groupId,
+      }).eq("id", widget.streamerId);
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      setState(() {
+        _saving = false;
+        _errorMessage = "Erro ao salvar: " + e.toString();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF1A1A1A),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440, maxHeight: 620),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: _loading
+              ? const SizedBox(height: 200, child: Center(child: CircularProgressIndicator()))
+              : SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text("Editar Perfil", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 16),
+                      TextField(controller: _nameController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Nome", labelStyle: TextStyle(color: Colors.white54))),
+                      const SizedBox(height: 8),
+                      TextField(controller: _tiktokIdController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "ID TikTok", labelStyle: TextStyle(color: Colors.white54))),
+                      const SizedBox(height: 8),
+                      TextField(controller: _tiktokUsernameController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Nick TikTok", labelStyle: TextStyle(color: Colors.white54))),
+                      const SizedBox(height: 12),
+                      const Text("Categoria", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      const SizedBox(height: 4),
+                      DropdownButton<String?>(
+                        value: _categoryId,
+                        isExpanded: true,
+                        hint: const Text("Sem categoria", style: TextStyle(color: Colors.white38)),
+                        dropdownColor: const Color(0xFF1A1A1A),
+                        style: const TextStyle(color: Colors.white),
+                        items: [
+                          const DropdownMenuItem<String?>(value: null, child: Text("Sem categoria")),
+                          ..._categories.map((c) => DropdownMenuItem<String?>(value: c["id"] as String, child: Text(c["name"] as String))),
+                        ],
+                        onChanged: (v) => setState(() => _categoryId = v),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text("Grupo (interno)", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      const SizedBox(height: 4),
+                      DropdownButton<String?>(
+                        value: _groupId,
+                        isExpanded: true,
+                        hint: const Text("Sem grupo", style: TextStyle(color: Colors.white38)),
+                        dropdownColor: const Color(0xFF1A1A1A),
+                        style: const TextStyle(color: Colors.white),
+                        items: [
+                          const DropdownMenuItem<String?>(value: null, child: Text("Sem grupo")),
+                          ..._groups.map((g) => DropdownMenuItem<String?>(value: g["id"] as String, child: Text(g["name"] as String))),
+                        ],
+                        onChanged: (v) => setState(() => _groupId = v),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(controller: _tiktokGroupController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Grupo (TikTok)", labelStyle: TextStyle(color: Colors.white54))),
+                      if (_errorMessage != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_errorMessage!, style: const TextStyle(color: Colors.redAccent, fontSize: 12))),
+                      const SizedBox(height: 16),
+                      Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                        TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text("Cancelar")),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: _saving ? null : _save,
+                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
+                          child: Text(_saving ? "Salvando..." : "Salvar"),
+                        ),
+                      ]),
+                    ],
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+}
 
 

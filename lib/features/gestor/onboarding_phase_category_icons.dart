@@ -1,23 +1,39 @@
-const _categoryEmojis = {
-  "musico": "\u{1F3B5}",
-  "gamer": "\u{1F3AE}",
-  "batalha": "⚔️",
-  "lifestyle": "\u{1F4AC}",
-  "entretenimento": "\u{1F3A4}",
-};
+import "package:flutter/material.dart";
 
-/// Emoji da categoria do streamer para deixa-la em destaque nos cards do
-/// Onboarding 0-15 Dias. Usa `icon_key` quando definido; senao tenta
-/// reconhecer pelo nome da categoria (streamer_categories.name), para
-/// funcionar mesmo antes de um admin configurar o icon_key manualmente.
-String categoryEmoji({String? iconKey, String? categoryName}) {
-  if (iconKey != null && _categoryEmojis.containsKey(iconKey)) return _categoryEmojis[iconKey]!;
-  final name = categoryName?.toLowerCase() ?? "";
-  for (final entry in _categoryEmojis.entries) {
-    if (name.contains(entry.key)) return entry.value;
+/// Icone Material por categoria, mesmo padrao visual da pagina de Leads
+/// (badge sobre o avatar, ver lead_category_icons.dart -> categoryIcon).
+IconData categoryIconData(String? iconKey) {
+  switch (iconKey) {
+    case "gamer":
+      return Icons.sports_esports;
+    case "batalha":
+      return Icons.sports_mma;
+    case "musico":
+      return Icons.music_note;
+    case "lifestyle":
+      return Icons.emoji_emotions;
+    case "entretenimento":
+      return Icons.theater_comedy;
+    default:
+      return Icons.category;
   }
-  if (name.contains("music")) return _categoryEmojis["musico"]!;
-  if (name.contains("game")) return _categoryEmojis["gamer"]!;
-  if (name.contains("humor") || name.contains("entreten")) return _categoryEmojis["entretenimento"]!;
-  return "⭐";
+}
+
+/// Cor por categoria (independente da cor da etapa/coluna), mesmo padrao
+/// da pagina de Leads (categoryColor em lead_category_icons.dart).
+Color categoryColorFor(String? iconKey) {
+  switch (iconKey) {
+    case "gamer":
+      return const Color(0xFF7A0BD4);
+    case "batalha":
+      return Colors.redAccent;
+    case "musico":
+      return Colors.blueAccent;
+    case "lifestyle":
+      return Colors.pinkAccent;
+    case "entretenimento":
+      return Colors.amber;
+    default:
+      return Colors.tealAccent;
+  }
 }

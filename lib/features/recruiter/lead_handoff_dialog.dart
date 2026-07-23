@@ -1,25 +1,49 @@
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
+import "../gestor/onboarding_phase_service.dart";
 
 /// Leva o gestor ja definido para um lead (via lead_onboarding_gestores) ate
 /// o cadastro oficial do streamer, assim que ele existir (leads.converted_streamer_id).
 /// Chamada sempre que um gestor e definido/redefinido para um lead, em
 /// qualquer ordem em relacao ao vinculo do streamer oficial.
+///
+/// Se o card do Onboarding 0-15 Dias ja existir (streamer marcado como
+/// "concluido" antes do gestor ser definido/adicionado), vincula esse
+/// gestor ao card tambem -- sem isso, o card ficaria visivel so para quem
+/// ja estava vinculado no momento em que foi criado.
 Future<void> propagateManagerToProfile({required String leadId, required String managerId}) async {
   final client = Supabase.instance.client;
   final lead = await client.from("leads").select("converted_streamer_id").eq("id", leadId).maybeSingle();
   final streamerId = lead?["converted_streamer_id"] as String?;
-  if (streamerId == null) return;
 
-  await client.from("profiles").update({"assigned_manager_id": managerId}).eq("id", streamerId);
-  await client.from("manager_assignment_history").insert({
-    "manager_id": managerId,
-    "streamer_id": streamerId,
-  });
+  Map<String, dynamic>? progress;
+  if (streamerId != null) {
+    await client.from("profiles").update({"assigned_manager_id": managerId}).eq("id", streamerId);
+    // Registro de historico -- best effort: nao pode travar o vinculo do
+    // gestor se a policy de RLS desta tabela rejeitar (ex.: recrutador
+    // registrando historico de um gestor que nao e ele mesmo).
+    try {
+      await client.from("manager_assignment_history").insert({
+        "manager_id": managerId,
+        "streamer_id": streamerId,
+      });
+    } catch (_) {}
+    progress = await client.from("streamer_phase_progress").select("id").eq("streamer_id", streamerId).eq("phase_key", onboardingPhaseKey).maybeSingle();
+  } else {
+    // Streamer ainda nao vinculado oficialmente -- se ja existir um card
+    // "pre-vinculo" (convite ja enviado), vincula o gestor la tambem.
+    progress = await client.from("streamer_phase_progress").select("id").eq("lead_id", leadId).eq("phase_key", onboardingPhaseKey).maybeSingle();
+  }
+
+  if (progress != null) {
+    await addManagersToCard(progressId: progress["id"] as String, managerIds: [managerId], addedBy: managerId);
+  }
 }
 
-/// Modal obrigatorio "Transferencia para o Gestor", preenchido uma unica vez
-/// quando o recrutador marca "Convite enviado" em Streamers Agenciados.
+/// Modal "Transferencia para o Gestor", aberto quando o recrutador marca
+/// "Convite enviado" em Streamers Agenciados -- e reaberto (com os dados
+/// ja preenchidos) sempre que ele clicar de novo em "Convite enviado" ja
+/// concluido, para poder corrigir/completar as informacoes depois.
 /// Retorna true quando confirmado, para a tela chamadora recarregar.
 class LeadHandoffDialog extends StatefulWidget {
   final String leadId;
@@ -34,6 +58,7 @@ class LeadHandoffDialog extends StatefulWidget {
 class _LeadHandoffDialogState extends State<LeadHandoffDialog> {
   List<Map<String, dynamic>> _managers = [];
   final Set<String> _selectedManagerIds = {};
+  Set<String> _previousManagerIds = {};
   late final _categoryController = TextEditingController(text: widget.initialCategory ?? "");
   final _nicheController = TextEditingController();
   final _availableDaysController = TextEditingController();
@@ -45,6 +70,7 @@ class _LeadHandoffDialogState extends State<LeadHandoffDialog> {
   final _notesController = TextEditingController();
   bool _loading = true;
   bool _saving = false;
+  bool _isEditing = false;
 
   @override
   void initState() {
@@ -55,8 +81,28 @@ class _LeadHandoffDialogState extends State<LeadHandoffDialog> {
   Future<void> _load() async {
     final client = Supabase.instance.client;
     final rows = await client.from("managers").select("id, login_email, photo_url").order("login_email");
+
+    final existingHandoff = await client.from("lead_recruitment_handoff").select().eq("lead_id", widget.leadId).maybeSingle();
+    final existingGestores = await client.from("lead_onboarding_gestores").select("manager_id").eq("lead_id", widget.leadId);
+    final existingManagerIds = (existingGestores as List).map((g) => g["manager_id"] as String).toSet();
+
+    if (existingHandoff != null) {
+      _nicheController.text = (existingHandoff["niche"] as String?) ?? "";
+      _categoryController.text = (existingHandoff["category"] as String?) ?? widget.initialCategory ?? "";
+      _availableDaysController.text = (existingHandoff["available_days"] as String?) ?? "";
+      _availableHoursController.text = (existingHandoff["available_hours"] as String?) ?? "";
+      _experienceController.text = (existingHandoff["previous_experience"] as String?) ?? "";
+      _objectivesController.text = (existingHandoff["objectives"] as String?) ?? "";
+      _attentionPointsController.text = (existingHandoff["attention_points"] as String?) ?? "";
+      _summaryController.text = (existingHandoff["recruitment_summary"] as String?) ?? "";
+      _notesController.text = (existingHandoff["notes"] as String?) ?? "";
+    }
+
     if (mounted) setState(() {
       _managers = (rows as List).cast<Map<String, dynamic>>();
+      _previousManagerIds = existingManagerIds;
+      _selectedManagerIds.addAll(existingManagerIds);
+      _isEditing = existingHandoff != null;
       _loading = false;
     });
   }
@@ -70,6 +116,7 @@ class _LeadHandoffDialogState extends State<LeadHandoffDialog> {
     final userId = client.auth.currentUser!.id;
     final managerIds = _selectedManagerIds.toList();
     final managerEmails = managerIds.map((id) => _managers.firstWhere((m) => m["id"] == id)["login_email"] as String).toList();
+    final newManagerIds = managerIds.where((id) => !_previousManagerIds.contains(id)).toList();
 
     try {
       await client.from("lead_onboarding_gestores").delete().eq("lead_id", widget.leadId);
@@ -77,7 +124,7 @@ class _LeadHandoffDialogState extends State<LeadHandoffDialog> {
         await client.from("lead_onboarding_gestores").insert({"lead_id": widget.leadId, "manager_id": managerId});
       }
 
-      await client.from("lead_recruitment_handoff").insert({
+      await client.from("lead_recruitment_handoff").upsert({
         "lead_id": widget.leadId,
         "manager_id": managerIds.first,
         "niche": _nicheController.text.trim(),
@@ -90,7 +137,7 @@ class _LeadHandoffDialogState extends State<LeadHandoffDialog> {
         "recruitment_summary": _summaryController.text.trim(),
         "notes": _notesController.text.trim(),
         "performed_by": userId,
-      });
+      }, onConflict: "lead_id");
 
       final checklist = await client.from("lead_onboarding_checklist").select().eq("lead_id", widget.leadId).maybeSingle();
       if (checklist == null) {
@@ -100,28 +147,48 @@ class _LeadHandoffDialogState extends State<LeadHandoffDialog> {
           "convite_enviado_at": DateTime.now().toIso8601String(),
           "convite_enviado_by": userId,
         });
-      } else {
+      } else if (checklist["convite_enviado"] != true) {
         await client.from("lead_onboarding_checklist").update({
           "convite_enviado": true,
           "convite_enviado_at": DateTime.now().toIso8601String(),
           "convite_enviado_by": userId,
           "updated_at": DateTime.now().toIso8601String(),
         }).eq("lead_id", widget.leadId);
+      } else {
+        await client.from("lead_onboarding_checklist").update({"updated_at": DateTime.now().toIso8601String()}).eq("lead_id", widget.leadId);
       }
 
       await client.from("lead_history").insert({
         "lead_id": widget.leadId,
         "action": "transferencia_gestor",
-        "detail": "Transferido para " + managerEmails.join(", ") + (_summaryController.text.trim().isNotEmpty ? ". Resumo: " + _summaryController.text.trim() : ""),
+        "detail": (_isEditing ? "Dados da transferencia atualizados. Gestores: " : "Transferido para ") +
+            managerEmails.join(", ") +
+            (_summaryController.text.trim().isNotEmpty ? ". Resumo: " + _summaryController.text.trim() : ""),
         "performed_by": userId,
       });
 
+      // Convite enviado e gestor(es) definidos: e agora que o card deve
+      // nascer no Onboarding 0-15 Dias do gestor -- antes disso nao havia
+      // nenhum caminho na UI que criasse o card (so o atualizava, via
+      // propagateManagerToProfile abaixo).
+      try {
+        final leadRow = await client.from("leads").select("converted_streamer_id").eq("id", widget.leadId).maybeSingle();
+        final streamerId = leadRow?["converted_streamer_id"] as String?;
+        if (streamerId != null) {
+          await createOnboardingPhaseCardIfNeeded(streamerId: streamerId);
+        } else {
+          await createOnboardingLeadCardIfNeeded(leadId: widget.leadId);
+        }
+      } catch (_) {}
+
       for (final managerId in managerIds) {
-        await client.from("manager_notifications").insert({
-          "manager_id": managerId,
-          "subject": "Novo streamer a caminho",
-          "message": widget.leadName + " esta a caminho da agencia. Convite enviado, voce foi definido como gestor responsavel.",
-        });
+        if (newManagerIds.contains(managerId)) {
+          await client.from("manager_notifications").insert({
+            "manager_id": managerId,
+            "subject": "Novo streamer a caminho",
+            "message": widget.leadName + " esta a caminho da agencia. Convite enviado, voce foi definido como gestor responsavel.",
+          });
+        }
         await propagateManagerToProfile(leadId: widget.leadId, managerId: managerId);
       }
 
@@ -158,11 +225,14 @@ class _LeadHandoffDialogState extends State<LeadHandoffDialog> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text("Transferencia para o Gestor", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                    Text(_isEditing ? "Editar Transferencia para o Gestor" : "Transferencia para o Gestor", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
                     Text(widget.leadName, style: const TextStyle(color: Colors.white54, fontSize: 13)),
                     const SizedBox(height: 4),
-                    const Text("Preenchido uma unica vez, no envio do convite.", style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic)),
+                    Text(
+                      _isEditing ? "Voce pode corrigir ou completar os dados preenchidos no envio do convite." : "Preenchido uma unica vez, no envio do convite.",
+                      style: const TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic),
+                    ),
                     const SizedBox(height: 16),
                     Expanded(
                       child: SingleChildScrollView(
@@ -217,7 +287,7 @@ class _LeadHandoffDialogState extends State<LeadHandoffDialog> {
                         ElevatedButton(
                           onPressed: (_canConfirm && !_saving) ? _confirm : null,
                           style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
-                          child: Text(_saving ? "Transferindo..." : "Confirmar transferencia"),
+                          child: Text(_saving ? "Salvando..." : (_isEditing ? "Salvar alteracoes" : "Confirmar transferencia")),
                         ),
                       ],
                     ),

@@ -8,12 +8,14 @@ import "gestor_dashboard_page.dart";
 import "gestor_my_streamers_page.dart";
 import "gestor_proximos_agenciados_page.dart";
 import "onboarding_phase_kanban_page.dart";
+import "onboarding_materials_page.dart";
 
 const _menuItems = [
   (Icons.dashboard, "Dashboard"),
   (Icons.groups, "Meus Streamers"),
   (Icons.hourglass_bottom, "Proximos Agenciados"),
   (Icons.timelapse, "Onboarding 0-15 Dias"),
+  (Icons.menu_book, "Material Acompanhamento"),
   (Icons.calendar_month, "Calendario"),
   (Icons.badge, "CRM"),
 ];
@@ -50,6 +52,8 @@ class _GestorShellState extends State<GestorShell> {
         return const GestorProximosAgenciadosPage();
       case "Onboarding 0-15 Dias":
         return const OnboardingPhaseKanbanPage();
+      case "Material Acompanhamento":
+        return const OnboardingMaterialsPage();
       case "Calendario":
         return const CalendarBoardPage(mode: CalendarBoardMode.mine);
       case "CRM":

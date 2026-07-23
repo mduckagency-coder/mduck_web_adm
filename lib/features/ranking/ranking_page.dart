@@ -38,7 +38,7 @@ class _RankingPageState extends State<RankingPage> {
     ("diamonds", "Diamantes", Icons.diamond, Color(0xFF7A0BD4)),
     ("horas", "Horas", Icons.access_time, Colors.orangeAccent),
     ("dias", "Dias (acumulado)", Icons.calendar_today, Colors.greenAccent),
-    ("batalhas", "Batalhas", Icons.sports_kabaddi, Colors.redAccent),
+    ("batalhas", "Batalhas", Icons.sports_mma, Colors.redAccent),
   ];
 
   @override

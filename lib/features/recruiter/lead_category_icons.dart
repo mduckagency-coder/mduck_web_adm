@@ -5,7 +5,7 @@ IconData categoryIcon(String? iconKey) {
     case "gamer":
       return Icons.sports_esports;
     case "batalha":
-      return Icons.sports_kabaddi;
+      return Icons.sports_mma;
     case "desafio":
       return Icons.emoji_events;
     case "musico":
@@ -38,7 +38,7 @@ const leadOrigins = ["Indicacao Streamers", "TikTok Lead", "Aplicado", "Formular
 
 const categoryIconOptions = [
   ("gamer", "Gamer", Icons.sports_esports),
-  ("batalha", "Batalha", Icons.sports_kabaddi),
+  ("batalha", "Batalha", Icons.sports_mma),
   ("desafio", "Desafio", Icons.emoji_events),
   ("musico", "Musico", Icons.music_note),
   ("modelo", "Modelo", Icons.camera_alt),

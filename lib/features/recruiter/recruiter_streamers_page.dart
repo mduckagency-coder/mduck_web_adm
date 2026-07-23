@@ -380,7 +380,7 @@ class _StreamerFichaDialogState extends State<StreamerFichaDialog> {
 
     final assignmentHistory = await client
         .from("manager_assignment_history")
-        .select("manager_id, assigned_at, managers(login_email)")
+        .select("manager_id, assigned_at, managers!manager_assignment_history_manager_id_fkey(login_email)")
         .eq("streamer_id", streamerId)
         .order("assigned_at");
 
@@ -392,9 +392,18 @@ class _StreamerFichaDialogState extends State<StreamerFichaDialog> {
 
     final lead = await client.from("leads").select("id, created_at, status").eq("converted_streamer_id", streamerId).maybeSingle();
     List<Map<String, dynamic>> leadEvents = [];
+    bool groupConfirmedByRecruiter = false;
     if (lead != null) {
       final leadHist = await client.from("lead_history").select().eq("lead_id", lead["id"]).order("created_at");
       leadEvents = (leadHist as List).cast<Map<String, dynamic>>();
+
+      // O recrutador confirma "Grupo Individual" pelo checklist de
+      // Streamers Agenciados (lead_onboarding_checklist) -- fonte
+      // independente da tabela streamer_individual_groups (preenchida so
+      // por um formulario manual antigo). Sem isso, o card ficava
+      // mostrando "grupo nao criado" mesmo depois do recrutador confirmar.
+      final checklist = await client.from("lead_onboarding_checklist").select("grupo_individual_criado").eq("lead_id", lead["id"]).maybeSingle();
+      groupConfirmedByRecruiter = checklist?["grupo_individual_criado"] == true;
     }
 
     final transfers = await client.from("streamer_transfers").select("transferred_at, managers!streamer_transfers_manager_id_fkey(login_email)").eq("streamer_id", streamerId);
@@ -412,6 +421,8 @@ class _StreamerFichaDialogState extends State<StreamerFichaDialog> {
     }
     if (group != null && group["group_created"] == true) {
       timeline.add({"date": group["created_at"], "label": "Grupo individual criado: " + ((group["group_name"] as String?) ?? "")});
+    } else if (groupConfirmedByRecruiter) {
+      timeline.add({"date": lead!["created_at"], "label": "Grupo individual confirmado pelo recrutador (Streamers Agenciados)"});
     }
     timeline.sort((a, b) => (a["date"] as String).compareTo(b["date"] as String));
 
@@ -419,6 +430,7 @@ class _StreamerFichaDialogState extends State<StreamerFichaDialog> {
       "assignmentHistory": (assignmentHistory as List).cast<Map<String, dynamic>>(),
       "materials": (materials).cast<Map<String, dynamic>>(),
       "group": group,
+      "groupConfirmedByRecruiter": groupConfirmedByRecruiter,
       "notes": (notes as List).cast<Map<String, dynamic>>(),
       "timeline": timeline,
     };
@@ -456,6 +468,7 @@ class _StreamerFichaDialogState extends State<StreamerFichaDialog> {
               final assignmentHistory = snapshot.data!["assignmentHistory"] as List<Map<String, dynamic>>;
               final materials = snapshot.data!["materials"] as List<Map<String, dynamic>>;
               final group = snapshot.data!["group"] as Map<String, dynamic>?;
+              final groupConfirmedByRecruiter = snapshot.data!["groupConfirmedByRecruiter"] == true;
               final notes = snapshot.data!["notes"] as List<Map<String, dynamic>>;
               final timeline = snapshot.data!["timeline"] as List<Map<String, dynamic>>;
               final catData = s["streamer_categories"];
@@ -510,11 +523,13 @@ class _StreamerFichaDialogState extends State<StreamerFichaDialog> {
                     const SizedBox(height: 16),
                     const Text("Grupo individual", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 6),
-                    if (group == null || group["group_created"] != true)
-                      const Text("Pendente - grupo ainda nao criado.", style: TextStyle(color: Colors.orangeAccent, fontSize: 12))
-                    else
+                    if (group != null && group["group_created"] == true)
                       Text("Criado: " + ((group["group_name"] as String?) ?? "-") + (((group["group_link"] as String?)?.isNotEmpty == true) ? " (" + group["group_link"] + ")" : ""),
-                          style: const TextStyle(color: Colors.greenAccent, fontSize: 12)),
+                          style: const TextStyle(color: Colors.greenAccent, fontSize: 12))
+                    else if (groupConfirmedByRecruiter)
+                      const Text("Confirmado pelo recrutador (Streamers Agenciados).", style: TextStyle(color: Colors.greenAccent, fontSize: 12))
+                    else
+                      const Text("Pendente - grupo ainda nao criado.", style: TextStyle(color: Colors.orangeAccent, fontSize: 12)),
                     const SizedBox(height: 16),
                     const Text("Observacoes do recrutador", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 6),
