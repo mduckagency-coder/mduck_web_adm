@@ -6,6 +6,13 @@ import "admin_auth_repository.dart";
 import "../public/privacy_policy_page.dart";
 import "../public/terms_page.dart";
 
+const _purple = Color(0xFF7A0BD4);
+const _purpleLight = Color(0xFF9B3DF5);
+const _darkField = Color(0xFF0A0812);
+const _cardColor = Color(0xFF15101F);
+const _labelGray = Color(0xFFB4AFC7);
+const _cardRadius = 20.0;
+
 class AdminLoginPage extends StatefulWidget {
   const AdminLoginPage({super.key});
 
@@ -15,7 +22,7 @@ class AdminLoginPage extends StatefulWidget {
 
 enum _LoginMode { login, forgotEmail, forgotCode, forgotNewPassword }
 
-class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProviderStateMixin {
+class _AdminLoginPageState extends State<AdminLoginPage> with TickerProviderStateMixin {
   final _authRepository = AdminAuthRepository();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -35,10 +42,9 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
   late Animation<Offset> _slideAnim;
+  late AnimationController _borderBeamController;
 
   static const _prefsKey = "mduck_remembered_email";
-  static const _purple = Color(0xFF7A0BD4);
-  static const _darkField = Color(0xFF0C0A14);
 
   @override
   void initState() {
@@ -48,11 +54,13 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
     _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
     _slideAnim = Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero).animate(CurvedAnimation(parent: _animController, curve: Curves.easeOut));
     _animController.forward();
+    _borderBeamController = AnimationController(vsync: this, duration: const Duration(milliseconds: 5200))..repeat();
   }
 
   @override
   void dispose() {
     _animController.dispose();
+    _borderBeamController.dispose();
     super.dispose();
   }
 
@@ -207,43 +215,9 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
   }
 
   Widget _fieldLabel(String text) {
-    return Text(text, style: const TextStyle(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1));
-  }
-
-  InputDecoration _darkDecoration({Widget? suffixIcon, String? hint}) {
-    return InputDecoration(
-      filled: true,
-      fillColor: _darkField,
-      hintText: hint,
-      hintStyle: const TextStyle(color: Colors.white24),
-      suffixIcon: suffixIcon,
-      isDense: true,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.white.withOpacity(0.06))),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.white.withOpacity(0.06))),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: _purple, width: 1.2)),
-    );
-  }
-
-  Widget _smallPurpleButton({required String label, required bool loading, required VoidCallback? onPressed}) {
-    return SizedBox(
-      width: double.infinity,
-      child: Material(
-        color: _purple,
-        borderRadius: BorderRadius.circular(10),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(10),
-          onTap: onPressed,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Center(
-              child: loading
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-            ),
-          ),
-        ),
-      ),
+    return Text(
+      text,
+      style: const TextStyle(color: _labelGray, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.8),
     );
   }
 
@@ -256,7 +230,8 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
         onChanged: onChanged,
         activeColor: _purple,
         checkColor: Colors.white,
-        side: const BorderSide(color: Colors.white38),
+        side: BorderSide(color: Colors.white.withOpacity(0.45), width: 1.4),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
       ),
     );
   }
@@ -269,26 +244,21 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
       children: [
         _fieldLabel("USUARIO"),
         const SizedBox(height: 6),
-        TextField(
+        _PremiumTextField(
           controller: _emailController,
-          style: const TextStyle(color: Colors.white),
-          decoration: _darkDecoration(),
           keyboardType: TextInputType.emailAddress,
         ),
         const SizedBox(height: 14),
         _fieldLabel("SENHA"),
         const SizedBox(height: 6),
-        TextField(
+        _PremiumTextField(
           controller: _passwordController,
-          style: const TextStyle(color: Colors.white),
-          decoration: _darkDecoration(
-            suffixIcon: IconButton(
-              icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, color: Colors.white38, size: 18),
-              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-            ),
-          ),
           obscureText: _obscurePassword,
           onSubmitted: (_) => _handleLogin(),
+          suffixIcon: IconButton(
+            icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, color: Colors.white38, size: 18),
+            onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+          ),
         ),
         const SizedBox(height: 10),
         Row(children: [
@@ -303,18 +273,22 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
         ]),
         Align(
           alignment: Alignment.centerRight,
-          child: TextButton(
-            onPressed: () => setState(() {
-              _mode = _LoginMode.forgotEmail;
-              _errorMessage = null;
-              _infoMessage = null;
-            }),
-            child: const Text("Esqueci minha senha", style: TextStyle(color: Colors.white, fontSize: 12)),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: _HoverLink(
+              text: "Esqueci minha senha",
+              baseColor: Colors.white70,
+              onPressed: () => setState(() {
+                _mode = _LoginMode.forgotEmail;
+                _errorMessage = null;
+                _infoMessage = null;
+              }),
+            ),
           ),
         ),
-        const SizedBox(height: 6),
         _buildMessages(),
-        _smallPurpleButton(label: _isLoading ? "Entrando..." : "Entrar", loading: _isLoading, onPressed: _isLoading ? null : _handleLogin),
+        const SizedBox(height: 6),
+        _PremiumButton(label: _isLoading ? "Entrando..." : "Entrar", loading: _isLoading, onPressed: _isLoading ? null : _handleLogin),
       ],
     );
   }
@@ -331,10 +305,10 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
         const SizedBox(height: 16),
         _fieldLabel("E-MAIL"),
         const SizedBox(height: 6),
-        TextField(controller: _emailController, style: const TextStyle(color: Colors.white), decoration: _darkDecoration()),
+        _PremiumTextField(controller: _emailController),
         const SizedBox(height: 12),
         _buildMessages(),
-        _smallPurpleButton(label: _isLoading ? "Enviando..." : "Enviar codigo", loading: _isLoading, onPressed: _isLoading ? null : _handleSendCode),
+        _PremiumButton(label: _isLoading ? "Enviando..." : "Enviar codigo", loading: _isLoading, onPressed: _isLoading ? null : _handleSendCode),
         Align(alignment: Alignment.center, child: TextButton(onPressed: () => setState(() => _mode = _LoginMode.login), child: const Text("Voltar para o login", style: TextStyle(color: Colors.white54)))),
       ],
     );
@@ -352,10 +326,14 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
         const SizedBox(height: 16),
         _fieldLabel("CODIGO"),
         const SizedBox(height: 6),
-        TextField(controller: _codeController, style: const TextStyle(color: Colors.white, letterSpacing: 4, fontSize: 18), textAlign: TextAlign.center, decoration: _darkDecoration()),
+        _PremiumTextField(
+          controller: _codeController,
+          style: const TextStyle(color: Colors.white, letterSpacing: 4, fontSize: 18),
+          textAlign: TextAlign.center,
+        ),
         const SizedBox(height: 12),
         _buildMessages(),
-        _smallPurpleButton(label: _isLoading ? "Validando..." : "Validar codigo", loading: _isLoading, onPressed: _isLoading ? null : _handleVerifyCode),
+        _PremiumButton(label: _isLoading ? "Validando..." : "Validar codigo", loading: _isLoading, onPressed: _isLoading ? null : _handleVerifyCode),
         Align(alignment: Alignment.center, child: TextButton(onPressed: _isLoading ? null : _handleSendCode, child: const Text("Reenviar codigo", style: TextStyle(color: Colors.white54)))),
         Align(alignment: Alignment.center, child: TextButton(onPressed: () => setState(() => _mode = _LoginMode.login), child: const Text("Voltar para o login", style: TextStyle(color: Colors.white54)))),
       ],
@@ -372,19 +350,21 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
         const SizedBox(height: 16),
         _fieldLabel("NOVA SENHA"),
         const SizedBox(height: 6),
-        TextField(
+        _PremiumTextField(
           controller: _newPasswordController,
           obscureText: _obscureNewPassword,
-          style: const TextStyle(color: Colors.white),
-          decoration: _darkDecoration(suffixIcon: IconButton(icon: Icon(_obscureNewPassword ? Icons.visibility_off : Icons.visibility, color: Colors.white38, size: 18), onPressed: () => setState(() => _obscureNewPassword = !_obscureNewPassword))),
+          suffixIcon: IconButton(
+            icon: Icon(_obscureNewPassword ? Icons.visibility_off : Icons.visibility, color: Colors.white38, size: 18),
+            onPressed: () => setState(() => _obscureNewPassword = !_obscureNewPassword),
+          ),
         ),
         const SizedBox(height: 12),
         _fieldLabel("CONFIRMAR SENHA"),
         const SizedBox(height: 6),
-        TextField(controller: _confirmPasswordController, obscureText: _obscureNewPassword, style: const TextStyle(color: Colors.white), decoration: _darkDecoration()),
+        _PremiumTextField(controller: _confirmPasswordController, obscureText: _obscureNewPassword),
         const SizedBox(height: 12),
         _buildMessages(),
-        _smallPurpleButton(label: _isLoading ? "Salvando..." : "Confirmar senha", loading: _isLoading, onPressed: _isLoading ? null : _handleSetNewPassword),
+        _PremiumButton(label: _isLoading ? "Salvando..." : "Confirmar senha", loading: _isLoading, onPressed: _isLoading ? null : _handleSetNewPassword),
       ],
     );
   }
@@ -418,20 +398,38 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
 
   Widget _buildFooterLinks() {
     return Padding(
-      padding: const EdgeInsets.only(top: 18),
+      padding: const EdgeInsets.only(top: 22),
       child: Wrap(
         alignment: WrapAlignment.center,
-        spacing: 16,
+        spacing: 20,
         children: [
-          TextButton(
+          _HoverLink(
+            text: "Política de Privacidade",
+            fontSize: 11,
+            baseColor: Colors.white54,
             onPressed: () => _openPublicPage("/privacy", const PrivacyPolicyPage()),
-            child: const Text("Política de Privacidade", style: TextStyle(color: Colors.white38, fontSize: 11)),
           ),
-          TextButton(
+          _HoverLink(
+            text: "Termos de Uso",
+            fontSize: 11,
+            baseColor: Colors.white54,
             onPressed: () => _openPublicPage("/terms", const TermsPage()),
-            child: const Text("Termos de Uso", style: TextStyle(color: Colors.white38, fontSize: 11)),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildBorderBeam() {
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: _borderBeamController,
+        builder: (context, _) {
+          return CustomPaint(
+            painter: _BorderBeamPainter(progress: _borderBeamController.value),
+            size: Size.infinite,
+          );
+        },
       ),
     );
   }
@@ -458,24 +456,37 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
                 position: _slideAnim,
                 child: Container(
                   width: cardWidth,
-                  padding: const EdgeInsets.all(28),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF15101F).withOpacity(0.92),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white.withOpacity(0.06)),
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 40, offset: const Offset(0, 20))],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Image.asset("assets/logo/LogoMduck.png", height: 170, errorBuilder: (context, error, stack) => const Icon(Icons.hive, color: _purple, size: 100)),
-                      const SizedBox(height: 6),
-                      AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 250),
-                        child: _buildCurrentForm(),
-                      ),
-                      _buildFooterLinks(),
+                    color: _cardColor.withOpacity(0.92),
+                    borderRadius: BorderRadius.circular(_cardRadius),
+                    border: Border.all(color: Colors.white.withOpacity(0.05)),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withOpacity(0.55), blurRadius: 60, offset: const Offset(0, 24)),
+                      BoxShadow(color: _purple.withOpacity(0.10), blurRadius: 40, offset: const Offset(0, 0)),
                     ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(_cardRadius),
+                    child: Stack(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(28, 32, 28, 28),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Image.asset("assets/logo/LogoMduck.png", height: 204, errorBuilder: (context, error, stack) => const Icon(Icons.hive, color: _purple, size: 120)),
+                              const SizedBox(height: 4),
+                              AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 250),
+                                child: _buildCurrentForm(),
+                              ),
+                              _buildFooterLinks(),
+                            ],
+                          ),
+                        ),
+                        Positioned.fill(child: _buildBorderBeam()),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -487,8 +498,192 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
   }
 }
 
+class _PremiumTextField extends StatefulWidget {
+  const _PremiumTextField({
+    required this.controller,
+    this.obscureText = false,
+    this.keyboardType,
+    this.textAlign = TextAlign.start,
+    this.style,
+    this.suffixIcon,
+    this.onSubmitted,
+  });
 
+  final TextEditingController controller;
+  final bool obscureText;
+  final TextInputType? keyboardType;
+  final TextAlign textAlign;
+  final TextStyle? style;
+  final Widget? suffixIcon;
+  final ValueChanged<String>? onSubmitted;
 
+  @override
+  State<_PremiumTextField> createState() => _PremiumTextFieldState();
+}
 
+class _PremiumTextFieldState extends State<_PremiumTextField> {
+  final _focusNode = FocusNode();
+  bool _hasFocus = false;
 
+  @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(() => setState(() => _hasFocus = _focusNode.hasFocus));
+  }
 
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      decoration: BoxDecoration(
+        color: _darkField,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: _hasFocus ? _purple : Colors.white.withOpacity(0.10), width: _hasFocus ? 1.3 : 1),
+        boxShadow: _hasFocus ? [BoxShadow(color: _purple.withOpacity(0.28), blurRadius: 14, spreadRadius: 1)] : const [],
+      ),
+      child: TextField(
+        controller: widget.controller,
+        focusNode: _focusNode,
+        obscureText: widget.obscureText,
+        keyboardType: widget.keyboardType,
+        textAlign: widget.textAlign,
+        style: widget.style ?? const TextStyle(color: Colors.white),
+        onSubmitted: widget.onSubmitted,
+        decoration: InputDecoration(
+          border: InputBorder.none,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          suffixIcon: widget.suffixIcon,
+          hintStyle: const TextStyle(color: Colors.white24),
+        ),
+      ),
+    );
+  }
+}
+
+class _HoverLink extends StatefulWidget {
+  const _HoverLink({required this.text, required this.onPressed, this.fontSize = 12, this.baseColor = Colors.white70});
+
+  final String text;
+  final VoidCallback onPressed;
+  final double fontSize;
+  final Color baseColor;
+
+  @override
+  State<_HoverLink> createState() => _HoverLinkState();
+}
+
+class _HoverLinkState extends State<_HoverLink> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onPressed,
+        child: AnimatedDefaultTextStyle(
+          duration: const Duration(milliseconds: 180),
+          style: TextStyle(color: _hovered ? _purpleLight : widget.baseColor, fontSize: widget.fontSize, fontWeight: FontWeight.w500),
+          child: Text(widget.text),
+        ),
+      ),
+    );
+  }
+}
+
+class _PremiumButton extends StatefulWidget {
+  const _PremiumButton({required this.label, required this.loading, required this.onPressed});
+
+  final String label;
+  final bool loading;
+  final VoidCallback? onPressed;
+
+  @override
+  State<_PremiumButton> createState() => _PremiumButtonState();
+}
+
+class _PremiumButtonState extends State<_PremiumButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+        transform: Matrix4.translationValues(0, _hovered ? -2 : 0, 0),
+        width: double.infinity,
+        height: 56,
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [_purpleLight, _purple]),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(color: _purple.withOpacity(_hovered ? 0.55 : 0.35), blurRadius: _hovered ? 28 : 18, offset: const Offset(0, 10)),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: widget.onPressed,
+              child: Center(
+                child: widget.loading
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : Text(widget.label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14, letterSpacing: 0.3)),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BorderBeamPainter extends CustomPainter {
+  const _BorderBeamPainter({required this.progress});
+
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(_cardRadius));
+    final path = Path()..addRRect(rrect);
+
+    final gradient = SweepGradient(
+      transform: GradientRotation(progress * 2 * 3.141592653589793),
+      colors: const [
+        Colors.transparent,
+        Colors.transparent,
+        Color(0xE6FFFFFF),
+        Colors.transparent,
+        Colors.transparent,
+      ],
+      stops: const [0.0, 0.44, 0.5, 0.56, 1.0],
+    );
+
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4
+      ..shader = gradient.createShader(rect);
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _BorderBeamPainter oldDelegate) => oldDelegate.progress != progress;
+}
