@@ -493,7 +493,7 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
       builder: (context) => _StreamerQuickInfoDialog(
         streamerId: card["streamerId"] as String,
         streamerName: card["displayName"] as String,
-        stageKey: card["stageKey"] as String,
+        stages: _stages,
         agencyId: _agencyId,
       ),
     );
@@ -1858,9 +1858,9 @@ class _GestorVincularStreamerDialogState extends State<_GestorVincularStreamerDi
 class _StreamerQuickInfoDialog extends StatelessWidget {
   final String streamerId;
   final String streamerName;
-  final String stageKey;
+  final List<Map<String, dynamic>> stages;
   final String agencyId;
-  const _StreamerQuickInfoDialog({required this.streamerId, required this.streamerName, required this.stageKey, required this.agencyId});
+  const _StreamerQuickInfoDialog({required this.streamerId, required this.streamerName, required this.stages, required this.agencyId});
 
   Widget _actionButton(BuildContext context, {required IconData icon, required String label, required VoidCallback onTap}) {
     return SizedBox(
@@ -1928,7 +1928,7 @@ class _StreamerQuickInfoDialog extends StatelessWidget {
                   Navigator.of(context).pop();
                   showDialog(
                     context: context,
-                    builder: (context) => _MaterialCheckDialog(streamerId: streamerId, streamerName: streamerName, stageKey: stageKey, agencyId: agencyId),
+                    builder: (context) => _MaterialCheckDialog(streamerId: streamerId, streamerName: streamerName, stages: stages, agencyId: agencyId),
                   );
                 },
               ),
@@ -1946,12 +1946,16 @@ class _StreamerQuickInfoDialog extends StatelessWidget {
 /// cada etapa) que o gestor vai marcando conforme revisa os materiais com o
 /// streamer. Nao trava avanco de etapa (isso e o "Checklist desta etapa",
 /// tabela separada) -- e so um acompanhamento manual.
+/// Mostra os itens de TODAS as etapas/dias (agrupados), nao so o da etapa
+/// atual do card -- as vezes o material/informacao e passado com
+/// antecedencia, e o gestor precisa poder marcar como feito mesmo antes do
+/// card chegar naquele dia.
 class _MaterialCheckDialog extends StatefulWidget {
   final String streamerId;
   final String streamerName;
-  final String stageKey;
+  final List<Map<String, dynamic>> stages;
   final String agencyId;
-  const _MaterialCheckDialog({required this.streamerId, required this.streamerName, required this.stageKey, required this.agencyId});
+  const _MaterialCheckDialog({required this.streamerId, required this.streamerName, required this.stages, required this.agencyId});
 
   @override
   State<_MaterialCheckDialog> createState() => _MaterialCheckDialogState();
@@ -1962,10 +1966,14 @@ class _MaterialCheckDialogState extends State<_MaterialCheckDialog> {
   bool _saving = false;
   String? _message;
   List<Map<String, dynamic>> _items = [];
-  // item_key -> done
+  // "stage_key|item_key" -> done (chave composta pra nao colidir quando duas
+  // etapas geram o mesmo item_key a partir de labels iguais).
   final Map<String, bool> _checked = {};
-  // item_key -> (done_at, done_by_email), so preenchido para itens ja salvos
+  // "stage_key|item_key" -> (done_at, done_by_email), so preenchido para
+  // itens ja salvos.
   final Map<String, (DateTime, String?)> _confirmedInfo = {};
+
+  String _key(Map<String, dynamic> item) => (item["stage_key"] as String) + "|" + (item["item_key"] as String);
 
   @override
   void initState() {
@@ -1981,22 +1989,20 @@ class _MaterialCheckDialogState extends State<_MaterialCheckDialog> {
         .select()
         .eq("agency_id", widget.agencyId)
         .eq("phase_key", onboardingPhaseKey)
-        .eq("stage_key", widget.stageKey)
         .order("order_index", ascending: true);
     final progress = await client
         .from("onboarding_material_check_progress")
-        .select("item_key, done, done_at, done_by, managers(login_email)")
+        .select("stage_key, item_key, done, done_at, done_by, managers(login_email)")
         .eq("streamer_id", widget.streamerId)
-        .eq("phase_key", onboardingPhaseKey)
-        .eq("stage_key", widget.stageKey);
+        .eq("phase_key", onboardingPhaseKey);
     _checked.clear();
     _confirmedInfo.clear();
     for (final r in (progress as List)) {
-      final itemKey = r["item_key"] as String;
-      _checked[itemKey] = r["done"] == true;
+      final key = (r["stage_key"] as String) + "|" + (r["item_key"] as String);
+      _checked[key] = r["done"] == true;
       if (r["done"] == true && r["done_at"] != null) {
         final managerData = r["managers"];
-        _confirmedInfo[itemKey] = (DateTime.parse(r["done_at"] as String), managerData is Map ? managerData["login_email"] as String? : null);
+        _confirmedInfo[key] = (DateTime.parse(r["done_at"] as String), managerData is Map ? managerData["login_email"] as String? : null);
       }
     }
     if (mounted) {
@@ -2016,13 +2022,13 @@ class _MaterialCheckDialogState extends State<_MaterialCheckDialog> {
     final userId = client.auth.currentUser!.id;
     try {
       for (final item in _items) {
-        final itemKey = item["item_key"] as String;
-        final isChecked = _checked[itemKey] ?? false;
+        final key = _key(item);
+        final isChecked = _checked[key] ?? false;
         await client.from("onboarding_material_check_progress").upsert({
           "streamer_id": widget.streamerId,
           "phase_key": onboardingPhaseKey,
-          "stage_key": widget.stageKey,
-          "item_key": itemKey,
+          "stage_key": item["stage_key"],
+          "item_key": item["item_key"],
           "done": isChecked,
           "done_at": isChecked ? DateTime.now().toIso8601String() : null,
           "done_by": isChecked ? userId : null,
@@ -2063,46 +2069,59 @@ class _MaterialCheckDialogState extends State<_MaterialCheckDialog> {
                 ),
                 IconButton(icon: const Icon(Icons.close, color: Colors.white54), onPressed: () => Navigator.of(context).pop()),
               ]),
-              const Text("Marque conforme for revisando os materiais com o streamer nesta etapa.", style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic)),
+              const Text("Marque conforme for revisando materiais e informacoes com o streamer -- de qualquer dia, mesmo antes do card chegar la.", style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic)),
               const SizedBox(height: 12),
               if (_loading)
                 const Center(child: Padding(padding: EdgeInsets.symmetric(vertical: 24), child: CircularProgressIndicator()))
               else if (_items.isEmpty)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 16),
-                  child: Text("Nenhum item configurado para esta etapa ainda. Configure na engrenagem (Configurar colunas > editar a etapa > Check Materiais).", style: TextStyle(color: Colors.white38, fontSize: 12)),
+                  child: Text("Nenhum item configurado ainda. Configure na engrenagem (Configurar colunas > editar a etapa > Check Materiais).", style: TextStyle(color: Colors.white38, fontSize: 12)),
                 )
               else
                 Flexible(
                   child: SingleChildScrollView(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: _items.map((item) {
-                        final itemKey = item["item_key"] as String;
-                        final isChecked = _checked[itemKey] ?? false;
-                        final confirmed = _confirmedInfo[itemKey];
+                      children: widget.stages.where((s) => _items.any((it) => it["stage_key"] == s["stage_key"])).map((stage) {
+                        final stageKey = stage["stage_key"] as String;
+                        final stageItems = _items.where((it) => it["stage_key"] == stageKey).toList();
                         return Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
+                          padding: const EdgeInsets.only(bottom: 8),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              CheckboxListTile(
-                                value: isChecked,
-                                onChanged: (v) => setState(() => _checked[itemKey] = v ?? false),
-                                title: Text(item["label"] as String, style: const TextStyle(color: Colors.white, fontSize: 13)),
-                                activeColor: const Color(0xFF7A0BD4),
-                                controlAffinity: ListTileControlAffinity.leading,
-                                contentPadding: EdgeInsets.zero,
-                                dense: true,
-                              ),
-                              if (isChecked && confirmed != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(left: 32),
-                                  child: Text(
-                                    "Confirmado em " + confirmed.$1.day.toString().padLeft(2, "0") + "/" + confirmed.$1.month.toString().padLeft(2, "0") + "/" + confirmed.$1.year.toString() + (confirmed.$2 != null ? " por " + confirmed.$2! : ""),
-                                    style: const TextStyle(color: Colors.white24, fontSize: 9),
+                              Text(stage["name"] as String? ?? stageKey, style: const TextStyle(color: Color(0xFF7A0BD4), fontSize: 12, fontWeight: FontWeight.bold)),
+                              ...stageItems.map((item) {
+                                final key = _key(item);
+                                final isChecked = _checked[key] ?? false;
+                                final confirmed = _confirmedInfo[key];
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      CheckboxListTile(
+                                        value: isChecked,
+                                        onChanged: (v) => setState(() => _checked[key] = v ?? false),
+                                        title: Text(item["label"] as String, style: const TextStyle(color: Colors.white, fontSize: 13)),
+                                        activeColor: const Color(0xFF7A0BD4),
+                                        controlAffinity: ListTileControlAffinity.leading,
+                                        contentPadding: EdgeInsets.zero,
+                                        dense: true,
+                                      ),
+                                      if (isChecked && confirmed != null)
+                                        Padding(
+                                          padding: const EdgeInsets.only(left: 32),
+                                          child: Text(
+                                            "Confirmado em " + confirmed.$1.day.toString().padLeft(2, "0") + "/" + confirmed.$1.month.toString().padLeft(2, "0") + "/" + confirmed.$1.year.toString() + (confirmed.$2 != null ? " por " + confirmed.$2! : ""),
+                                            style: const TextStyle(color: Colors.white24, fontSize: 9),
+                                          ),
+                                        ),
+                                    ],
                                   ),
-                                ),
+                                );
+                              }),
                             ],
                           ),
                         );

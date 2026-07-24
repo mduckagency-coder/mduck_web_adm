@@ -1,7 +1,10 @@
+import "dart:html" as html;
 import "dart:ui";
 import "package:flutter/material.dart";
 import "package:shared_preferences/shared_preferences.dart";
 import "admin_auth_repository.dart";
+import "../public/privacy_policy_page.dart";
+import "../public/terms_page.dart";
 
 class AdminLoginPage extends StatefulWidget {
   const AdminLoginPage({super.key});
@@ -406,6 +409,33 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
     }
   }
 
+  void _openPublicPage(String path, Widget page) {
+    html.window.history.pushState(null, "", path);
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => page)).then((_) {
+      html.window.history.pushState(null, "", "/");
+    });
+  }
+
+  Widget _buildFooterLinks() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 18),
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 16,
+        children: [
+          TextButton(
+            onPressed: () => _openPublicPage("/privacy", const PrivacyPolicyPage()),
+            child: const Text("Política de Privacidade", style: TextStyle(color: Colors.white38, fontSize: 11)),
+          ),
+          TextButton(
+            onPressed: () => _openPublicPage("/terms", const TermsPage()),
+            child: const Text("Termos de Uso", style: TextStyle(color: Colors.white38, fontSize: 11)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
@@ -444,6 +474,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> with SingleTickerProvid
                         duration: const Duration(milliseconds: 250),
                         child: _buildCurrentForm(),
                       ),
+                      _buildFooterLinks(),
                     ],
                   ),
                 ),

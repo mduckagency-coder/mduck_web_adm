@@ -2,6 +2,8 @@ import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "package:flutter_web_plugins/url_strategy.dart";
 import "features/auth/auth_gate.dart";
+import "features/public/privacy_policy_page.dart";
+import "features/public/terms_page.dart";
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,6 +18,17 @@ void main() async {
 class MDuckAdminApp extends StatelessWidget {
   const MDuckAdminApp({super.key});
 
+  Widget _resolveHome() {
+    switch (Uri.base.path) {
+      case "/privacy":
+        return const PrivacyPolicyPage();
+      case "/terms":
+        return const TermsPage();
+      default:
+        return const AuthGate();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -29,7 +42,7 @@ class MDuckAdminApp extends StatelessWidget {
           brightness: Brightness.dark,
         ),
       ),
-      home: const AuthGate(),
+      home: _resolveHome(),
     );
   }
 }
