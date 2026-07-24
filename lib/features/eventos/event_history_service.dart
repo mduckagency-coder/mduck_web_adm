@@ -40,6 +40,30 @@ Future<void> logEventHistory({
 
 const eventStatusOptions = ["planejado", "em_andamento", "finalizado", "cancelado"];
 
+const eventTaskStatusOptions = ["pendente", "em_andamento", "concluido"];
+
+Color eventTaskStatusColor(String status) {
+  switch (status) {
+    case "em_andamento":
+      return Colors.blueAccent;
+    case "concluido":
+      return Colors.greenAccent;
+    default:
+      return Colors.amber;
+  }
+}
+
+String eventTaskStatusLabel(String status) {
+  switch (status) {
+    case "em_andamento":
+      return "Em andamento";
+    case "concluido":
+      return "Concluido";
+    default:
+      return "Pendente";
+  }
+}
+
 String eventStatusLabel(String status) {
   switch (status) {
     case "em_andamento":

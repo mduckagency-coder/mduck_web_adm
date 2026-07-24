@@ -69,7 +69,7 @@ class _EventCronogramaTabState extends State<EventCronogramaTab> {
     return list;
   }
 
-  void _reload() => setState(() => _future = _load());
+  void _reload() => setState(() { _future = _load(); });
 
   void _openForm({Map<String, dynamic>? existing}) {
     showDialog(context: context, builder: (context) => _ScheduleFormDialog(eventId: widget.eventId, existing: existing)).then((saved) {

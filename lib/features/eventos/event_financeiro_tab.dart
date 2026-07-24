@@ -51,7 +51,7 @@ class _EventFinanceiroTabState extends State<EventFinanceiroTab> {
     return {"budget": budget, "entries": (entries as List).cast<Map<String, dynamic>>()};
   }
 
-  void _reload() => setState(() => _future = _load());
+  void _reload() => setState(() { _future = _load(); });
 
   Future<void> _editBudget(double current) async {
     final controller = TextEditingController(text: current == 0 ? "" : current.toStringAsFixed(2));

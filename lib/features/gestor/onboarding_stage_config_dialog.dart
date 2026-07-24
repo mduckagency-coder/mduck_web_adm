@@ -192,6 +192,7 @@ class _StageFormDialogState extends State<_StageFormDialog> {
   final _nameController = TextEditingController();
   final _colorController = TextEditingController(text: "#7A0BD4");
   final _newItemController = TextEditingController();
+  final _newMaterialCheckItemController = TextEditingController();
   bool _isActive = true;
   bool _saving = false;
   String? _errorMessage;
@@ -199,6 +200,10 @@ class _StageFormDialogState extends State<_StageFormDialog> {
   List<Map<String, dynamic>> _items = [];
   bool _loadingItems = false;
   bool _savingItem = false;
+
+  List<Map<String, dynamic>> _materialCheckItems = [];
+  bool _loadingMaterialCheckItems = false;
+  bool _savingMaterialCheckItem = false;
 
   @override
   void initState() {
@@ -209,6 +214,7 @@ class _StageFormDialogState extends State<_StageFormDialog> {
       _colorController.text = e["color"] ?? "#7A0BD4";
       _isActive = e["is_active"] ?? true;
       _loadItems();
+      _loadMaterialCheckItems();
     }
   }
 
@@ -226,6 +232,52 @@ class _StageFormDialogState extends State<_StageFormDialog> {
       _items = (rows as List).cast<Map<String, dynamic>>();
       _loadingItems = false;
     });
+  }
+
+  Future<void> _loadMaterialCheckItems() async {
+    setState(() => _loadingMaterialCheckItems = true);
+    final client = Supabase.instance.client;
+    final rows = await client
+        .from("onboarding_material_check_items")
+        .select()
+        .eq("agency_id", widget.agencyId)
+        .eq("phase_key", onboardingPhaseKey)
+        .eq("stage_key", widget.existing!["stage_key"])
+        .order("order_index", ascending: true);
+    if (mounted) setState(() {
+      _materialCheckItems = (rows as List).cast<Map<String, dynamic>>();
+      _loadingMaterialCheckItems = false;
+    });
+  }
+
+  Future<void> _addMaterialCheckItem() async {
+    final label = _newMaterialCheckItemController.text.trim();
+    if (label.isEmpty) return;
+    setState(() => _savingMaterialCheckItem = true);
+    final client = Supabase.instance.client;
+    var itemKey = label.toLowerCase().replaceAll(RegExp(r"[^a-z0-9]+"), "_");
+    var suffix = 1;
+    while (_materialCheckItems.any((it) => it["item_key"] == itemKey)) {
+      itemKey = label.toLowerCase().replaceAll(RegExp(r"[^a-z0-9]+"), "_") + "_" + suffix.toString();
+      suffix++;
+    }
+    final nextOrder = _materialCheckItems.isEmpty ? 1 : (_materialCheckItems.map((it) => it["order_index"] as int).reduce((a, b) => a > b ? a : b) + 1);
+    await client.from("onboarding_material_check_items").insert({
+      "agency_id": widget.agencyId,
+      "phase_key": onboardingPhaseKey,
+      "stage_key": widget.existing!["stage_key"],
+      "item_key": itemKey,
+      "label": label,
+      "order_index": nextOrder,
+    });
+    _newMaterialCheckItemController.clear();
+    await _loadMaterialCheckItems();
+    if (mounted) setState(() => _savingMaterialCheckItem = false);
+  }
+
+  Future<void> _deleteMaterialCheckItem(String id) async {
+    await Supabase.instance.client.from("onboarding_material_check_items").delete().eq("id", id);
+    await _loadMaterialCheckItems();
   }
 
   Future<void> _addItem() async {
@@ -370,6 +422,35 @@ class _StageFormDialogState extends State<_StageFormDialog> {
                     ),
                   ),
                   IconButton(icon: const Icon(Icons.add_circle, color: Color(0xFF7A0BD4)), onPressed: _savingItem ? null : _addItem),
+                ]),
+                const SizedBox(height: 16),
+                const Divider(color: Colors.white12),
+                const Text("Check Materiais", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                const Text("Lista que o gestor marca ao revisar os materiais com o streamer (nao trava o avanco de etapa).", style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic)),
+                const SizedBox(height: 8),
+                if (_loadingMaterialCheckItems)
+                  const Center(child: Padding(padding: EdgeInsets.symmetric(vertical: 8), child: CircularProgressIndicator()))
+                else if (_materialCheckItems.isEmpty)
+                  const Text("Nenhum item ainda.", style: TextStyle(color: Colors.white38, fontSize: 12))
+                else
+                  ..._materialCheckItems.map((it) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Row(children: [
+                          Expanded(child: Text(it["label"] as String, style: const TextStyle(color: Colors.white70, fontSize: 13))),
+                          IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 16), onPressed: () => _deleteMaterialCheckItem(it["id"] as String), padding: EdgeInsets.zero, constraints: const BoxConstraints()),
+                        ]),
+                      )),
+                const SizedBox(height: 8),
+                Row(children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _newMaterialCheckItemController,
+                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      decoration: const InputDecoration(labelText: "Novo item do Check Materiais", labelStyle: TextStyle(color: Colors.white54, fontSize: 12), isDense: true),
+                      onSubmitted: (_) => _addMaterialCheckItem(),
+                    ),
+                  ),
+                  IconButton(icon: const Icon(Icons.add_circle, color: Color(0xFF7A0BD4)), onPressed: _savingMaterialCheckItem ? null : _addMaterialCheckItem),
                 ]),
               ],
               const SizedBox(height: 16),

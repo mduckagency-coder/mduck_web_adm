@@ -1,12 +1,15 @@
 import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
+import "../calendario/calendar_colors.dart";
+import "../calendario/widgets/manager_picker_dialog.dart";
 import "event_cronograma_tab.dart";
 import "event_tarefas_tab.dart";
 import "event_participantes_tab.dart";
 import "event_premiacoes_tab.dart";
 import "event_financeiro_tab.dart";
 import "event_arquivos_tab.dart";
+import "event_anotacoes_tab.dart";
 import "event_historico_tab.dart";
 import "event_history_service.dart";
 import "event_upload_helpers.dart";
@@ -45,7 +48,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
     return {"event": event, "participantCount": (participants as List).length};
   }
 
-  void _reload() => setState(() => _future = _load());
+  void _reload() => setState(() { _future = _load(); });
 
   Future<void> _changeStatus(String newStatus, String oldStatus) async {
     if (newStatus == oldStatus) return;
@@ -101,7 +104,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
           final bannerUrl = event["banner_url"] as String?;
 
           return DefaultTabController(
-            length: 8,
+            length: 9,
             child: Column(
               children: [
                 Container(
@@ -171,6 +174,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
                           Tab(text: "Premiacoes"),
                           Tab(text: "Financeiro"),
                           Tab(text: "Arquivos"),
+                          Tab(text: "Anotacoes"),
                           Tab(text: "Historico"),
                         ],
                       ),
@@ -179,13 +183,14 @@ class _EventDetailPageState extends State<EventDetailPage> {
                 ),
                 Expanded(
                   child: TabBarView(children: [
-                    _VisaoGeralTab(event: event, participantCount: participantCount),
+                    _VisaoGeralTab(eventId: widget.eventId, event: event, participantCount: participantCount),
                     EventCronogramaTab(eventId: widget.eventId),
                     EventTarefasTab(eventId: widget.eventId),
                     EventParticipantesTab(eventId: widget.eventId),
                     EventPremiacoesTab(eventId: widget.eventId),
                     EventFinanceiroTab(eventId: widget.eventId),
                     EventArquivosTab(eventId: widget.eventId),
+                    EventAnotacoesTab(eventId: widget.eventId),
                     EventHistoricoTab(eventId: widget.eventId),
                   ]),
                 ),
@@ -206,10 +211,82 @@ class _EventDetailPageState extends State<EventDetailPage> {
   }
 }
 
-class _VisaoGeralTab extends StatelessWidget {
+/// Alem do resumo, mostra os colaboradores (gestores) que estao
+/// participando da organizacao do evento e o que cada um precisa fazer --
+/// puxado das tarefas atribuidas a eles na aba Tarefas. Colaboradores
+/// ficaram so aqui (a aba Participantes agora e so de streamers) porque a
+/// lista completa dos dois tipos misturados tomava espaco e confundia.
+class _VisaoGeralTab extends StatefulWidget {
+  final String eventId;
   final Map<String, dynamic> event;
   final int participantCount;
-  const _VisaoGeralTab({required this.event, required this.participantCount});
+  const _VisaoGeralTab({required this.eventId, required this.event, required this.participantCount});
+
+  @override
+  State<_VisaoGeralTab> createState() => _VisaoGeralTabState();
+}
+
+class _VisaoGeralTabState extends State<_VisaoGeralTab> {
+  late Future<Map<String, dynamic>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  Future<Map<String, dynamic>> _load() async {
+    final client = Supabase.instance.client;
+    final participants = await client
+        .from("event_participants")
+        .select("id, role_label, manager:managers(id, login_email, photo_url)")
+        .eq("event_id", widget.eventId)
+        .eq("participant_type", "gestor")
+        .order("created_at");
+    final collaborators = (participants as List).cast<Map<String, dynamic>>();
+
+    final tasks = await client.from("event_tasks").select("id, title, status, responsible_manager_id").eq("event_id", widget.eventId);
+    final tasksByManager = <String, List<Map<String, dynamic>>>{};
+    for (final t in (tasks as List)) {
+      final managerId = t["responsible_manager_id"] as String?;
+      if (managerId != null) tasksByManager.putIfAbsent(managerId, () => []).add(t as Map<String, dynamic>);
+    }
+
+    return {"collaborators": collaborators, "tasksByManager": tasksByManager};
+  }
+
+  void _reload() => setState(() { _future = _load(); });
+
+  Future<void> _addCollaborators() async {
+    final selected = await showDialog<List<Map<String, dynamic>>>(context: context, builder: (context) => const ManagerPickerDialog());
+    if (selected == null || selected.isEmpty) return;
+    final client = Supabase.instance.client;
+    try {
+      for (final m in selected) {
+        await client.from("event_participants").insert({
+          "event_id": widget.eventId,
+          "participant_type": "gestor",
+          "manager_id": m["id"],
+        });
+        await logEventHistory(eventId: widget.eventId, action: "participante_adicionado", detail: managerDisplayName(m));
+      }
+      _reload();
+    } catch (e) {
+      if (mounted) showEventosActionError(context, e);
+    }
+  }
+
+  Future<void> _removeCollaborator(Map<String, dynamic> participant) async {
+    final client = Supabase.instance.client;
+    try {
+      await client.from("event_participants").delete().eq("id", participant["id"]);
+      final manager = participant["manager"];
+      await logEventHistory(eventId: widget.eventId, action: "participante_removido", detail: manager is Map ? managerDisplayName(manager as Map<String, dynamic>) : "-");
+      _reload();
+    } catch (e) {
+      if (mounted) showEventosActionError(context, e);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -221,7 +298,7 @@ class _VisaoGeralTab extends StatelessWidget {
           ]),
         );
 
-    final createdAt = event["created_at"] != null ? DateTime.parse(event["created_at"] as String).toLocal().toString().substring(0, 16) : "-";
+    final createdAt = widget.event["created_at"] != null ? DateTime.parse(widget.event["created_at"] as String).toLocal().toString().substring(0, 16) : "-";
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -230,11 +307,83 @@ class _VisaoGeralTab extends StatelessWidget {
         children: [
           const Text("Resumo do evento", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
           const SizedBox(height: 12),
-          row("Nome", event["title"] as String),
-          row("Descricao", (event["description"] as String?)?.isNotEmpty == true ? event["description"] as String : "-"),
-          row("Status", eventStatusLabel(event["status"] as String)),
-          row("Participantes", participantCount.toString()),
+          row("Nome", widget.event["title"] as String),
+          row("Descricao", (widget.event["description"] as String?)?.isNotEmpty == true ? widget.event["description"] as String : "-"),
+          row("Status", eventStatusLabel(widget.event["status"] as String)),
+          row("Participantes", widget.participantCount.toString()),
           row("Criado em", createdAt),
+          const SizedBox(height: 24),
+          Row(children: [
+            const Text("Colaboradores", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+            const Spacer(),
+            OutlinedButton.icon(onPressed: _addCollaborators, icon: const Icon(Icons.person_add, size: 16), label: const Text("Adicionar")),
+          ]),
+          const SizedBox(height: 4),
+          const Text("Quem esta na organizacao deste evento e o que precisa fazer (tarefas atribuidas na aba Tarefas).", style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic)),
+          const SizedBox(height: 12),
+          FutureBuilder<Map<String, dynamic>>(
+            future: _future,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) return buildEventosLoadError(snapshot.error!);
+              if (!snapshot.hasData) return const Center(child: Padding(padding: EdgeInsets.symmetric(vertical: 24), child: CircularProgressIndicator()));
+              final collaborators = snapshot.data!["collaborators"] as List<Map<String, dynamic>>;
+              final tasksByManager = snapshot.data!["tasksByManager"] as Map<String, List<Map<String, dynamic>>>;
+              if (collaborators.isEmpty) return const Text("Nenhum colaborador adicionado ainda.", style: TextStyle(color: Colors.white54));
+              return Column(
+                children: collaborators.map((p) {
+                  final manager = p["manager"];
+                  final managerId = manager is Map ? manager["id"] as String? : null;
+                  final name = manager is Map ? managerDisplayName(manager as Map<String, dynamic>) : "-";
+                  final photoUrl = manager is Map ? manager["photo_url"] as String? : null;
+                  final tasks = managerId != null ? (tasksByManager[managerId] ?? const []) : const <Map<String, dynamic>>[];
+                  return Card(
+                    color: Colors.white.withOpacity(0.05),
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(children: [
+                            CircleAvatar(
+                              radius: 16,
+                              backgroundColor: Colors.white24,
+                              backgroundImage: photoUrl != null && photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
+                              child: photoUrl == null || photoUrl.isEmpty ? const Icon(Icons.person, color: Colors.white70, size: 16) : null,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                  if ((p["role_label"] as String?)?.isNotEmpty == true) Text(p["role_label"] as String, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                                ],
+                              ),
+                            ),
+                            IconButton(icon: const Icon(Icons.close, color: Colors.white38, size: 18), onPressed: () => _removeCollaborator(p)),
+                          ]),
+                          const SizedBox(height: 8),
+                          if (tasks.isEmpty)
+                            const Text("Nenhuma tarefa atribuida.", style: TextStyle(color: Colors.white38, fontSize: 12))
+                          else
+                            ...tasks.map((t) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Row(children: [
+                                    Icon(Icons.circle, size: 6, color: eventTaskStatusColor(t["status"] as String)),
+                                    const SizedBox(width: 6),
+                                    Expanded(child: Text(t["title"] as String, style: const TextStyle(color: Colors.white70, fontSize: 12))),
+                                    Text(eventTaskStatusLabel(t["status"] as String), style: TextStyle(color: eventTaskStatusColor(t["status"] as String), fontSize: 11, fontWeight: FontWeight.bold)),
+                                  ]),
+                                )),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
         ],
       ),
     );

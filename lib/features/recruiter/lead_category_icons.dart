@@ -12,6 +12,10 @@ IconData categoryIcon(String? iconKey) {
       return Icons.music_note;
     case "modelo":
       return Icons.camera_alt;
+    case "lifestyle":
+      return Icons.emoji_emotions;
+    case "entretenimento":
+      return Icons.theater_comedy;
     default:
       return Icons.category;
   }
@@ -29,6 +33,10 @@ Color categoryColor(String? iconKey) {
       return Colors.blueAccent;
     case "modelo":
       return Colors.pinkAccent;
+    case "lifestyle":
+      return Colors.pinkAccent;
+    case "entretenimento":
+      return Colors.amber;
     default:
       return Colors.tealAccent;
   }

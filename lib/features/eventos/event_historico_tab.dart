@@ -61,7 +61,7 @@ class _EventHistoricoTabState extends State<EventHistoricoTab> {
           Row(children: [
             const Text("Historico", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(width: 12),
-            IconButton(icon: const Icon(Icons.refresh, color: Colors.white70), onPressed: () => setState(() => _future = _load())),
+            IconButton(icon: const Icon(Icons.refresh, color: Colors.white70), onPressed: () => setState(() { _future = _load(); })),
           ]),
           const SizedBox(height: 4),
           const Text("Registro automatico de tudo que acontece neste evento.", style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic)),

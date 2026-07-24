@@ -1,10 +1,10 @@
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
-import "../calendario/calendar_colors.dart";
 import "../calendario/widgets/streamer_picker_dialog.dart";
-import "../calendario/widgets/manager_picker_dialog.dart";
 import "event_history_service.dart";
 
+/// So streamers -- colaboradores (gestores) participando do evento agora
+/// ficam na aba Visao Geral, junto com as tarefas atribuidas a cada um.
 class EventParticipantesTab extends StatefulWidget {
   final String eventId;
   const EventParticipantesTab({super.key, required this.eventId});
@@ -26,13 +26,14 @@ class _EventParticipantesTabState extends State<EventParticipantesTab> {
     final client = Supabase.instance.client;
     final rows = await client
         .from("event_participants")
-        .select("*, streamer:profiles(id, display_name, tiktok_username, avatar_url), manager:managers(id, full_name, login_email, photo_url)")
+        .select("*, streamer:profiles(id, display_name, tiktok_username, avatar_url)")
         .eq("event_id", widget.eventId)
+        .eq("participant_type", "streamer")
         .order("created_at");
     return (rows as List).cast<Map<String, dynamic>>();
   }
 
-  void _reload() => setState(() => _future = _load());
+  void _reload() => setState(() { _future = _load(); });
 
   Future<String?> _promptRoleLabel() async {
     final controller = TextEditingController();
@@ -87,35 +88,12 @@ class _EventParticipantesTabState extends State<EventParticipantesTab> {
     }
   }
 
-  Future<void> _addManagers() async {
-    final selected = await showDialog<List<Map<String, dynamic>>>(context: context, builder: (context) => const ManagerPickerDialog());
-    if (selected == null || selected.isEmpty) return;
-    final roleLabel = await _promptRoleLabel();
-    if (roleLabel == null) return;
-    final client = Supabase.instance.client;
-    try {
-      for (final m in selected) {
-        await client.from("event_participants").insert({
-          "event_id": widget.eventId,
-          "participant_type": "gestor",
-          "manager_id": m["id"],
-          "role_label": roleLabel.isEmpty ? null : roleLabel,
-        });
-        await logEventHistory(eventId: widget.eventId, action: "participante_adicionado", detail: managerDisplayName(m));
-      }
-      _reload();
-    } catch (e) {
-      if (mounted) showEventosActionError(context, e);
-    }
-  }
-
   Future<void> _remove(Map<String, dynamic> participant) async {
     final client = Supabase.instance.client;
     try {
       await client.from("event_participants").delete().eq("id", participant["id"]);
       final streamer = participant["streamer"];
-      final manager = participant["manager"];
-      final name = streamer is Map ? streamer["display_name"] as String? : (manager is Map ? managerDisplayName(manager as Map<String, dynamic>) : null);
+      final name = streamer is Map ? streamer["display_name"] as String? : null;
       await logEventHistory(eventId: widget.eventId, action: "participante_removido", detail: name ?? "-");
       _reload();
     } catch (e) {
@@ -134,9 +112,9 @@ class _EventParticipantesTabState extends State<EventParticipantesTab> {
             const Text("Participantes", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
             const Spacer(),
             OutlinedButton.icon(onPressed: _addStreamers, icon: const Icon(Icons.person_add, size: 16), label: const Text("Streamer")),
-            const SizedBox(width: 8),
-            OutlinedButton.icon(onPressed: _addManagers, icon: const Icon(Icons.badge, size: 16), label: const Text("Colaborador")),
           ]),
+          const SizedBox(height: 4),
+          const Text("Colaboradores (gestores) envolvidos na organizacao ficam na aba Visao Geral.", style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic)),
           const SizedBox(height: 16),
           Expanded(
             child: FutureBuilder<List<Map<String, dynamic>>>(
@@ -145,17 +123,15 @@ class _EventParticipantesTabState extends State<EventParticipantesTab> {
                 if (snapshot.hasError) return buildEventosLoadError(snapshot.error!);
                 if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
                 final list = snapshot.data!;
-                if (list.isEmpty) return const Center(child: Text("Nenhum participante adicionado ainda.", style: TextStyle(color: Colors.white54)));
+                if (list.isEmpty) return const Center(child: Text("Nenhum streamer adicionado ainda.", style: TextStyle(color: Colors.white54)));
                 return ListView.builder(
                   itemCount: list.length,
                   itemBuilder: (context, index) {
                     final p = list[index];
-                    final isStreamer = p["participant_type"] == "streamer";
                     final streamer = p["streamer"];
-                    final manager = p["manager"];
-                    final name = isStreamer ? (streamer is Map ? streamer["display_name"] as String? ?? "-" : "-") : (manager is Map ? managerDisplayName(manager as Map<String, dynamic>) : "-");
-                    final photoUrl = isStreamer ? (streamer is Map ? streamer["avatar_url"] as String? : null) : (manager is Map ? manager["photo_url"] as String? : null);
-                    final subtitle = isStreamer ? (streamer is Map ? "@" + ((streamer["tiktok_username"] as String?) ?? "-") : "") : "Colaborador";
+                    final name = streamer is Map ? streamer["display_name"] as String? ?? "-" : "-";
+                    final photoUrl = streamer is Map ? streamer["avatar_url"] as String? : null;
+                    final subtitle = streamer is Map ? "@" + ((streamer["tiktok_username"] as String?) ?? "-") : "";
                     return Card(
                       color: Colors.white.withOpacity(0.05),
                       margin: const EdgeInsets.only(bottom: 8),

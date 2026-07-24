@@ -49,7 +49,7 @@ class _EventPremiacoesTabState extends State<EventPremiacoesTab> {
     return (rows as List).cast<Map<String, dynamic>>();
   }
 
-  void _reload() => setState(() => _future = _load());
+  void _reload() => setState(() { _future = _load(); });
 
   void _openForm({Map<String, dynamic>? existing}) {
     showDialog(context: context, builder: (context) => _AwardFormDialog(eventId: widget.eventId, existing: existing)).then((saved) {

@@ -2,30 +2,6 @@ import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "event_history_service.dart";
 
-Color _taskStatusColor(String status) {
-  switch (status) {
-    case "em_andamento":
-      return Colors.blueAccent;
-    case "concluido":
-      return Colors.greenAccent;
-    default:
-      return Colors.amber;
-  }
-}
-
-String _taskStatusLabel(String status) {
-  switch (status) {
-    case "em_andamento":
-      return "Em andamento";
-    case "concluido":
-      return "Concluido";
-    default:
-      return "Pendente";
-  }
-}
-
-const _taskStatusOptions = ["pendente", "em_andamento", "concluido"];
-
 class EventTarefasTab extends StatefulWidget {
   final String eventId;
   const EventTarefasTab({super.key, required this.eventId});
@@ -76,7 +52,7 @@ class _EventTarefasTabState extends State<EventTarefasTab> {
     return taskList;
   }
 
-  void _reload() => setState(() => _future = _load());
+  void _reload() => setState(() { _future = _load(); });
 
   void _openForm({Map<String, dynamic>? existing}) {
     showDialog(context: context, builder: (context) => _TaskFormDialog(eventId: widget.eventId, existing: existing)).then((saved) {
@@ -114,7 +90,7 @@ class _EventTarefasTabState extends State<EventTarefasTab> {
                   itemCount: list.length,
                   itemBuilder: (context, index) {
                     final task = list[index];
-                    final color = _taskStatusColor(task["status"] as String);
+                    final color = eventTaskStatusColor(task["status"] as String);
                     final managerData = task["managers"];
                     final checklist = (task["checklist"] as List).cast<Map<String, dynamic>>();
                     final done = checklist.where((c) => c["done"] == true).length;
@@ -133,7 +109,7 @@ class _EventTarefasTabState extends State<EventTarefasTab> {
                         trailing: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(border: Border.all(color: color), borderRadius: BorderRadius.circular(8)),
-                          child: Text(_taskStatusLabel(task["status"] as String), style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+                          child: Text(eventTaskStatusLabel(task["status"] as String), style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
                         ),
                         children: [
                           Padding(
@@ -333,7 +309,7 @@ class _TaskFormDialogState extends State<_TaskFormDialog> {
                             dropdownColor: const Color(0xFF232323),
                             decoration: const InputDecoration(labelText: "Status", labelStyle: TextStyle(color: Colors.white54)),
                             style: const TextStyle(color: Colors.white),
-                            items: _taskStatusOptions.map((s) => DropdownMenuItem(value: s, child: Text(_taskStatusLabel(s)))).toList(),
+                            items: eventTaskStatusOptions.map((s) => DropdownMenuItem(value: s, child: Text(eventTaskStatusLabel(s)))).toList(),
                             onChanged: (v) => setState(() => _status = v!),
                           ),
                         ),

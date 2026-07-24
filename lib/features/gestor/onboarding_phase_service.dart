@@ -197,13 +197,15 @@ Future<void> createOnboardingPhaseCardIfNeeded({required String streamerId}) asy
       "lead_id": null,
       "manager_id": assignedManagerId,
     }).eq("id", progressId);
-    await client.from("streamer_phase_history").insert({
-      "streamer_id": streamerId,
-      "phase_key": onboardingPhaseKey,
-      "action": "vinculado_streamer",
-      "detail": "Streamer oficial vinculado ao card de onboarding",
-      "performed_by": userId,
-    });
+    try {
+      await client.from("streamer_phase_history").insert({
+        "streamer_id": streamerId,
+        "phase_key": onboardingPhaseKey,
+        "action": "vinculado_streamer",
+        "detail": "Streamer oficial vinculado ao card de onboarding",
+        "performed_by": userId,
+      });
+    } catch (_) {}
   } else {
     await seedOnboardingPhaseStages(agencyId: agencyId);
 
@@ -228,13 +230,15 @@ Future<void> createOnboardingPhaseCardIfNeeded({required String streamerId}) asy
     }).select("id").single();
     progressId = inserted["id"] as String;
 
-    await client.from("streamer_phase_history").insert({
-      "streamer_id": streamerId,
-      "phase_key": onboardingPhaseKey,
-      "action": "entrada_onboarding",
-      "detail": "Entrou no Onboarding 0-15 Dias",
-      "performed_by": userId,
-    });
+    try {
+      await client.from("streamer_phase_history").insert({
+        "streamer_id": streamerId,
+        "phase_key": onboardingPhaseKey,
+        "action": "entrada_onboarding",
+        "detail": "Entrou no Onboarding 0-15 Dias",
+        "performed_by": userId,
+      });
+    } catch (_) {}
   }
 
   if (managerIds.isNotEmpty) {
@@ -300,13 +304,15 @@ Future<void> createOnboardingLeadCardIfNeeded({required String leadId}) async {
   }).select("id").single();
   final progressId = inserted["id"] as String;
 
-  await client.from("streamer_phase_history").insert({
-    "lead_id": leadId,
-    "phase_key": onboardingPhaseKey,
-    "action": "entrada_onboarding_lead",
-    "detail": "Convite enviado -- streamer a caminho da agencia",
-    "performed_by": userId,
-  });
+  try {
+    await client.from("streamer_phase_history").insert({
+      "lead_id": leadId,
+      "phase_key": onboardingPhaseKey,
+      "action": "entrada_onboarding_lead",
+      "detail": "Convite enviado -- streamer a caminho da agencia",
+      "performed_by": userId,
+    });
+  } catch (_) {}
 
   if (managerIds.isNotEmpty) {
     await addManagersToCard(progressId: progressId, managerIds: managerIds.toList(), addedBy: userId);
@@ -408,13 +414,15 @@ Future<String> createManualOnboardingCard({
     }).select("id").single();
     progressId = inserted["id"] as String;
 
-    await client.from("streamer_phase_history").insert({
-      "streamer_id": streamerId,
-      "phase_key": onboardingPhaseKey,
-      "action": "entrada_onboarding",
-      "detail": "Adicionado manualmente pelo gestor",
-      "performed_by": userId,
-    });
+    try {
+      await client.from("streamer_phase_history").insert({
+        "streamer_id": streamerId,
+        "phase_key": onboardingPhaseKey,
+        "action": "entrada_onboarding",
+        "detail": "Adicionado manualmente pelo gestor",
+        "performed_by": userId,
+      });
+    } catch (_) {}
   }
 
   await addManagersToCard(progressId: progressId, managerIds: [userId], addedBy: userId);
@@ -482,13 +490,17 @@ Future<void> updateOnboardingStreamerProfile({
     "email": email,
     "category_id": categoryId,
   }).eq("id", streamerId);
-  await client.from("streamer_phase_history").insert({
-    "streamer_id": streamerId,
-    "phase_key": onboardingPhaseKey,
-    "action": "editado",
-    "detail": "Dados do streamer editados pelo gestor",
-    "performed_by": performedBy,
-  });
+  // Registro de historico -- best effort: os dados ja foram salvos acima,
+  // nao pode aparecer como erro pro gestor so porque o log falhou.
+  try {
+    await client.from("streamer_phase_history").insert({
+      "streamer_id": streamerId,
+      "phase_key": onboardingPhaseKey,
+      "action": "editado",
+      "detail": "Dados do streamer editados pelo gestor",
+      "performed_by": performedBy,
+    });
+  } catch (_) {}
 }
 
 /// Edita os dados do lead vinculado a um card "pre-vinculo" (streamer
@@ -509,13 +521,17 @@ Future<void> updateOnboardingLeadInfo({
     "phone": phone,
     "category_interest": categoryInterest,
   }).eq("id", leadId);
-  await client.from("streamer_phase_history").insert({
-    "lead_id": leadId,
-    "phase_key": onboardingPhaseKey,
-    "action": "editado",
-    "detail": "Dados do lead editados pelo gestor",
-    "performed_by": performedBy,
-  });
+  // Registro de historico -- best effort: os dados ja foram salvos acima,
+  // nao pode aparecer como erro pro gestor so porque o log falhou.
+  try {
+    await client.from("streamer_phase_history").insert({
+      "lead_id": leadId,
+      "phase_key": onboardingPhaseKey,
+      "action": "editado",
+      "detail": "Dados do lead editados pelo gestor",
+      "performed_by": performedBy,
+    });
+  } catch (_) {}
 }
 
 /// Decisao da etapa "Avaliacao Final": aprovado (streamer segue ativo,
@@ -542,11 +558,16 @@ Future<void> evaluateOnboardingCard({
   }
 
   await client.from("streamer_phase_progress").update(data).eq("id", progressId);
-  await client.from("streamer_phase_history").insert({
-    "streamer_id": streamerId,
-    "phase_key": onboardingPhaseKey,
-    "action": "avaliacao_final",
-    "detail": detail,
-    "performed_by": performedBy,
-  });
+  // Registro de historico -- best effort: a decisao (aprovado/desligado/
+  // revisao) ja foi salva acima, nao pode aparecer como "erro" pro gestor
+  // so porque o log falhou.
+  try {
+    await client.from("streamer_phase_history").insert({
+      "streamer_id": streamerId,
+      "phase_key": onboardingPhaseKey,
+      "action": "avaliacao_final",
+      "detail": detail,
+      "performed_by": performedBy,
+    });
+  } catch (_) {}
 }

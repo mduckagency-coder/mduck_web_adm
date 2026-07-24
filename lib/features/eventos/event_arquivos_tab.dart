@@ -38,7 +38,7 @@ class _EventArquivosTabState extends State<EventArquivosTab> {
     return (rows as List).cast<Map<String, dynamic>>();
   }
 
-  void _reload() => setState(() => _future = _load());
+  void _reload() => setState(() { _future = _load(); });
 
   Future<void> _upload() async {
     final result = await FilePicker.platform.pickFiles(withData: true);

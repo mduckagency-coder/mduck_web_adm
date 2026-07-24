@@ -3,7 +3,7 @@ import "package:flutter/services.dart";
 import "package:file_picker/file_picker.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "package:url_launcher/url_launcher.dart";
-import "onboarding_phase_category_icons.dart";
+import "../recruiter/lead_category_icons.dart";
 
 /// Fases do acompanhamento do streamer (abas do Material Acompanhamento).
 /// So a "onboarding_15" tem quadro proprio hoje (Onboarding 0-15 Dias); as
@@ -210,10 +210,10 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
           Wrap(spacing: 8, children: _nicheFilterOptions.map((opt) {
             final selected = _nicheFilter == opt.$1;
             return FilterChip(
-              avatar: opt.$1 != null ? Icon(categoryIconData(opt.$1), size: 14, color: selected ? Colors.white : categoryColorFor(opt.$1)) : null,
+              avatar: opt.$1 != null ? Icon(categoryIcon(opt.$1), size: 14, color: selected ? Colors.white : categoryColor(opt.$1)) : null,
               label: Text(opt.$2, style: TextStyle(color: selected ? Colors.white : Colors.white70, fontSize: 12)),
               selected: selected,
-              selectedColor: opt.$1 != null ? categoryColorFor(opt.$1) : const Color(0xFF7A0BD4),
+              selectedColor: opt.$1 != null ? categoryColor(opt.$1) : const Color(0xFF7A0BD4),
               backgroundColor: Colors.white.withOpacity(0.05),
               onSelected: (_) => setState(() => _nicheFilter = opt.$1),
             );
@@ -264,7 +264,7 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
                           children: [
                             Row(children: [
                               if (niche != null) ...[
-                                Icon(categoryIconData(niche), size: 14, color: categoryColorFor(niche)),
+                                Icon(categoryIcon(niche), size: 14, color: categoryColor(niche)),
                                 const SizedBox(width: 6),
                               ],
                               Expanded(child: Text(m["title"] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15))),
@@ -472,9 +472,9 @@ class _MaterialDetailDialogState extends State<_MaterialDetailDialog> {
                   Text("Fase: " + stageName + (dayLabel != null ? " - " + dayLabel : ""), style: const TextStyle(color: Colors.white70, fontSize: 13)),
                   if (niche != null) ...[
                     const SizedBox(width: 10),
-                    Icon(categoryIconData(niche), size: 14, color: categoryColorFor(niche)),
+                    Icon(categoryIcon(niche), size: 14, color: categoryColor(niche)),
                     const SizedBox(width: 4),
-                    Text(_nicheFilterOptions.firstWhere((o) => o.$1 == niche, orElse: () => (niche, niche)).$2, style: TextStyle(color: categoryColorFor(niche), fontSize: 12, fontWeight: FontWeight.bold)),
+                    Text(_nicheFilterOptions.firstWhere((o) => o.$1 == niche, orElse: () => (niche, niche)).$2, style: TextStyle(color: categoryColor(niche), fontSize: 12, fontWeight: FontWeight.bold)),
                   ],
                 ]),
                 Text("Criado por: " + (authorEmail ?? "sistema") + " em " + createdDate, style: TextStyle(color: isOfficial ? authorColor : Colors.white54, fontSize: 12, fontStyle: FontStyle.italic)),

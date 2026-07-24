@@ -1,12 +1,11 @@
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
-import "onboarding_phase_category_icons.dart";
+import "../recruiter/lead_category_icons.dart";
 import "onboarding_phase_service.dart";
 import "onboarding_new_agenciado_dialog.dart";
 import "onboarding_stage_config_dialog.dart";
 import "onboarding_card_edit_dialog.dart";
 import "onboarding_materials_page.dart";
-import "../recruiter/recruiter_streamers_page.dart";
 import "../recruiter/lead_handoff_dialog.dart" show propagateManagerToProfile;
 
 Color _hexToColor(String hex) {
@@ -41,6 +40,8 @@ String _movementBucket(DateTime stageChangedAt) {
   return "inativo";
 }
 
+const _readyToAdvanceLabel = "Pronto para avancar de etapa";
+
 /// "Proxima acao" do card: primeiro item obrigatorio ainda nao concluido
 /// na etapa atual (na ordem configurada). Se a etapa nao tem checklist
 /// (dia_0/avaliacao) ou todos os itens ja estao concluidos, indica que o
@@ -54,7 +55,7 @@ String? _nextActionFor(String streamerId, String stageKey, Map<String, List<Map<
   for (final it in items) {
     if (progress[it["item_key"]] != true) return it["label"] as String?;
   }
-  return "Pronto para avancar de etapa";
+  return _readyToAdvanceLabel;
 }
 
 class OnboardingPhaseKanbanPage extends StatefulWidget {
@@ -132,18 +133,6 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
         itemsByStage.putIfAbsent(it["stage_key"] as String, () => []).add(it as Map<String, dynamic>);
       }
 
-      // Material Acompanhamento elegivel para o Onboarding 15 (oficial ou
-      // meu), buscado uma unica vez aqui -- usado pra mostrar a etiqueta
-      // "Material" direto no card, sem precisar abrir o detalhe.
-      final materialRows = await client
-          .from("training_materials")
-          .select("id, title, description, link_url, file_url, image_url, author_id, niche, onboarding_stage_key, managers(login_email, role)")
-          .eq("agency_id", agencyId)
-          .eq("scope", "acompanhamento")
-          .eq("stage", "onboarding_15")
-          .eq("is_archived", false);
-      final visibleMaterials = (materialRows as List).cast<Map<String, dynamic>>().where((m) => isMaterialVisibleTo(m, userId)).toList();
-
       final effectiveManagerIds = (canManage && _selectedManagerIds.isNotEmpty) ? _selectedManagerIds.toList() : [userId];
 
       final linkRows = await client
@@ -163,7 +152,13 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
             .inFilter("id", progressIds)
             .eq("phase_key", onboardingPhaseKey)
             .filter("completed_at", "is", null)
-            .filter("archived_at", _showArchived ? "not.is" : "is", null);
+            .filter("archived_at", _showArchived ? "not.is" : "is", null)
+            // Ordem deterministica -- sem isso, o Postgres pode devolver as
+            // linhas em ordem diferente a cada load, e o ListView (sem key
+            // por item) pode reaproveitar o estado interno do Draggable
+            // errado ao recompor a lista, corrompendo a renderizacao de um
+            // card que nem foi editado.
+            .order("id", ascending: true);
         final progressList = (progressRows as List).cast<Map<String, dynamic>>();
 
         if (progressList.isNotEmpty) {
@@ -177,6 +172,11 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
                   .select("id, display_name, tiktok_creator_id, avatar_url, joined_at, phone, email, category_id, streamer_categories(name, icon_key)")
                   .inFilter("id", streamerIds);
           final profileMap = {for (final p in (profiles as List)) p["id"] as String: p as Map<String, dynamic>};
+
+          final statsRows = streamerIds.isEmpty
+              ? []
+              : await client.from("streamer_stats").select("streamer_id, days_live, hours_live, diamonds").inFilter("streamer_id", streamerIds);
+          final statsMap = {for (final s in (statsRows as List)) s["streamer_id"] as String: s as Map<String, dynamic>};
 
           final leadsRows = leadIds.isEmpty
               ? []
@@ -197,7 +197,7 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
 
           final managerLinkRows = await client
               .from("streamer_phase_progress_managers")
-              .select("progress_id, manager_id, managers!streamer_phase_progress_managers_manager_id_fkey(login_email)")
+              .select("progress_id, manager_id, managers!streamer_phase_progress_managers_manager_id_fkey(login_email, photo_url)")
               .inFilter("progress_id", progressList.map((p) => p["id"] as String).toList());
           for (final r in (managerLinkRows as List)) {
             final progressId = r["progress_id"] as String;
@@ -205,6 +205,7 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
             cardManagers.putIfAbsent(progressId, () => []).add({
               "managerId": r["manager_id"],
               "email": managerData is Map ? managerData["login_email"] as String? : null,
+              "photoUrl": managerData is Map ? managerData["photo_url"] as String? : null,
             });
           }
 
@@ -233,7 +234,9 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
                 "categoryIconKey": catData is Map ? catData["icon_key"] as String? : null,
                 "outcome": p["outcome"],
                 "nextAction": _nextActionFor(streamerId, stageKey, itemsByStage, checklistProgress),
-                "cardMaterials": visibleMaterials.where((m) => m["onboarding_stage_key"] == stageKey && (m["niche"] == null || m["niche"] == (catData is Map ? catData["icon_key"] as String? : null))).toList(),
+                "monthDays": statsMap[streamerId]?["days_live"],
+                "monthHours": statsMap[streamerId]?["hours_live"],
+                "monthDiamonds": statsMap[streamerId]?["diamonds"],
               };
             }
             final lead = leadMap[p["lead_id"]] ?? {};
@@ -256,7 +259,6 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
               "categoryIconKey": null,
               "outcome": p["outcome"],
               "nextAction": "Vincular streamer oficial (\"Vincular Streamer\" em Streamers Agenciados)",
-              "cardMaterials": visibleMaterials.where((m) => m["onboarding_stage_key"] == stageKey && m["niche"] == null).toList(),
             };
           }).toList();
         }
@@ -287,8 +289,6 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
     final progress = _checklistProgress[streamerId + "|" + stageKey] ?? {};
     return items.every((it) => progress[it["item_key"]] == true);
   }
-
-  int _stageOrder(String stageKey) => _stages.firstWhere((s) => s["stage_key"] == stageKey, orElse: () => {"order_index": 0})["order_index"] as int;
 
   String _stageName(String stageKey) => _stages.firstWhere((s) => s["stage_key"] == stageKey, orElse: () => {"name": stageKey})["name"] as String;
 
@@ -334,15 +334,6 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
     final oldStageKey = card["stageKey"] as String;
     if (oldStageKey == newStageKey) return;
 
-    if (_stageOrder(newStageKey) > _stageOrder(oldStageKey) && !_isStageComplete(streamerId, oldStageKey)) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Ainda existem tarefas obrigatorias pendentes nesta etapa. Conclua o checklist antes de avancar.")),
-        );
-      }
-      return;
-    }
-
     final progressId = card["progressId"] as String;
     final index = _cards.indexWhere((c) => c["progressId"] == progressId);
     if (index == -1) return;
@@ -355,7 +346,14 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
         "stage_key": newStageKey,
         "stage_changed_at": DateTime.now().toIso8601String(),
       }).eq("id", card["progressId"]);
-
+    } catch (e) {
+      setState(() => _cards[index]["stageKey"] = oldStageKey);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erro ao mover: " + e.toString())));
+      return;
+    }
+    // Registro de historico -- best effort: a etapa ja mudou de verdade
+    // (acima), nao pode reverter o card na tela so porque o log falhou.
+    try {
       await client.from("streamer_phase_history").insert({
         "streamer_id": streamerId,
         "phase_key": onboardingPhaseKey,
@@ -363,10 +361,7 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
         "detail": _stageName(oldStageKey) + " → " + _stageName(newStageKey),
         "performed_by": userId,
       });
-    } catch (e) {
-      setState(() => _cards[index]["stageKey"] = oldStageKey);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erro ao mover: " + e.toString())));
-    }
+    } catch (_) {}
   }
 
   Future<void> _archivePreviousPeriod() async {
@@ -498,24 +493,10 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
       builder: (context) => _StreamerQuickInfoDialog(
         streamerId: card["streamerId"] as String,
         streamerName: card["displayName"] as String,
-        onOpenFullProfile: () => _showFullProfile(card["streamerId"] as String),
+        stageKey: card["stageKey"] as String,
+        agencyId: _agencyId,
       ),
     );
-  }
-
-  Future<void> _showFullProfile(String streamerId) async {
-    final client = Supabase.instance.client;
-    try {
-      final profile = await client
-          .from("profiles")
-          .select(
-              "id, display_name, tiktok_creator_id, joined_at, is_active, last_live_at, avatar_url, phone, assigned_manager_id, streamer_categories(name), managers!profiles_assigned_manager_id_fkey(login_email), streamer_stats(days_live, diamonds)")
-          .eq("id", streamerId)
-          .single();
-      if (mounted) showDialog(context: context, builder: (context) => StreamerFichaDialog(streamer: profile));
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erro ao carregar ficha: " + e.toString())));
-    }
   }
 
   void _openDetail(Map<String, dynamic> card) {
@@ -538,13 +519,46 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
         stages: _stages,
         itemsByStage: _itemsByStage,
         progressId: card["progressId"] as String,
-        agencyManagers: _agencyManagers,
-        cardManagerIds: (_cardManagers[card["progressId"]] ?? []).map((m) => m["managerId"] as String).toSet(),
-        canManageAll: _canManage,
       ),
     ).then((changed) {
       if (changed == true) _load();
     });
+  }
+
+  // Seletor de gestores responsaveis aberto direto do card (+ / - ao lado
+  // do nick), sem precisar abrir o dialog grande de detalhe -- atualiza
+  // so o _cardManagers local pra nao recarregar o board inteiro por causa
+  // de 1 toggle.
+  void _openManagerPickerForCard(Map<String, dynamic> card) {
+    final progressId = card["progressId"] as String;
+    final currentIds = (_cardManagers[progressId] ?? []).map((m) => m["managerId"] as String).toSet();
+    showDialog(
+      context: context,
+      builder: (context) => _ManagerPickerDialog(
+        agencyManagers: _agencyManagers,
+        selectedIds: currentIds,
+        canManageAll: _canManage,
+        onToggle: (managerId, addNow) async {
+          final userId = _userId;
+          if (addNow) {
+            await addManagersToCard(progressId: progressId, managerIds: [managerId], addedBy: userId);
+            final m = _agencyManagers.firstWhere((mgr) => mgr["id"] == managerId, orElse: () => {});
+            setState(() {
+              _cardManagers.putIfAbsent(progressId, () => []).add({
+                "managerId": managerId,
+                "email": m["login_email"],
+                "photoUrl": m["photo_url"],
+              });
+            });
+          } else {
+            await removeManagerFromCard(progressId: progressId, managerId: managerId);
+            setState(() {
+              _cardManagers[progressId]?.removeWhere((mgr) => mgr["managerId"] == managerId);
+            });
+          }
+        },
+      ),
+    );
   }
 
   void _openEditCard(Map<String, dynamic> card) {
@@ -880,47 +894,51 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
                                   final card = columnCards[index];
                                   final isLeadOnly = card["isLeadOnly"] == true;
                                   final complete = isLeadOnly ? false : _isStageComplete(card["streamerId"] as String, stageKey);
-                                  final managerCount = (_cardManagers[card["progressId"]] ?? []).length;
+                                  final cardManagerList = _cardManagers[card["progressId"]] ?? const [];
                                   final isEvaluationStage = stageKey == "avaliacao";
 
                                   if (isLeadOnly) {
                                     return GestureDetector(
+                                      key: ValueKey(card["progressId"]),
                                       onTap: () => _openDetail(card),
                                       child: _OnboardingCard(
                                         card: card,
                                         stageColor: stageColor,
                                         stageComplete: complete,
-                                        managerCount: managerCount,
+                                        managers: cardManagerList,
                                         isLeadOnly: true,
                                         onEdit: () => _openEditCard(card),
                                         onDelete: () => _confirmDeleteCard(card),
                                         onOpenFicha: () => _openFichaCompleta(card),
-                                        onOpenMaterial: (m) => openMaterialLinkOrText(context, m),
                                         onCheckLink: () => _checkAndPromoteLink(card),
+                                        onOpenMaterial: () => _openDetail(card),
+                                        onManageManagers: () => _openManagerPickerForCard(card),
                                       ),
                                     );
                                   }
 
                                   return Draggable<Map<String, dynamic>>(
+                                    key: ValueKey(card["progressId"]),
                                     data: card,
                                     feedback: Material(
                                       color: Colors.transparent,
-                                      child: SizedBox(width: 220, child: _OnboardingCard(card: card, stageColor: stageColor, stageComplete: complete, managerCount: managerCount)),
+                                      child: SizedBox(width: 220, child: _OnboardingCard(card: card, stageColor: stageColor, stageComplete: complete, managers: cardManagerList)),
                                     ),
-                                    childWhenDragging: Opacity(opacity: 0.3, child: _OnboardingCard(card: card, stageColor: stageColor, stageComplete: complete, managerCount: managerCount)),
+                                    childWhenDragging: Opacity(opacity: 0.3, child: _OnboardingCard(card: card, stageColor: stageColor, stageComplete: complete, managers: cardManagerList)),
                                     child: GestureDetector(
                                       onTap: () => _openDetail(card),
                                       child: _OnboardingCard(
                                         card: card,
                                         stageColor: stageColor,
                                         stageComplete: complete,
-                                        managerCount: managerCount,
+                                        managers: cardManagerList,
                                         isEvaluationStage: isEvaluationStage,
                                         onEvaluate: isEvaluationStage ? (outcome) => _evaluateCard(card, outcome) : null,
                                         onEdit: () => _openEditCard(card),
                                         onDelete: () => _confirmDeleteCard(card),
                                         onOpenFicha: () => _openFichaCompleta(card),
-                                        onOpenMaterial: (m) => openMaterialLinkOrText(context, m),
+                                        onOpenMaterial: () => _openDetail(card),
+                                        onManageManagers: () => _openManagerPickerForCard(card),
                                       ),
                                     ),
                                   );
@@ -945,54 +963,165 @@ class _OnboardingCard extends StatelessWidget {
   final Map<String, dynamic> card;
   final Color stageColor;
   final bool stageComplete;
-  final int managerCount;
+  final List<Map<String, dynamic>> managers;
   final bool isEvaluationStage;
   final bool isLeadOnly;
   final void Function(String outcome)? onEvaluate;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
   final VoidCallback? onOpenFicha;
-  final void Function(Map<String, dynamic> material)? onOpenMaterial;
   final VoidCallback? onCheckLink;
+  final VoidCallback? onOpenMaterial;
+  final VoidCallback? onManageManagers;
   const _OnboardingCard({
     required this.card,
     required this.stageColor,
     required this.stageComplete,
-    this.managerCount = 0,
+    this.managers = const [],
     this.isEvaluationStage = false,
     this.isLeadOnly = false,
     this.onEvaluate,
-    this.onOpenMaterial,
     this.onEdit,
     this.onDelete,
     this.onOpenFicha,
+    this.onOpenMaterial,
+    this.onManageManagers,
     this.onCheckLink,
   });
 
+  /// Barra de "saude do prazo": verde enquanto sobra bastante tempo dos
+  /// 15 dias de onboarding, amarela perto do limite, vermelha se ja
+  /// passou dos 15 dias sem concluir.
+  (Color, String) _deadlineHealth(int daysInAgency) {
+    if (daysInAgency > 15) return (Colors.redAccent, "Passou dos 15 dias (" + daysInAgency.toString() + ")");
+    if (daysInAgency >= 11) return (Colors.amber, "Perto do limite de 15 dias (dia " + daysInAgency.toString() + ")");
+    return (Colors.greenAccent, "Dentro do prazo (dia " + daysInAgency.toString() + " de 15)");
+  }
+
+  // Fotos pequenas dos gestores + atalhos de adicionar/remover, direto no
+  // topo do card ao lado do nick -- tirado do dialog de detalhe porque a
+  // lista completa de gestores (com Chips e email por extenso) tomava
+  // espaco demais ali. Aqui + e - abrem o mesmo seletor completo de
+  // gestores (marcar/desmarcar), so que com dois pontos de entrada obvios.
+  Widget _managerMiniControls() {
+    final shown = managers.take(2).toList();
+    final extra = managers.length - shown.length;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ...shown.map((m) => Padding(
+              padding: const EdgeInsets.only(left: 2),
+              child: Tooltip(
+                message: (m["email"] as String?) ?? "Gestor",
+                child: CircleAvatar(
+                  radius: 8,
+                  backgroundColor: Colors.white24,
+                  backgroundImage: m["photoUrl"] != null ? NetworkImage(m["photoUrl"] as String) : null,
+                  child: m["photoUrl"] == null ? const Icon(Icons.person, size: 9, color: Colors.white54) : null,
+                ),
+              ),
+            )),
+        if (extra > 0) Padding(padding: const EdgeInsets.only(left: 2), child: Text("+" + extra.toString(), style: const TextStyle(color: Colors.white54, fontSize: 9, fontWeight: FontWeight.bold))),
+        if (onManageManagers != null) ...[
+          Padding(
+            padding: const EdgeInsets.only(left: 3),
+            child: Tooltip(
+              message: "Adicionar gestor",
+              child: InkWell(
+                onTap: onManageManagers,
+                borderRadius: BorderRadius.circular(10),
+                child: const Icon(Icons.add_circle, size: 14, color: Colors.greenAccent),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 2),
+            child: Tooltip(
+              message: "Remover gestor",
+              child: InkWell(
+                onTap: onManageManagers,
+                borderRadius: BorderRadius.circular(10),
+                child: const Icon(Icons.remove_circle, size: 14, color: Colors.redAccent),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  // Envolve a construcao do card num try/catch: se algum dado inesperado
+  // fizer o card quebrar, o Flutter por padrao troca por um ErrorWidget
+  // quase invisivel no nosso tema escuro (texto pequeno sem fundo) -- daria
+  // a impressao de "card sumiu", ainda clicavel (o GestureDetector por
+  // fora continua funcionando) mas sem nada visivel. Aqui garante que
+  // qualquer falha apareca como um card vermelho com o motivo, nunca em
+  // branco.
   @override
   Widget build(BuildContext context) {
+    try {
+      return _buildContent(context);
+    } catch (e) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(color: const Color(0xFF1A1A1A), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.redAccent, width: 2)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Row(children: [
+              Icon(Icons.error_outline, size: 14, color: Colors.redAccent),
+              SizedBox(width: 4),
+              Text("Erro ao exibir este card", style: TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+            ]),
+            const SizedBox(height: 4),
+            Text(e.toString(), style: const TextStyle(color: Colors.white38, fontSize: 9), maxLines: 3, overflow: TextOverflow.ellipsis),
+          ],
+        ),
+      );
+    }
+  }
+
+  Widget _buildContent(BuildContext context) {
     final joinedAt = card["joinedAt"] as String?;
     final daysInAgency = joinedAt != null ? DateTime.now().difference(DateTime.parse(joinedAt)).inDays : null;
-    final tiktokId = card["tiktokId"] as String?;
-    final categoryName = card["categoryName"] as String?;
     final categoryIconKey = card["categoryIconKey"] as String?;
-    final categoryColor = categoryColorFor(categoryIconKey);
-    final stageChangedAt = card["stageChangedAt"] as String?;
-    final bucket = stageChangedAt != null ? _movementBucket(DateTime.parse(stageChangedAt)) : null;
-    final bucketInfo = bucket != null ? _movementBucketOptions.firstWhere((o) => o.$1 == bucket, orElse: () => _movementBucketOptions.first) : null;
+    final catColor = categoryColor(categoryIconKey);
     final outcome = card["outcome"] as String?;
-    final nextAction = card["nextAction"] as String?;
-    final cardMaterials = (card["cardMaterials"] as List<Map<String, dynamic>>?) ?? const [];
+    final deadline = daysInAgency != null ? _deadlineHealth(daysInAgency) : null;
+    final monthDays = card["monthDays"] as num?;
+    final monthHours = card["monthHours"] as num?;
+    final monthDiamonds = card["monthDiamonds"] as num?;
 
+    final baseBorderColor = stageComplete ? Colors.greenAccent : Colors.white12;
+    final baseBorderWidth = stageComplete ? 2.0 : 1.0;
+
+    // A faixa lateral (cor diferente so no lado esquerdo) nao pode fazer
+    // parte do Border junto com borderRadius -- o Flutter so aceita
+    // BorderRadius em bordas com cor uniforme nos 4 lados, senao a pintura
+    // quebra silenciosamente (excecao so em tempo de paint, o card fica em
+    // branco mas continua ocupando espaco e recebendo toque). Por isso a
+    // faixa e uma camada separada (Positioned), com a borda do Container
+    // uniforme e um ClipRRect por fora garantindo os cantos arredondados.
+    // A cor da faixa mostra o prazo do onboarding (verde/amarelo/vermelho),
+    // nao mais a categoria -- a categoria continua so no selo do avatar.
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1A1A1A),
+      child: ClipRRect(
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: stageComplete ? Colors.greenAccent : Colors.white12, width: stageComplete ? 2 : 1),
-      ),
-      child: Column(
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF1A1A1A),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: baseBorderColor, width: baseBorderWidth),
+          ),
+          child: Stack(
+            children: [
+              if (deadline != null) Positioned(left: 0, top: 0, bottom: 0, child: Tooltip(message: deadline.$2, child: Container(width: 4, color: deadline.$1))),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -1014,7 +1143,7 @@ class _OnboardingCard extends StatelessWidget {
                       child: Container(
                         padding: const EdgeInsets.all(2),
                         decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF1A1A1A)),
-                        child: Icon(categoryIconData(categoryIconKey), size: 12, color: categoryColor),
+                        child: Icon(categoryIcon(categoryIconKey), size: 12, color: catColor),
                       ),
                     ),
                 ],
@@ -1027,44 +1156,43 @@ class _OnboardingCard extends StatelessWidget {
                     GestureDetector(
                       onTap: onOpenFicha,
                       behavior: HitTestBehavior.opaque,
-                      child: Text(
-                        card["displayName"] as String,
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12, decoration: onOpenFicha != null ? TextDecoration.underline : null),
-                        overflow: TextOverflow.ellipsis,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              card["displayName"] as String,
+                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12, decoration: onOpenFicha != null ? TextDecoration.underline : null),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (onOpenFicha != null) ...[
+                            const SizedBox(width: 3),
+                            const Icon(Icons.info_outline, size: 11, color: Color(0xFF7A0BD4)),
+                          ],
+                        ],
                       ),
                     ),
-                    if (tiktokId != null && tiktokId.isNotEmpty) Text("@" + tiktokId, style: const TextStyle(color: Colors.white54, fontSize: 10)),
-                    if (categoryName != null && categoryName.isNotEmpty) Text(categoryName, style: TextStyle(color: categoryColor, fontSize: 10, fontWeight: FontWeight.bold)),
-                    if (nextAction != null)
+                    if (daysInAgency != null) Text(daysInAgency.toString() + " dias na agencia", style: const TextStyle(color: Colors.white38, fontSize: 9)),
+                    if (monthDays != null || monthHours != null || monthDiamonds != null)
                       Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          "Proxima acao: " + nextAction,
-                          style: const TextStyle(color: Colors.amberAccent, fontSize: 9, fontWeight: FontWeight.bold),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 2,
+                          runSpacing: 2,
+                          children: [
+                            const Icon(Icons.calendar_today, size: 8, color: Colors.white24),
+                            Text(monthDays?.toString() ?? "0", style: const TextStyle(color: Colors.white38, fontSize: 9)),
+                            const SizedBox(width: 4),
+                            const Icon(Icons.schedule, size: 8, color: Colors.white24),
+                            Text((monthHours?.toString() ?? "0") + "h", style: const TextStyle(color: Colors.white38, fontSize: 9)),
+                            const SizedBox(width: 4),
+                            const Icon(Icons.diamond, size: 8, color: Colors.white24),
+                            Text(monthDiamonds?.toString() ?? "0", style: const TextStyle(color: Colors.white38, fontSize: 9)),
+                          ],
                         ),
                       ),
-                    if (cardMaterials.isNotEmpty && onOpenMaterial != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: cardMaterials.length == 1
-                            ? InkWell(
-                                onTap: () => onOpenMaterial!(cardMaterials.first),
-                                borderRadius: BorderRadius.circular(6),
-                                child: _materialTag("Material a enviar"),
-                              )
-                            : PopupMenuButton<Map<String, dynamic>>(
-                                padding: EdgeInsets.zero,
-                                color: const Color(0xFF262626),
-                                onSelected: onOpenMaterial,
-                                itemBuilder: (context) => cardMaterials
-                                    .map((m) => PopupMenuItem(value: m, child: Text(m["title"] as String? ?? "-", style: const TextStyle(color: Colors.white, fontSize: 13))))
-                                    .toList(),
-                                child: _materialTag(cardMaterials.length.toString() + " materiais a enviar"),
-                              ),
-                      ),
-                    if (daysInAgency != null) Text(daysInAgency.toString() + " dias na agencia", style: const TextStyle(color: Colors.white38, fontSize: 9)),
                     if (isLeadOnly)
                       Padding(
                         padding: const EdgeInsets.only(top: 4),
@@ -1072,27 +1200,6 @@ class _OnboardingCard extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                           decoration: BoxDecoration(color: Colors.orangeAccent.withOpacity(0.15), borderRadius: BorderRadius.circular(6), border: Border.all(color: Colors.orangeAccent)),
                           child: const Text("Aguardando vinculo", style: TextStyle(color: Colors.orangeAccent, fontSize: 8, fontWeight: FontWeight.bold)),
-                        ),
-                      ),
-                    if (bucketInfo != null || managerCount > 1)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Wrap(
-                          spacing: 4,
-                          children: [
-                            if (bucketInfo != null)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                                decoration: BoxDecoration(color: bucketInfo.$3.withOpacity(0.18), borderRadius: BorderRadius.circular(6), border: Border.all(color: bucketInfo.$3)),
-                                child: Text(bucketInfo.$2, style: TextStyle(color: bucketInfo.$3, fontSize: 8, fontWeight: FontWeight.bold)),
-                              ),
-                            if (managerCount > 1)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                                decoration: BoxDecoration(color: Colors.white.withOpacity(0.08), borderRadius: BorderRadius.circular(6)),
-                                child: Text(managerCount.toString() + " gestores", style: const TextStyle(color: Colors.white54, fontSize: 8, fontWeight: FontWeight.bold)),
-                              ),
-                          ],
                         ),
                       ),
                   ],
@@ -1115,6 +1222,31 @@ class _OnboardingCard extends StatelessWidget {
                   ],
                 ),
             ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                if (onOpenMaterial != null)
+                  InkWell(
+                    onTap: onOpenMaterial,
+                    borderRadius: BorderRadius.circular(6),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      decoration: BoxDecoration(color: const Color(0xFF7A0BD4).withOpacity(0.15), borderRadius: BorderRadius.circular(6), border: Border.all(color: const Color(0xFF7A0BD4))),
+                      child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.send, size: 10, color: Color(0xFF7A0BD4)),
+                        SizedBox(width: 3),
+                        Text("Enviar Material", style: TextStyle(color: Color(0xFF7A0BD4), fontSize: 9, fontWeight: FontWeight.bold)),
+                      ]),
+                    ),
+                  ),
+                if (managers.isNotEmpty || onManageManagers != null) _managerMiniControls(),
+              ],
+            ),
           ),
           if (isEvaluationStage) ...[
             const SizedBox(height: 8),
@@ -1147,21 +1279,15 @@ class _OnboardingCard extends StatelessWidget {
               ),
           ],
         ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Widget _materialTag(String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(color: Colors.tealAccent.withOpacity(0.15), borderRadius: BorderRadius.circular(6), border: Border.all(color: Colors.tealAccent)),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        const Icon(Icons.description_outlined, size: 10, color: Colors.tealAccent),
-        const SizedBox(width: 3),
-        Text(label, style: const TextStyle(color: Colors.tealAccent, fontSize: 9, fontWeight: FontWeight.bold)),
-      ]),
-    );
-  }
 
   Widget _evaluateButton({required IconData icon, required Color color, required String tooltip, required VoidCallback onTap}) {
     return Tooltip(
@@ -1187,9 +1313,6 @@ class _OnboardingCardDetailDialog extends StatefulWidget {
   final List<Map<String, dynamic>> stages;
   final Map<String, List<Map<String, dynamic>>> itemsByStage;
   final String progressId;
-  final List<Map<String, dynamic>> agencyManagers;
-  final Set<String> cardManagerIds;
-  final bool canManageAll;
   const _OnboardingCardDetailDialog({
     required this.streamerId,
     required this.streamerName,
@@ -1198,9 +1321,6 @@ class _OnboardingCardDetailDialog extends StatefulWidget {
     required this.stages,
     required this.itemsByStage,
     required this.progressId,
-    required this.agencyManagers,
-    required this.cardManagerIds,
-    required this.canManageAll,
   });
 
   @override
@@ -1212,12 +1332,10 @@ class _OnboardingCardDetailDialogState extends State<_OnboardingCardDetailDialog
   final _obsController = TextEditingController();
   bool _savingObs = false;
   bool _changed = false;
-  late Set<String> _managerIds;
 
   @override
   void initState() {
     super.initState();
-    _managerIds = {...widget.cardManagerIds};
     _future = _load();
   }
 
@@ -1296,9 +1414,20 @@ class _OnboardingCardDetailDialogState extends State<_OnboardingCardDetailDialog
         "done_at": newValue ? DateTime.now().toIso8601String() : null,
         "done_by": newValue ? userId : null,
       }, onConflict: "streamer_id,phase_key,stage_key,item_key");
+    } catch (e) {
+      setState(() {
+        checklistProgress[itemKey] = !newValue;
+        data["nextAction"] = _nextActionFor(widget.streamerId, stageKey, widget.itemsByStage, {widget.streamerId + "|" + stageKey: checklistProgress});
+      });
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erro ao salvar: " + e.toString())));
+      return;
+    }
 
-      if (newValue) {
-        final label = widget.itemsByStage[stageKey]?.firstWhere((it) => it["item_key"] == itemKey, orElse: () => {"label": itemKey})["label"] as String;
+    if (newValue) {
+      final label = widget.itemsByStage[stageKey]?.firstWhere((it) => it["item_key"] == itemKey, orElse: () => {"label": itemKey})["label"] as String;
+      // Registro de historico -- best effort: o checklist ja foi salvo
+      // acima, nao pode reverter o check na tela so porque o log falhou.
+      try {
         await client.from("streamer_phase_history").insert({
           "streamer_id": widget.streamerId,
           "phase_key": onboardingPhaseKey,
@@ -1308,13 +1437,7 @@ class _OnboardingCardDetailDialogState extends State<_OnboardingCardDetailDialog
         });
         final history = data["history"] as List<Map<String, dynamic>>;
         setState(() => history.insert(0, {"created_at": DateTime.now().toIso8601String(), "action": "checklist_item", "detail": label}));
-      }
-    } catch (e) {
-      setState(() {
-        checklistProgress[itemKey] = !newValue;
-        data["nextAction"] = _nextActionFor(widget.streamerId, stageKey, widget.itemsByStage, {widget.streamerId + "|" + stageKey: checklistProgress});
-      });
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erro ao salvar: " + e.toString())));
+      } catch (_) {}
     }
   }
 
@@ -1338,75 +1461,6 @@ class _OnboardingCardDetailDialogState extends State<_OnboardingCardDetailDialog
       history.insert(0, {"created_at": DateTime.now().toIso8601String(), "action": "observacao", "detail": detail});
       _savingObs = false;
     });
-  }
-
-  Future<void> _toggleManager(String managerId, bool addNow) async {
-    final client = Supabase.instance.client;
-    final userId = client.auth.currentUser!.id;
-    final alreadyIn = _managerIds.contains(managerId);
-    if (alreadyIn && !addNow && !widget.canManageAll) return;
-
-    setState(() {
-      if (addNow) {
-        _managerIds.add(managerId);
-      } else {
-        _managerIds.remove(managerId);
-      }
-    });
-    _changed = true;
-    if (addNow) {
-      await addManagersToCard(progressId: widget.progressId, managerIds: [managerId], addedBy: userId);
-    } else {
-      await removeManagerFromCard(progressId: widget.progressId, managerId: managerId);
-    }
-  }
-
-  void _openManagerPicker() {
-    showDialog(
-      context: context,
-      builder: (context) => _ManagerPickerDialog(
-        agencyManagers: widget.agencyManagers,
-        selectedIds: _managerIds,
-        canManageAll: widget.canManageAll,
-        onToggle: _toggleManager,
-      ),
-    );
-  }
-
-  Widget _managersSection() {
-    final selected = widget.agencyManagers.where((m) => _managerIds.contains(m["id"])).toList();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(children: [
-          const Text("Gestores responsaveis", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          const Spacer(),
-          TextButton.icon(
-            onPressed: _openManagerPicker,
-            icon: const Icon(Icons.person_add_alt_1, size: 14, color: Color(0xFF7A0BD4)),
-            label: const Text("Gerenciar", style: TextStyle(color: Color(0xFF7A0BD4), fontSize: 12)),
-            style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 0), tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-          ),
-        ]),
-        const SizedBox(height: 4),
-        if (selected.isEmpty)
-          const Text("Nenhum gestor vinculado ainda.", style: TextStyle(color: Colors.white38, fontSize: 12))
-        else
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: selected.map((m) {
-              final id = m["id"] as String;
-              return Chip(
-                label: Text(m["login_email"] as String, style: const TextStyle(color: Colors.white, fontSize: 12)),
-                backgroundColor: const Color(0xFF7A0BD4).withOpacity(0.2),
-                side: BorderSide.none,
-                onDeleted: widget.canManageAll ? () => _toggleManager(id, false) : null,
-              );
-            }).toList(),
-          ),
-      ],
-    );
   }
 
   @override
@@ -1523,8 +1577,6 @@ class _OnboardingCardDetailDialogState extends State<_OnboardingCardDetailDialog
                           style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic),
                         ),
                       ),
-                    const SizedBox(height: 16),
-                    _managersSection(),
                     const SizedBox(height: 16),
                     Row(children: [
                       const Text("Ultima atualizacao", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
@@ -1806,8 +1858,9 @@ class _GestorVincularStreamerDialogState extends State<_GestorVincularStreamerDi
 class _StreamerQuickInfoDialog extends StatelessWidget {
   final String streamerId;
   final String streamerName;
-  final VoidCallback onOpenFullProfile;
-  const _StreamerQuickInfoDialog({required this.streamerId, required this.streamerName, required this.onOpenFullProfile});
+  final String stageKey;
+  final String agencyId;
+  const _StreamerQuickInfoDialog({required this.streamerId, required this.streamerName, required this.stageKey, required this.agencyId});
 
   Widget _actionButton(BuildContext context, {required IconData icon, required String label, required VoidCallback onTap}) {
     return SizedBox(
@@ -1863,11 +1916,217 @@ class _StreamerQuickInfoDialog extends StatelessWidget {
                 label: "Perfil e Metricas",
                 onTap: () {
                   Navigator.of(context).pop();
-                  onOpenFullProfile();
+                  showDialog(context: context, builder: (context) => _StreamerMetricsDialog(streamerId: streamerId, streamerName: streamerName));
+                },
+              ),
+              const SizedBox(height: 8),
+              _actionButton(
+                context,
+                icon: Icons.checklist,
+                label: "Check Materiais",
+                onTap: () {
+                  Navigator.of(context).pop();
+                  showDialog(
+                    context: context,
+                    builder: (context) => _MaterialCheckDialog(streamerId: streamerId, streamerName: streamerName, stageKey: stageKey, agencyId: agencyId),
+                  );
                 },
               ),
               const SizedBox(height: 12),
               Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text("Fechar"))),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Check Materiais: lista configuravel (via engrenagem, dentro da edicao de
+/// cada etapa) que o gestor vai marcando conforme revisa os materiais com o
+/// streamer. Nao trava avanco de etapa (isso e o "Checklist desta etapa",
+/// tabela separada) -- e so um acompanhamento manual.
+class _MaterialCheckDialog extends StatefulWidget {
+  final String streamerId;
+  final String streamerName;
+  final String stageKey;
+  final String agencyId;
+  const _MaterialCheckDialog({required this.streamerId, required this.streamerName, required this.stageKey, required this.agencyId});
+
+  @override
+  State<_MaterialCheckDialog> createState() => _MaterialCheckDialogState();
+}
+
+class _MaterialCheckDialogState extends State<_MaterialCheckDialog> {
+  bool _loading = true;
+  bool _saving = false;
+  String? _message;
+  List<Map<String, dynamic>> _items = [];
+  // item_key -> done
+  final Map<String, bool> _checked = {};
+  // item_key -> (done_at, done_by_email), so preenchido para itens ja salvos
+  final Map<String, (DateTime, String?)> _confirmedInfo = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    final client = Supabase.instance.client;
+    final items = await client
+        .from("onboarding_material_check_items")
+        .select()
+        .eq("agency_id", widget.agencyId)
+        .eq("phase_key", onboardingPhaseKey)
+        .eq("stage_key", widget.stageKey)
+        .order("order_index", ascending: true);
+    final progress = await client
+        .from("onboarding_material_check_progress")
+        .select("item_key, done, done_at, done_by, managers(login_email)")
+        .eq("streamer_id", widget.streamerId)
+        .eq("phase_key", onboardingPhaseKey)
+        .eq("stage_key", widget.stageKey);
+    _checked.clear();
+    _confirmedInfo.clear();
+    for (final r in (progress as List)) {
+      final itemKey = r["item_key"] as String;
+      _checked[itemKey] = r["done"] == true;
+      if (r["done"] == true && r["done_at"] != null) {
+        final managerData = r["managers"];
+        _confirmedInfo[itemKey] = (DateTime.parse(r["done_at"] as String), managerData is Map ? managerData["login_email"] as String? : null);
+      }
+    }
+    if (mounted) {
+      setState(() {
+        _items = (items as List).cast<Map<String, dynamic>>();
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _save() async {
+    setState(() {
+      _saving = true;
+      _message = null;
+    });
+    final client = Supabase.instance.client;
+    final userId = client.auth.currentUser!.id;
+    try {
+      for (final item in _items) {
+        final itemKey = item["item_key"] as String;
+        final isChecked = _checked[itemKey] ?? false;
+        await client.from("onboarding_material_check_progress").upsert({
+          "streamer_id": widget.streamerId,
+          "phase_key": onboardingPhaseKey,
+          "stage_key": widget.stageKey,
+          "item_key": itemKey,
+          "done": isChecked,
+          "done_at": isChecked ? DateTime.now().toIso8601String() : null,
+          "done_by": isChecked ? userId : null,
+        }, onConflict: "streamer_id,phase_key,stage_key,item_key");
+      }
+      await _load();
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _message = "Salvo com sucesso.";
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _message = "Erro: " + e.toString();
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF1A1A1A),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440, maxHeight: 620),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Expanded(
+                  child: Text("Check Materiais - " + widget.streamerName, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
+                ),
+                IconButton(icon: const Icon(Icons.close, color: Colors.white54), onPressed: () => Navigator.of(context).pop()),
+              ]),
+              const Text("Marque conforme for revisando os materiais com o streamer nesta etapa.", style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic)),
+              const SizedBox(height: 12),
+              if (_loading)
+                const Center(child: Padding(padding: EdgeInsets.symmetric(vertical: 24), child: CircularProgressIndicator()))
+              else if (_items.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Text("Nenhum item configurado para esta etapa ainda. Configure na engrenagem (Configurar colunas > editar a etapa > Check Materiais).", style: TextStyle(color: Colors.white38, fontSize: 12)),
+                )
+              else
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: _items.map((item) {
+                        final itemKey = item["item_key"] as String;
+                        final isChecked = _checked[itemKey] ?? false;
+                        final confirmed = _confirmedInfo[itemKey];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              CheckboxListTile(
+                                value: isChecked,
+                                onChanged: (v) => setState(() => _checked[itemKey] = v ?? false),
+                                title: Text(item["label"] as String, style: const TextStyle(color: Colors.white, fontSize: 13)),
+                                activeColor: const Color(0xFF7A0BD4),
+                                controlAffinity: ListTileControlAffinity.leading,
+                                contentPadding: EdgeInsets.zero,
+                                dense: true,
+                              ),
+                              if (isChecked && confirmed != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 32),
+                                  child: Text(
+                                    "Confirmado em " + confirmed.$1.day.toString().padLeft(2, "0") + "/" + confirmed.$1.month.toString().padLeft(2, "0") + "/" + confirmed.$1.year.toString() + (confirmed.$2 != null ? " por " + confirmed.$2! : ""),
+                                    style: const TextStyle(color: Colors.white24, fontSize: 9),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ),
+              if (_message != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(_message!, style: TextStyle(color: _message!.startsWith("Erro") ? Colors.redAccent : Colors.greenAccent, fontSize: 12)),
+                ),
+              const SizedBox(height: 12),
+              Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text("Fechar")),
+                const SizedBox(width: 8),
+                if (_items.isNotEmpty)
+                  ElevatedButton.icon(
+                    onPressed: _saving ? null : _save,
+                    icon: const Icon(Icons.save, size: 16),
+                    label: Text(_saving ? "Salvando..." : "Salvar"),
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
+                  ),
+              ]),
             ],
           ),
         ),
@@ -2054,6 +2313,143 @@ class _StreamerHistoryDialogState extends State<_StreamerHistoryDialog> {
               const SizedBox(height: 8),
               Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text("Fechar"))),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Perfil e metricas do streamer -- leve e proprio (nao reaproveita o
+/// StreamerFichaDialog do Nivel/Manutencao, que espera um mapa complexo ja
+/// calculado -- month/tier/probabilidades -- que este board nao tem e
+/// quebrava ao abrir daqui). Mostra os dados basicos do cadastro e os
+/// numeros do mes atual (streamer_stats), que e o que o gestor precisa ao
+/// olhar um streamer do Onboarding.
+class _StreamerMetricsDialog extends StatefulWidget {
+  final String streamerId;
+  final String streamerName;
+  const _StreamerMetricsDialog({required this.streamerId, required this.streamerName});
+
+  @override
+  State<_StreamerMetricsDialog> createState() => _StreamerMetricsDialogState();
+}
+
+class _StreamerMetricsDialogState extends State<_StreamerMetricsDialog> {
+  late Future<Map<String, dynamic>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  Future<Map<String, dynamic>> _load() async {
+    final client = Supabase.instance.client;
+    final profile = await client
+        .from("profiles")
+        .select("display_name, tiktok_creator_id, avatar_url, phone, joined_at, is_active, streamer_categories(name), managers!profiles_assigned_manager_id_fkey(login_email)")
+        .eq("id", widget.streamerId)
+        .single();
+    final stats = await client.from("streamer_stats").select("days_live, hours_live, diamonds, battles").eq("streamer_id", widget.streamerId).maybeSingle();
+    return {"profile": profile, "stats": stats};
+  }
+
+  Widget _statTile(String label, String value, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        margin: const EdgeInsets.symmetric(horizontal: 3),
+        decoration: BoxDecoration(color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(10), border: Border.all(color: color)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+            const SizedBox(height: 4),
+            Text(value, style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _row(String label, String value) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(children: [
+          SizedBox(width: 130, child: Text(label, style: const TextStyle(color: Colors.white54, fontSize: 12))),
+          Expanded(child: Text(value, style: const TextStyle(color: Colors.white, fontSize: 13))),
+        ]),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF1A1A1A),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440, maxHeight: 560),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: FutureBuilder<Map<String, dynamic>>(
+            future: _future,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const SizedBox(height: 200, child: Center(child: CircularProgressIndicator()));
+              }
+              if (snapshot.hasError) {
+                return SizedBox(height: 150, child: Center(child: Text("Erro: " + snapshot.error.toString(), style: const TextStyle(color: Colors.redAccent))));
+              }
+              final p = snapshot.data!["profile"] as Map<String, dynamic>;
+              final stats = snapshot.data!["stats"] as Map<String, dynamic>?;
+              final catData = p["streamer_categories"];
+              final managerData = p["managers"];
+              final joinedAt = DateTime.parse(p["joined_at"] as String);
+              final daysInAgency = DateTime.now().difference(joinedAt).inDays;
+
+              return SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor: Colors.white24,
+                        backgroundImage: p["avatar_url"] != null ? NetworkImage(p["avatar_url"] as String) : null,
+                        child: p["avatar_url"] == null ? const Icon(Icons.person, color: Colors.white, size: 22) : null,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(widget.streamerName, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                            if ((p["tiktok_creator_id"] as String?)?.isNotEmpty == true) Text("@" + (p["tiktok_creator_id"] as String), style: const TextStyle(color: Colors.white54, fontSize: 13)),
+                          ],
+                        ),
+                      ),
+                    ]),
+                    const SizedBox(height: 16),
+                    _row("Dias na agencia", daysInAgency.toString() + " dias"),
+                    _row("Categoria", catData is Map ? catData["name"] as String? ?? "-" : "-"),
+                    _row("Telefone", (p["phone"] as String?)?.isNotEmpty == true ? p["phone"] as String : "-"),
+                    _row("Gestor responsavel", managerData is Map ? managerData["login_email"] as String? ?? "-" : "-"),
+                    const SizedBox(height: 16),
+                    const Text("Este mes", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    if (stats == null)
+                      const Text("Sem dados de desempenho registrados ainda.", style: TextStyle(color: Colors.white38, fontSize: 12))
+                    else
+                      Row(children: [
+                        _statTile("Dias ao vivo", (stats["days_live"] as num? ?? 0).toString(), Colors.blueAccent),
+                        _statTile("Horas ao vivo", (stats["hours_live"] as num? ?? 0).toString(), Colors.purpleAccent),
+                        _statTile("Diamantes", (stats["diamonds"] as num? ?? 0).toString(), const Color(0xFF7A0BD4)),
+                      ]),
+                    const SizedBox(height: 12),
+                    Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text("Fechar"))),
+                  ],
+                ),
+              );
+            },
           ),
         ),
       ),
