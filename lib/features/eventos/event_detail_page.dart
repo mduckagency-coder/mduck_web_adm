@@ -113,31 +113,48 @@ class _EventDetailPageState extends State<EventDetailPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (bannerUrl != null && bannerUrl.isNotEmpty)
-                        SizedBox(
-                          height: 160,
-                          width: double.infinity,
-                          child: Image.network(bannerUrl, fit: BoxFit.cover, errorBuilder: (context, error, stack) => Container(color: const Color(0xFF232323))),
-                        ),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(children: [
-                              Expanded(child: Text(event["title"] as String, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold))),
-                              IconButton(icon: const Icon(Icons.edit, color: Colors.white54, size: 20), onPressed: () => _openEdit(event)),
-                              DropdownButton<String>(
-                                value: status,
-                                dropdownColor: const Color(0xFF232323),
-                                underline: const SizedBox.shrink(),
-                                style: TextStyle(color: eventStatusColor(status), fontWeight: FontWeight.bold, fontSize: 13),
-                                items: eventStatusOptions.map((s) => DropdownMenuItem(value: s, child: Text(eventStatusLabel(s)))).toList(),
-                                onChanged: (v) => v != null ? _changeStatus(v, status) : null,
-                              ),
-                            ]),
-                            if ((event["description"] as String?)?.isNotEmpty == true)
-                              Padding(padding: const EdgeInsets.only(top: 4), child: Text(event["description"] as String, style: const TextStyle(color: Colors.white70, fontSize: 13))),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: SizedBox(
+                                    width: 56,
+                                    height: 56,
+                                    child: bannerUrl != null && bannerUrl.isNotEmpty
+                                        ? Image.network(bannerUrl, fit: BoxFit.cover, errorBuilder: (context, error, stack) => Container(color: const Color(0xFF232323), child: const Icon(Icons.event, color: Colors.white24, size: 22)))
+                                        : Container(color: const Color(0xFF232323), child: const Icon(Icons.event, color: Colors.white24, size: 22)),
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(children: [
+                                        Expanded(child: Text(event["title"] as String, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold))),
+                                        IconButton(icon: const Icon(Icons.edit, color: Colors.white54, size: 20), onPressed: () => _openEdit(event)),
+                                        DropdownButton<String>(
+                                          value: status,
+                                          dropdownColor: const Color(0xFF232323),
+                                          underline: const SizedBox.shrink(),
+                                          style: TextStyle(color: eventStatusColor(status), fontWeight: FontWeight.bold, fontSize: 13),
+                                          items: eventStatusOptions.map((s) => DropdownMenuItem(value: s, child: Text(eventStatusLabel(s)))).toList(),
+                                          onChanged: (v) => v != null ? _changeStatus(v, status) : null,
+                                        ),
+                                      ]),
+                                      if ((event["description"] as String?)?.isNotEmpty == true)
+                                        Padding(padding: const EdgeInsets.only(top: 4), child: Text(event["description"] as String, style: const TextStyle(color: Colors.white70, fontSize: 13))),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
                             const SizedBox(height: 10),
                             Wrap(spacing: 20, runSpacing: 8, children: [
                               if (typeData is Map) _metaChip(Icons.category_outlined, typeData["name"] as String),

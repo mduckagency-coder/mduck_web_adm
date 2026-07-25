@@ -195,6 +195,16 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
         .select("value, reward_type, description, created_at, agency_campaigns(title)")
         .eq("streamer_id", widget.streamerId);
 
+    final eventAwards = await client
+        .from("event_awards")
+        .select("name, items, status, created_at, agency_events(title)")
+        .eq("streamer_id", widget.streamerId);
+
+    final scheduleLinks = await client
+        .from("event_schedule_streamers")
+        .select("event_schedule(description, start_at, status, agency_events(title))")
+        .eq("streamer_id", widget.streamerId);
+
     final completedMissions = await client
         .from("streamer_missions")
         .select("completed_at, missions(title, reward_type, reward_detail)")
@@ -256,6 +266,28 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
         "date": r["created_at"],
         "type": "premio",
         "text": "Premio recebido: " + ((r["description"] as String?) ?? (r["reward_type"] as String)) + (campaign is Map ? " (" + (campaign["title"] as String) + ")" : ""),
+      });
+    }
+    for (final a in (eventAwards as List)) {
+      final event = a["agency_events"];
+      final items = (a["items"] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      final itemsText = items.isEmpty ? "" : " (" + items.map((it) => (it["quantity"] ?? 1).toString() + "x " + ((it["name"] as String?) ?? "-")).join(", ") + ")";
+      final statusLabel = a["status"] == "pago" ? "Pago" : (a["status"] == "agendado" ? "Agendado" : "Pendente");
+      timeline.add({
+        "date": a["created_at"],
+        "type": "premio",
+        "text": "Premiado em evento" + (event is Map ? " \"" + ((event["title"] as String?) ?? "-") + "\"" : "") + ": " + (a["name"] as String) + itemsText + " - " + statusLabel,
+      });
+    }
+    for (final l in (scheduleLinks as List)) {
+      final schedule = (l as Map)["event_schedule"];
+      if (schedule is! Map) continue;
+      final event = schedule["agency_events"];
+      final scheduleStatus = schedule["status"] == "concluido" ? "Concluido" : (schedule["status"] == "cancelado" ? "Cancelado" : (schedule["status"] == "em_andamento" ? "Em andamento" : "Pendente"));
+      timeline.add({
+        "date": schedule["start_at"],
+        "type": "cronograma",
+        "text": "Atividade" + (event is Map ? " do evento \"" + ((event["title"] as String?) ?? "-") + "\"" : "") + ": " + (schedule["description"] as String) + " - " + scheduleStatus,
       });
     }
     for (final m in (completedMissions as List)) {
