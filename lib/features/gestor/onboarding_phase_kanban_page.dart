@@ -233,6 +233,7 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
                 "categoryName": catData is Map ? catData["name"] as String? : null,
                 "categoryIconKey": catData is Map ? catData["icon_key"] as String? : null,
                 "outcome": p["outcome"],
+                "isPotential": p["is_potential"] == true,
                 "nextAction": _nextActionFor(streamerId, stageKey, itemsByStage, checklistProgress),
                 "monthDays": statsMap[streamerId]?["days_live"],
                 "monthHours": statsMap[streamerId]?["hours_live"],
@@ -258,6 +259,7 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
               "categoryName": lead["category_interest"],
               "categoryIconKey": null,
               "outcome": p["outcome"],
+              "isPotential": p["is_potential"] == true,
               "nextAction": "Vincular streamer oficial (\"Vincular Streamer\" em Streamers Agenciados)",
             };
           }).toList();
@@ -566,6 +568,7 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
       context: context,
       builder: (context) => OnboardingCardEditDialog(
         isLeadOnly: card["isLeadOnly"] == true,
+        progressId: card["progressId"] as String,
         streamerId: card["streamerId"] as String?,
         leadId: card["leadId"] as String?,
         initialName: card["displayName"] as String,
@@ -574,6 +577,7 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
         initialEmail: card["email"] as String?,
         initialCategoryId: card["categoryId"] as String?,
         initialCategoryInterest: card["isLeadOnly"] == true ? card["categoryName"] as String? : null,
+        initialIsPotential: card["isPotential"] == true,
       ),
     ).then((changed) {
       if (changed == true) _load();
@@ -1089,6 +1093,7 @@ class _OnboardingCard extends StatelessWidget {
     final categoryIconKey = card["categoryIconKey"] as String?;
     final catColor = categoryColor(categoryIconKey);
     final outcome = card["outcome"] as String?;
+    final isPotential = card["isPotential"] == true;
     final deadline = daysInAgency != null ? _deadlineHealth(daysInAgency) : null;
     final monthDays = card["monthDays"] as num?;
     final monthHours = card["monthHours"] as num?;
@@ -1144,6 +1149,19 @@ class _OnboardingCard extends StatelessWidget {
                         padding: const EdgeInsets.all(2),
                         decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF1A1A1A)),
                         child: Icon(categoryIcon(categoryIconKey), size: 12, color: catColor),
+                      ),
+                    ),
+                  if (isPotential)
+                    Positioned(
+                      bottom: -2,
+                      left: -2,
+                      child: Tooltip(
+                        message: "Streamer em potencial",
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF1A1A1A)),
+                          child: const Icon(Icons.star, size: 12, color: Colors.amber),
+                        ),
                       ),
                     ),
                 ],

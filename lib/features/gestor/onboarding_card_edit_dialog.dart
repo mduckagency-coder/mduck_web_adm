@@ -9,6 +9,7 @@ import "onboarding_phase_service.dart";
 /// mudam conforme o caso.
 class OnboardingCardEditDialog extends StatefulWidget {
   final bool isLeadOnly;
+  final String progressId;
   final String? streamerId;
   final String? leadId;
   final String initialName;
@@ -17,10 +18,12 @@ class OnboardingCardEditDialog extends StatefulWidget {
   final String? initialEmail;
   final String? initialCategoryId;
   final String? initialCategoryInterest;
+  final bool initialIsPotential;
 
   const OnboardingCardEditDialog({
     super.key,
     required this.isLeadOnly,
+    required this.progressId,
     this.streamerId,
     this.leadId,
     required this.initialName,
@@ -29,6 +32,7 @@ class OnboardingCardEditDialog extends StatefulWidget {
     this.initialEmail,
     this.initialCategoryId,
     this.initialCategoryInterest,
+    this.initialIsPotential = false,
   });
 
   @override
@@ -45,6 +49,7 @@ class _OnboardingCardEditDialogState extends State<OnboardingCardEditDialog> {
   List<Map<String, dynamic>> _categories = [];
   bool _saving = false;
   String? _errorMessage;
+  late bool _isPotential = widget.initialIsPotential;
 
   @override
   void initState() {
@@ -88,6 +93,9 @@ class _OnboardingCardEditDialogState extends State<OnboardingCardEditDialog> {
           categoryId: _categoryId,
           performedBy: userId,
         );
+      }
+      if (_isPotential != widget.initialIsPotential) {
+        await updateOnboardingCardPotential(progressId: widget.progressId, isPotential: _isPotential);
       }
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
@@ -153,6 +161,20 @@ class _OnboardingCardEditDialogState extends State<OnboardingCardEditDialog> {
                         ),
                       ] else
                         _field(_categoryInterestController, "Categoria de interesse"),
+                      const SizedBox(height: 4),
+                      CheckboxListTile(
+                        value: _isPotential,
+                        onChanged: (v) => setState(() => _isPotential = v ?? false),
+                        controlAffinity: ListTileControlAffinity.leading,
+                        contentPadding: EdgeInsets.zero,
+                        activeColor: Colors.amber,
+                        title: const Row(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(Icons.star, color: Colors.amber, size: 16),
+                          SizedBox(width: 6),
+                          Text("Streamer em potencial", style: TextStyle(color: Colors.white, fontSize: 13)),
+                        ]),
+                        subtitle: const Text("Mostra uma estrela ao lado da categoria no card do board.", style: TextStyle(color: Colors.white38, fontSize: 11)),
+                      ),
                     ],
                   ),
                 ),

@@ -534,6 +534,13 @@ Future<void> updateOnboardingLeadInfo({
   } catch (_) {}
 }
 
+/// Marca/desmarca um card como "streamer em potencial" -- avaliacao do
+/// gestor durante o acompanhamento desta fase, mostrada como uma estrela ao
+/// lado do icone de categoria na foto do card.
+Future<void> updateOnboardingCardPotential({required String progressId, required bool isPotential}) async {
+  await Supabase.instance.client.from("streamer_phase_progress").update({"is_potential": isPotential}).eq("id", progressId);
+}
+
 /// Decisao da etapa "Avaliacao Final": aprovado (streamer segue ativo,
 /// conclui o onboarding), revisao (fica mais tempo em acompanhamento,
 /// card continua na coluna) ou desligado (encerra o streamer na agencia).

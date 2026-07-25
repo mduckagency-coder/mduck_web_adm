@@ -88,7 +88,9 @@ class OnboardingMaterialsPage extends StatefulWidget {
 }
 
 class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
-  late Future<List<Map<String, dynamic>>> _future;
+  List<Map<String, dynamic>> _materials = [];
+  bool _loading = true;
+  String? _error;
   String _stage = stageTabs.first.$1;
   String? _dayFilter;
   String? _nicheFilter;
@@ -98,23 +100,42 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
   void initState() {
     super.initState();
     _myUserId = Supabase.instance.client.auth.currentUser!.id;
-    _future = _load();
+    _load();
   }
 
-  Future<List<Map<String, dynamic>>> _load() async {
-    final client = Supabase.instance.client;
-    final rows = await client
-        .from("training_materials")
-        .select("*, managers(login_email, role)")
-        .eq("scope", "acompanhamento")
-        .eq("is_archived", false)
-        .order("stage")
-        .order("onboarding_stage_key")
-        .order("order_index");
-    return (rows as List).cast<Map<String, dynamic>>().where((m) => isMaterialVisibleTo(m, _myUserId!)).toList();
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final client = Supabase.instance.client;
+      final rows = await client
+          .from("training_materials")
+          .select("*, managers(login_email, role)")
+          .eq("scope", "acompanhamento")
+          .eq("is_archived", false)
+          .order("stage")
+          .order("onboarding_stage_key")
+          .order("order_index");
+      final visible = (rows as List).cast<Map<String, dynamic>>().where((m) => isMaterialVisibleTo(m, _myUserId!)).toList();
+      if (mounted) {
+        setState(() {
+          _materials = visible;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _loading = false;
+        });
+      }
+    }
   }
 
-  void _reload() => setState(() => _future = _load());
+  void _reload() => _load();
 
   void _openDetail(Map<String, dynamic> material) {
     showDialog(context: context, builder: (context) => _MaterialDetailDialog(material: material, myUserId: _myUserId!)).then((_) => _reload());
@@ -124,6 +145,111 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
     showDialog(context: context, builder: (context) => OnboardingMaterialFormDialog(defaultStage: _stage, defaultDayKey: _dayFilter)).then((saved) {
       if (saved == true) _reload();
     });
+  }
+
+  /// Reordena/move um material dentro do Material Acompanhamento: recalcula
+  /// order_index de todos os materiais do mesmo par (fase, dia) com o item
+  /// arrastado na posicao indicada (antes de "beforeItem", ou no final se
+  /// null). Arrastar sobre um chip de dia (so existe na fase Onboarding 15)
+  /// move para aquele dia; arrastar sobre outro material reordena e, se o
+  /// alvo for de outro dia, move junto.
+  Future<void> _moveMaterial(Map<String, dynamic> dragged, {String? newDayKey, Map<String, dynamic>? beforeItem}) async {
+    if (beforeItem != null && beforeItem["id"] == dragged["id"]) return;
+    final stage = dragged["stage"] as String;
+    final targetDayKey = newDayKey ?? (beforeItem != null ? beforeItem["onboarding_stage_key"] as String? : dragged["onboarding_stage_key"] as String?);
+
+    final siblings = _materials.where((m) => m["id"] != dragged["id"] && m["stage"] == stage && m["onboarding_stage_key"] == targetDayKey).toList()
+      ..sort((a, b) => ((a["order_index"] as num?) ?? 0).compareTo((b["order_index"] as num?) ?? 0));
+
+    final insertIndex = beforeItem == null ? siblings.length : siblings.indexWhere((m) => m["id"] == beforeItem["id"]);
+    siblings.insert(insertIndex == -1 ? siblings.length : insertIndex, dragged);
+
+    setState(() {
+      dragged["onboarding_stage_key"] = targetDayKey;
+      for (var i = 0; i < siblings.length; i++) {
+        siblings[i]["order_index"] = i;
+      }
+    });
+
+    try {
+      final client = Supabase.instance.client;
+      for (var i = 0; i < siblings.length; i++) {
+        await client.from("training_materials").update({"onboarding_stage_key": siblings[i]["onboarding_stage_key"], "order_index": i}).eq("id", siblings[i]["id"]);
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erro ao mover: " + e.toString())));
+      _reload();
+    }
+  }
+
+  Widget _buildTile(Map<String, dynamic> m) {
+    final authorData = m["managers"];
+    final authorEmail = authorData is Map ? authorData["login_email"] as String? : null;
+    final authorRole = authorData is Map ? authorData["role"] as String? : null;
+    final isMine = m["author_id"] == _myUserId;
+    final isOfficial = !isMine && (authorRole == "coordenador" || authorRole == "admin");
+    final createdDate = m["created_at"] != null ? DateTime.parse(m["created_at"]).toLocal().toString().substring(0, 10) : "-";
+    final authorColor = _colorForAuthor(authorEmail);
+    final niche = m["niche"] as String?;
+    final dayKey = m["onboarding_stage_key"] as String?;
+    final dayLabel = dayKey != null ? onboardingDayKeys.firstWhere((d) => d.$1 == dayKey, orElse: () => (dayKey, dayKey)).$2 : null;
+
+    return InkWell(
+      onTap: () => _openDetail(m),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isOfficial ? authorColor.withOpacity(0.1) : Colors.white.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(12),
+          border: isOfficial ? Border.all(color: authorColor.withOpacity(0.6), width: 1.5) : (isMine ? Border.all(color: Colors.white24) : null),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              const Icon(Icons.drag_indicator, color: Colors.white24, size: 18),
+              const SizedBox(width: 4),
+              if (niche != null) ...[
+                Icon(categoryIcon(niche), size: 14, color: categoryColor(niche)),
+                const SizedBox(width: 6),
+              ],
+              Expanded(child: Text(m["title"] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15))),
+              if (dayLabel != null)
+                Container(
+                  margin: const EdgeInsets.only(left: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(color: Colors.white.withOpacity(0.08), borderRadius: BorderRadius.circular(6)),
+                  child: Text(dayLabel, style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold)),
+                ),
+              if (isOfficial)
+                Container(
+                  margin: const EdgeInsets.only(left: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
+                  child: const Text("OFICIAL", style: TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                ),
+              if (isMine)
+                Container(
+                  margin: const EdgeInsets.only(left: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(color: Colors.white.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
+                  child: const Text("MEU MATERIAL", style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold)),
+                ),
+            ]),
+            if ((m["description"] as String?)?.isNotEmpty == true) ...[
+              const SizedBox(height: 4),
+              Text(m["description"], style: const TextStyle(color: Colors.white70, fontSize: 12), maxLines: 2, overflow: TextOverflow.ellipsis),
+            ],
+            const SizedBox(height: 6),
+            Text(
+              "Criado por: " + (authorEmail ?? "sistema") + "  -  " + createdDate,
+              style: TextStyle(color: isOfficial ? authorColor : Colors.white38, fontSize: 11, fontStyle: FontStyle.italic, fontWeight: isOfficial ? FontWeight.bold : FontWeight.normal),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -148,7 +274,7 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
           ]),
           const SizedBox(height: 4),
           const Text(
-            "Material automatico por etapa -- aparece sozinho pro gestor quando o streamer chega no dia/fase correspondente. Material Oficial (coordenador/admin) e obrigatorio e visivel a todos; o seu proprio e privado, so voce ve.",
+            "Material automatico por etapa -- aparece sozinho pro gestor quando o streamer chega no dia/fase correspondente. Material Oficial (coordenador/admin) pode ser editado, excluido e arrastado por qualquer gestor; o seu proprio continua privado, so voce ve.",
             style: TextStyle(color: Colors.white38, fontSize: 12, fontStyle: FontStyle.italic),
           ),
           const SizedBox(height: 16),
@@ -193,12 +319,23 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
                     final selected = _dayFilter == d.$1;
                     return Padding(
                       padding: const EdgeInsets.only(right: 6),
-                      child: ChoiceChip(
-                        label: Text(d.$2, style: TextStyle(color: selected ? Colors.white : Colors.white70, fontSize: 12)),
-                        selected: selected,
-                        selectedColor: const Color(0xFF7A0BD4),
-                        backgroundColor: Colors.white.withOpacity(0.05),
-                        onSelected: (_) => setState(() => _dayFilter = d.$1),
+                      child: DragTarget<Map<String, dynamic>>(
+                        onWillAcceptWithDetails: (details) => details.data["onboarding_stage_key"] != d.$1,
+                        onAcceptWithDetails: (details) => _moveMaterial(details.data, newDayKey: d.$1),
+                        builder: (context, candidateData, rejectedData) {
+                          final highlighting = candidateData.isNotEmpty;
+                          return AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            decoration: BoxDecoration(borderRadius: BorderRadius.circular(20), border: highlighting ? Border.all(color: const Color(0xFF7A0BD4), width: 2) : null),
+                            child: ChoiceChip(
+                              label: Text(d.$2, style: TextStyle(color: selected ? Colors.white : Colors.white70, fontSize: 12)),
+                              selected: selected,
+                              selectedColor: const Color(0xFF7A0BD4),
+                              backgroundColor: Colors.white.withOpacity(0.05),
+                              onSelected: (_) => setState(() => _dayFilter = d.$1),
+                            ),
+                          );
+                        },
                       ),
                     );
                   }),
@@ -220,93 +357,42 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
           }).toList()),
           const SizedBox(height: 16),
           Expanded(
-            child: FutureBuilder<List<Map<String, dynamic>>>(
-              future: _future,
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text("Erro ao carregar: " + snapshot.error.toString(), style: const TextStyle(color: Colors.redAccent), textAlign: TextAlign.center)));
-                }
-                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-                final list = snapshot.data!.where((m) {
-                  if (m["stage"] != _stage) return false;
-                  if (isOnboarding15 && _dayFilter != null && m["onboarding_stage_key"] != _dayFilter) return false;
-                  if (_nicheFilter != null && m["niche"] != null && m["niche"] != _nicheFilter) return false;
-                  return true;
-                }).toList();
-                if (list.isEmpty) return const Center(child: Text("Nenhum material cadastrado nesta fase ainda.", style: TextStyle(color: Colors.white54)));
-                return ListView.builder(
-                  itemCount: list.length,
-                  itemBuilder: (context, index) {
-                    final m = list[index];
-                    final authorData = m["managers"];
-                    final authorEmail = authorData is Map ? authorData["login_email"] as String? : null;
-                    final authorRole = authorData is Map ? authorData["role"] as String? : null;
-                    final isMine = m["author_id"] == _myUserId;
-                    final isOfficial = !isMine && (authorRole == "coordenador" || authorRole == "admin");
-                    final createdDate = m["created_at"] != null ? DateTime.parse(m["created_at"]).toLocal().toString().substring(0, 10) : "-";
-                    final authorColor = _colorForAuthor(authorEmail);
-                    final niche = m["niche"] as String?;
-                    final dayKey = m["onboarding_stage_key"] as String?;
-                    final dayLabel = dayKey != null ? onboardingDayKeys.firstWhere((d) => d.$1 == dayKey, orElse: () => (dayKey, dayKey)).$2 : null;
-
-                    return InkWell(
-                      onTap: () => _openDetail(m),
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: isOfficial ? authorColor.withOpacity(0.1) : Colors.white.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(12),
-                          border: isOfficial ? Border.all(color: authorColor.withOpacity(0.6), width: 1.5) : (isMine ? Border.all(color: Colors.white24) : null),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(children: [
-                              if (niche != null) ...[
-                                Icon(categoryIcon(niche), size: 14, color: categoryColor(niche)),
-                                const SizedBox(width: 6),
-                              ],
-                              Expanded(child: Text(m["title"] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15))),
-                              if (dayLabel != null)
-                                Container(
-                                  margin: const EdgeInsets.only(left: 6),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                  decoration: BoxDecoration(color: Colors.white.withOpacity(0.08), borderRadius: BorderRadius.circular(6)),
-                                  child: Text(dayLabel, style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold)),
-                                ),
-                              if (isOfficial)
-                                Container(
-                                  margin: const EdgeInsets.only(left: 6),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                  decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
-                                  child: const Text("OFICIAL", style: TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold)),
-                                ),
-                              if (isMine)
-                                Container(
-                                  margin: const EdgeInsets.only(left: 6),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                  decoration: BoxDecoration(color: Colors.white.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
-                                  child: const Text("MEU MATERIAL", style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold)),
-                                ),
-                            ]),
-                            if ((m["description"] as String?)?.isNotEmpty == true) ...[
-                              const SizedBox(height: 4),
-                              Text(m["description"], style: const TextStyle(color: Colors.white70, fontSize: 12), maxLines: 2, overflow: TextOverflow.ellipsis),
-                            ],
-                            const SizedBox(height: 6),
-                            Text(
-                              "Criado por: " + (authorEmail ?? "sistema") + "  -  " + createdDate,
-                              style: TextStyle(color: isOfficial ? authorColor : Colors.white38, fontSize: 11, fontStyle: FontStyle.italic, fontWeight: isOfficial ? FontWeight.bold : FontWeight.normal),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                    ? Center(child: Padding(padding: const EdgeInsets.all(24), child: Text("Erro ao carregar: " + _error!, style: const TextStyle(color: Colors.redAccent), textAlign: TextAlign.center)))
+                    : Builder(builder: (context) {
+                        final list = _materials.where((m) {
+                          if (m["stage"] != _stage) return false;
+                          if (isOnboarding15 && _dayFilter != null && m["onboarding_stage_key"] != _dayFilter) return false;
+                          if (_nicheFilter != null && m["niche"] != null && m["niche"] != _nicheFilter) return false;
+                          return true;
+                        }).toList();
+                        if (list.isEmpty) return const Center(child: Text("Nenhum material cadastrado nesta fase ainda.", style: TextStyle(color: Colors.white54)));
+                        return ListView.builder(
+                          itemCount: list.length,
+                          itemBuilder: (context, index) {
+                            final m = list[index];
+                            final tile = _buildTile(m);
+                            return DragTarget<Map<String, dynamic>>(
+                              onWillAcceptWithDetails: (details) => details.data["id"] != m["id"],
+                              onAcceptWithDetails: (details) => _moveMaterial(details.data, beforeItem: m),
+                              builder: (context, candidateData, rejectedData) {
+                                final highlighting = candidateData.isNotEmpty;
+                                return Container(
+                                  decoration: highlighting ? BoxDecoration(border: Border.all(color: const Color(0xFF7A0BD4), width: 2), borderRadius: BorderRadius.circular(12)) : null,
+                                  child: Draggable<Map<String, dynamic>>(
+                                    data: m,
+                                    feedback: Material(color: Colors.transparent, child: SizedBox(width: 320, child: tile)),
+                                    childWhenDragging: Opacity(opacity: 0.3, child: tile),
+                                    child: tile,
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        );
+                      }),
           ),
         ],
       ),
@@ -398,12 +484,18 @@ class _MaterialDetailDialog extends StatefulWidget {
 
 class _MaterialDetailDialogState extends State<_MaterialDetailDialog> {
   Future<void> _delete() async {
+    final authorData = widget.material["managers"];
+    final authorRole = authorData is Map ? authorData["role"] as String? : null;
+    final isOfficial = authorRole == "coordenador" || authorRole == "admin";
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A1A),
-        title: const Text("Excluir material?", style: TextStyle(color: Colors.white)),
-        content: const Text("Nao pode ser desfeito.", style: TextStyle(color: Colors.white70)),
+        title: Text(isOfficial ? "Excluir documento oficial?" : "Excluir material?", style: const TextStyle(color: Colors.white)),
+        content: Text(
+          isOfficial ? "Voce esta excluindo um documento oficial. Deseja continuar?" : "Nao pode ser desfeito.",
+          style: const TextStyle(color: Colors.white70),
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text("Cancelar")),
           ElevatedButton(onPressed: () => Navigator.of(context).pop(true), style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white), child: const Text("Excluir")),
@@ -462,10 +554,8 @@ class _MaterialDetailDialogState extends State<_MaterialDetailDialog> {
                       decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
                       child: const Text("OFICIAL", style: TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold)),
                     ),
-                  if (isMine) ...[
-                    IconButton(icon: const Icon(Icons.edit, color: Colors.white54, size: 18), onPressed: _edit),
-                    IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18), onPressed: _delete),
-                  ],
+                  IconButton(icon: const Icon(Icons.edit, color: Colors.white54, size: 18), onPressed: _edit),
+                  IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18), onPressed: _delete),
                 ]),
                 const SizedBox(height: 8),
                 Row(children: [
