@@ -41,6 +41,71 @@ String _itemsSummary(List<Map<String, dynamic>> items) {
   }).join(", ");
 }
 
+double _itemsTotal(List<Map<String, dynamic>> items) {
+  var total = 0.0;
+  for (final it in items) {
+    final value = it["value"] as num?;
+    if (value != null) total += value.toDouble();
+  }
+  return total;
+}
+
+/// Espelha a premiacao como uma saida (despesa) em Financeiro RH > Entradas
+/// e Saidas (financial_entries), categoria "Premiacao de Evento" -- assim
+/// o gasto com premiacoes de streamers aparece automaticamente no controle
+/// financeiro da agencia, sem precisar lancar de novo na mao. Vinculado por
+/// event_award_id: chamado de novo em toda edicao/mudanca de status pra
+/// manter valor/status em dia; sem nenhum item com valor, remove o
+/// lancamento (nao faz sentido uma saida de R$ 0).
+Future<void> syncAwardFinancialEntry({
+  required String eventId,
+  required String awardId,
+  required String awardName,
+  required String? streamerName,
+  required List<Map<String, dynamic>> items,
+  required String status,
+  required DateTime? expectedDeliveryDate,
+  required DateTime? paidAt,
+}) async {
+  final client = Supabase.instance.client;
+  final amount = _itemsTotal(items);
+
+  if (amount <= 0) {
+    await client.from("financial_entries").delete().eq("event_award_id", awardId);
+    return;
+  }
+
+  final userId = client.auth.currentUser!.id;
+  final manager = await client.from("managers").select("agency_id").eq("id", userId).single();
+  final event = await client.from("agency_events").select("title").eq("id", eventId).maybeSingle();
+  final financialStatus = status == "pago" ? "pago" : "pendente";
+
+  final data = {
+    "agency_id": manager["agency_id"],
+    "entry_type": "despesa",
+    "category": "Premiacao de Evento",
+    "supplier": event?["title"] as String?,
+    "description": awardName + (streamerName != null ? "  -  " + streamerName : ""),
+    "amount": amount,
+    "due_date": (expectedDeliveryDate ?? DateTime.now()).toIso8601String().substring(0, 10),
+    "payment_date": financialStatus == "pago" ? (paidAt ?? DateTime.now()).toIso8601String().substring(0, 10) : null,
+    "status": financialStatus,
+    "is_recurring": false,
+    "notes": null,
+    "created_by": userId,
+    "manager_id": null,
+    "external_collaborator_id": null,
+    "event_award_id": awardId,
+  };
+
+  final existing = await client.from("financial_entries").select("id").eq("event_award_id", awardId).maybeSingle();
+  if (existing != null) {
+    await client.from("financial_entries").update(data).eq("id", existing["id"] as String);
+  } else {
+    await client.from("financial_entries").insert(data);
+  }
+}
+
 class EventPremiacoesTab extends StatefulWidget {
   final String eventId;
   const EventPremiacoesTab({super.key, required this.eventId});
@@ -79,11 +144,24 @@ class _EventPremiacoesTabState extends State<EventPremiacoesTab> {
   Future<void> _toggleDelivered(Map<String, dynamic> award) async {
     final client = Supabase.instance.client;
     final payingNow = award["status"] != "pago";
+    final newStatus = payingNow ? "pago" : "pendente";
+    final paidAt = payingNow ? DateTime.now().toIso8601String() : null;
     try {
       await client.from("event_awards").update({
-        "status": payingNow ? "pago" : "pendente",
-        "paid_at": payingNow ? DateTime.now().toIso8601String() : null,
+        "status": newStatus,
+        "paid_at": paidAt,
       }).eq("id", award["id"]);
+      final streamer = award["streamer"];
+      await syncAwardFinancialEntry(
+        eventId: widget.eventId,
+        awardId: award["id"] as String,
+        awardName: award["name"] as String,
+        streamerName: streamer is Map ? streamer["display_name"] as String? : null,
+        items: _parseItems(award["items"]),
+        status: newStatus,
+        expectedDeliveryDate: award["expected_delivery_date"] != null ? DateTime.parse(award["expected_delivery_date"] as String) : null,
+        paidAt: paidAt != null ? DateTime.parse(paidAt) : null,
+      );
       await logEventHistory(eventId: widget.eventId, action: payingNow ? "premiacao_paga" : "premiacao_pendente", detail: award["name"] as String);
       _reload();
     } catch (e) {
@@ -296,13 +374,28 @@ class _AwardFormDialogState extends State<_AwardFormDialog> {
       final streamerName = _selectedStreamer?["display_name"] as String?;
       final logDetail = _nameController.text.trim() + (streamerName != null ? "  -  " + streamerName : "");
 
+      String awardId;
       if (widget.existing != null) {
-        await client.from("event_awards").update(data).eq("id", widget.existing!["id"]);
+        awardId = widget.existing!["id"] as String;
+        await client.from("event_awards").update(data).eq("id", awardId);
         await logEventHistory(eventId: widget.eventId, action: "premiacao_atualizada", detail: logDetail);
       } else {
-        await client.from("event_awards").insert({...data, "created_by": userId});
+        final inserted = await client.from("event_awards").insert({...data, "created_by": userId}).select("id").single();
+        awardId = inserted["id"] as String;
         await logEventHistory(eventId: widget.eventId, action: "premiacao_adicionada", detail: logDetail);
       }
+
+      await syncAwardFinancialEntry(
+        eventId: widget.eventId,
+        awardId: awardId,
+        awardName: _nameController.text.trim(),
+        streamerName: streamerName,
+        items: itemsData,
+        status: _status,
+        expectedDeliveryDate: _expectedDeliveryDate,
+        paidAt: data["paid_at"] != null ? DateTime.parse(data["paid_at"] as String) : null,
+      );
+
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       setState(() => _saving = false);

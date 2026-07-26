@@ -44,12 +44,14 @@ class _FinanceiroPageState extends State<FinanceiroPage> {
         .select("value, reward_type, streamer_id, profiles(display_name), agency_campaigns(category, start_date)");
     final missions = await client.from("missions").select("reward_value, starts_at, created_at");
     final budgets = await client.from("agency_budgets").select().eq("agency_id", agencyId);
+    final eventAwards = await client.from("event_awards").select("items, streamer_id, created_at, streamer:profiles(display_name)");
 
     return _FinanceData(
       agencyId: agencyId,
       rewards: (rewards as List).cast<Map<String, dynamic>>(),
       missions: (missions as List).cast<Map<String, dynamic>>(),
       budgets: {for (final b in (budgets as List)) b["period_key"] as String: (b["budget"] as num).toDouble()},
+      eventAwards: (eventAwards as List).cast<Map<String, dynamic>>(),
     );
   }
 
@@ -140,6 +142,34 @@ class _FinanceiroPageState extends State<FinanceiroPage> {
                   }
                 }
 
+                // Premiacoes cadastradas em Eventos > Premiacoes entram aqui
+                // automaticamente (sem lancamento manual): contam no total
+                // geral, no mes em que foram cadastradas e, quando vinculadas
+                // a um streamer, tambem no ranking de streamers que mais
+                // receberam (junto com as premiacoes de campanha).
+                double totalEventos = 0;
+                for (final a in data.eventAwards) {
+                  final items = (a["items"] as List?) ?? const [];
+                  var value = 0.0;
+                  for (final it in items) {
+                    final v = it is Map ? it["value"] as num? : null;
+                    if (v != null) value += v.toDouble();
+                  }
+                  if (value == 0) continue;
+                  totalEventos += value;
+                  if (a["created_at"] != null) {
+                    final monthKey = _periodKey(DateTime.parse(a["created_at"] as String));
+                    byMonth[monthKey] = (byMonth[monthKey] ?? 0) + value;
+                  }
+                  if (a["streamer_id"] != null) {
+                    final streamer = a["streamer"];
+                    if (streamer is Map) {
+                      final name = streamer["display_name"] as String?;
+                      if (name != null) byStreamer[name] = (byStreamer[name] ?? 0) + value;
+                    }
+                  }
+                }
+
                 final gastoAtual = byMonth[currentKey] ?? 0;
                 final gastoPassado = byMonth[lastKey] ?? 0;
                 final orcamentoAtual = data.budgets[currentKey] ?? 0;
@@ -147,7 +177,7 @@ class _FinanceiroPageState extends State<FinanceiroPage> {
                 final saldoAtual = orcamentoAtual - gastoAtual;
                 final disponivelProximo = orcamentoProximo + (saldoAtual > 0 ? saldoAtual : 0);
 
-                final totalGeral = totalCampanhasGeral + totalStreamers + totalMissoes;
+                final totalGeral = totalCampanhasGeral + totalStreamers + totalMissoes + totalEventos;
                 final sortedStreamers = byStreamer.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
 
                 return SingleChildScrollView(
@@ -183,6 +213,7 @@ class _FinanceiroPageState extends State<FinanceiroPage> {
                       _BarRow(label: "Campanhas (geral)", value: totalCampanhasGeral, total: totalGeral, color: Colors.blueAccent),
                       _BarRow(label: "Streamers (premiacoes individuais)", value: totalStreamers, total: totalGeral, color: Colors.greenAccent),
                       _BarRow(label: "Missoes APP", value: totalMissoes, total: totalGeral, color: Colors.orangeAccent),
+                      _BarRow(label: "Eventos (premiacoes)", value: totalEventos, total: totalGeral, color: Colors.amber),
                       const SizedBox(height: 24),
                       Text("Total geral: R\$ " + totalGeral.toStringAsFixed(2), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
                       const SizedBox(height: 24),
@@ -225,8 +256,9 @@ class _FinanceData {
   final List<Map<String, dynamic>> rewards;
   final List<Map<String, dynamic>> missions;
   final Map<String, double> budgets;
+  final List<Map<String, dynamic>> eventAwards;
 
-  _FinanceData({required this.agencyId, required this.rewards, required this.missions, required this.budgets});
+  _FinanceData({required this.agencyId, required this.rewards, required this.missions, required this.budgets, required this.eventAwards});
 }
 
 class _MonthCard extends StatelessWidget {

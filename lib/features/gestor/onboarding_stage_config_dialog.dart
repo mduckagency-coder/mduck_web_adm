@@ -21,7 +21,8 @@ Color _tryColor(String hex) {
 /// coordenador/admin (checagem feita na pagina que abre este dialog).
 class OnboardingStageConfigDialog extends StatefulWidget {
   final String agencyId;
-  const OnboardingStageConfigDialog({super.key, required this.agencyId});
+  final String phaseKey;
+  const OnboardingStageConfigDialog({super.key, required this.agencyId, this.phaseKey = onboardingPhaseKey});
 
   @override
   State<OnboardingStageConfigDialog> createState() => _OnboardingStageConfigDialogState();
@@ -49,7 +50,7 @@ class _OnboardingStageConfigDialogState extends State<OnboardingStageConfigDialo
         .from("streamer_phase_stages")
         .select()
         .eq("agency_id", widget.agencyId)
-        .eq("phase_key", onboardingPhaseKey)
+        .eq("phase_key", widget.phaseKey)
         .order("order_index", ascending: true);
     setState(() {
       _stages = (rows as List).cast<Map<String, dynamic>>();
@@ -95,7 +96,7 @@ class _OnboardingStageConfigDialogState extends State<OnboardingStageConfigDialo
   }
 
   Future<void> _openForm({Map<String, dynamic>? existing}) async {
-    final saved = await showDialog<bool>(context: context, builder: (context) => _StageFormDialog(existing: existing, agencyId: widget.agencyId));
+    final saved = await showDialog<bool>(context: context, builder: (context) => _StageFormDialog(existing: existing, agencyId: widget.agencyId, phaseKey: widget.phaseKey));
     if (saved == true) {
       _anyChangeMade = true;
       _load();
@@ -182,7 +183,8 @@ class _OnboardingStageConfigDialogState extends State<OnboardingStageConfigDialo
 class _StageFormDialog extends StatefulWidget {
   final Map<String, dynamic>? existing;
   final String agencyId;
-  const _StageFormDialog({this.existing, required this.agencyId});
+  final String phaseKey;
+  const _StageFormDialog({this.existing, required this.agencyId, this.phaseKey = onboardingPhaseKey});
 
   @override
   State<_StageFormDialog> createState() => _StageFormDialogState();
@@ -225,7 +227,7 @@ class _StageFormDialogState extends State<_StageFormDialog> {
         .from("streamer_phase_checklist_items")
         .select()
         .eq("agency_id", widget.agencyId)
-        .eq("phase_key", onboardingPhaseKey)
+        .eq("phase_key", widget.phaseKey)
         .eq("stage_key", widget.existing!["stage_key"])
         .order("order_index", ascending: true);
     if (mounted) setState(() {
@@ -241,7 +243,7 @@ class _StageFormDialogState extends State<_StageFormDialog> {
         .from("onboarding_material_check_items")
         .select()
         .eq("agency_id", widget.agencyId)
-        .eq("phase_key", onboardingPhaseKey)
+        .eq("phase_key", widget.phaseKey)
         .eq("stage_key", widget.existing!["stage_key"])
         .order("order_index", ascending: true);
     if (mounted) setState(() {
@@ -264,7 +266,7 @@ class _StageFormDialogState extends State<_StageFormDialog> {
     final nextOrder = _materialCheckItems.isEmpty ? 1 : (_materialCheckItems.map((it) => it["order_index"] as int).reduce((a, b) => a > b ? a : b) + 1);
     await client.from("onboarding_material_check_items").insert({
       "agency_id": widget.agencyId,
-      "phase_key": onboardingPhaseKey,
+      "phase_key": widget.phaseKey,
       "stage_key": widget.existing!["stage_key"],
       "item_key": itemKey,
       "label": label,
@@ -294,7 +296,7 @@ class _StageFormDialogState extends State<_StageFormDialog> {
     final nextOrder = _items.isEmpty ? 1 : (_items.map((it) => it["order_index"] as int).reduce((a, b) => a > b ? a : b) + 1);
     await client.from("streamer_phase_checklist_items").insert({
       "agency_id": widget.agencyId,
-      "phase_key": onboardingPhaseKey,
+      "phase_key": widget.phaseKey,
       "stage_key": widget.existing!["stage_key"],
       "item_key": itemKey,
       "label": label,
@@ -321,11 +323,11 @@ class _StageFormDialogState extends State<_StageFormDialog> {
       final stageKey = widget.existing != null ? widget.existing!["stage_key"] : _nameController.text.trim().toLowerCase().replaceAll(RegExp(r"[^a-z0-9]+"), "_");
       final maxOrder = widget.existing != null
           ? widget.existing!["order_index"]
-          : (await client.from("streamer_phase_stages").select("order_index").eq("agency_id", widget.agencyId).eq("phase_key", onboardingPhaseKey).order("order_index", ascending: false).limit(1).maybeSingle())?["order_index"] ?? -1;
+          : (await client.from("streamer_phase_stages").select("order_index").eq("agency_id", widget.agencyId).eq("phase_key", widget.phaseKey).order("order_index", ascending: false).limit(1).maybeSingle())?["order_index"] ?? -1;
 
       final data = {
         "agency_id": widget.agencyId,
-        "phase_key": onboardingPhaseKey,
+        "phase_key": widget.phaseKey,
         "stage_key": stageKey,
         "name": _nameController.text.trim(),
         "color": _colorController.text.trim(),
@@ -355,7 +357,7 @@ class _StageFormDialogState extends State<_StageFormDialog> {
         .from("streamer_phase_progress")
         .select("id")
         .eq("agency_id", widget.agencyId)
-        .eq("phase_key", onboardingPhaseKey)
+        .eq("phase_key", widget.phaseKey)
         .eq("stage_key", stageKey)
         .filter("completed_at", "is", null)
         .limit(1);

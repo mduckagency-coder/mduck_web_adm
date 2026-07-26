@@ -21,6 +21,7 @@ import "../calendario/agenda_streamers_page.dart";
 import "../admin/bug_reports_page.dart";
 import "../admin/bug_reports_page.dart";
 import "../eventos/eventos_page.dart";
+import "../programas/programas_page.dart";
 import "../profile/profile_avatar_menu.dart";
 import "../profile/app_top_bar.dart";
 
@@ -151,6 +152,8 @@ class _AdminShellState extends State<AdminShell> {
         return const CrmPage();
       case "Eventos":
         return const EventosPage();
+      case "Programas de Desenvolvimento":
+        return const ProgramasPage();
       case "Missoes Atividades":
         return const MissoesAtividadesPage();
       case "Ilha Top Duckers":
@@ -201,6 +204,12 @@ class _AdminShellState extends State<AdminShell> {
                         title: Text("Eventos",
                             style: TextStyle(color: _selected == "Eventos" ? const Color(0xFF7A0BD4) : Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
                         onTap: () => _select("Eventos"),
+                      ),
+                      ListTile(
+                        leading: Icon(Icons.trending_up, color: _selected == "Programas de Desenvolvimento" ? const Color(0xFF7A0BD4) : Colors.white70, size: 20),
+                        title: Text("Programas de Desenvolvimento",
+                            style: TextStyle(color: _selected == "Programas de Desenvolvimento" ? const Color(0xFF7A0BD4) : Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                        onTap: () => _select("Programas de Desenvolvimento"),
                       ),
                       const Divider(color: Colors.white12, height: 12),
                       ..._menuGroups.map((group) {

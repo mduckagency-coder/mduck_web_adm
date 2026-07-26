@@ -1,6 +1,6 @@
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
-import "../gestor/onboarding_phase_service.dart";
+import "../programas/program_phase_service.dart" show developmentProgramKeys;
 
 class CrmPage extends StatefulWidget {
   /// Quando informado, restringe a lista aos streamers ligados a esse
@@ -151,30 +151,16 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
     "onboarding_concluido": "Onboarding concluido",
   };
 
-  static const _phaseActionLabels = {
-    "entrada_onboarding": "Entrou nesta fase",
-    "entrada_onboarding_lead": "Convite enviado -- streamer a caminho da agencia",
-    "vinculado_streamer": "Streamer oficial vinculado ao card",
-    "mudanca_etapa": "Mudanca de etapa",
-    "checklist_item": "Item de checklist concluido",
-    "observacao": "Observacao",
-    "editado": "Dados editados pelo gestor",
-    "avaliacao_final": "Avaliacao final",
-    "onboarding_concluido": "Fase concluida",
+  /// Rotulo de cada programa da jornada (mesmas chaves reais usadas pelo
+  /// modulo Programas de Desenvolvimento -- streamer_phase_progress.phase_key).
+  static const _programLabels = {
+    "onboarding_0_15": "Onboarding 15",
+    "onboarding_30": "Onboarding 30",
+    "novatos": "Novatos",
+    "top_ducker_80k": "Top Ducker 80k",
+    "programa_150k": "Programa 150k",
+    "elite": "Elite",
   };
-
-  /// Fases do acompanhamento do streamer, na mesma ordem/rotulo usado no
-  /// Material Acompanhamento (area do Gestor) -- so a primeira tem
-  /// phase_key real hoje (as demais ainda nao tem quadro proprio, mas ja
-  /// ficam com aba pronta pra quando existirem, sem precisar mexer aqui).
-  static const _phaseTabs = [
-    (onboardingPhaseKey, "Onboarding 15"),
-    ("onboarding_30", "Onboarding 30 Dias"),
-    ("novato_2m", "2 Meses (Novato)"),
-    ("novato_3m", "3 Meses (Novato)"),
-    ("veterano", "Veterano"),
-    ("pro", "Pro"),
-  ];
 
   Future<Map<String, dynamic>> _load() async {
     final client = Supabase.instance.client;
@@ -223,15 +209,24 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
         .eq("streamer_id", widget.streamerId)
         .order("assigned_at");
 
-    final phaseHistoryRows = await client
-        .from("streamer_phase_history")
-        .select()
+    final programProgressRows = await client
+        .from("streamer_phase_progress")
+        .select("phase_key, stage_key, outcome, completed_at")
         .eq("streamer_id", widget.streamerId)
-        .order("created_at");
-    final phaseHistoryByPhase = <String, List<Map<String, dynamic>>>{};
-    for (final h in (phaseHistoryRows as List)) {
-      phaseHistoryByPhase.putIfAbsent(h["phase_key"] as String, () => []).add(h as Map<String, dynamic>);
-    }
+        .inFilter("phase_key", developmentProgramKeys);
+    final programProgressByPhase = {for (final r in (programProgressRows as List)) r["phase_key"] as String: r as Map<String, dynamic>};
+
+    final cycleParticipations = await client
+        .from("campaign_cycle_participants")
+        .select("final_status, joined_at, campaign_cycles(period_label, development_programs(name))")
+        .eq("streamer_id", widget.streamerId)
+        .order("joined_at", ascending: false);
+
+    final programAwards = await client
+        .from("program_awards")
+        .select("title, reason, status, created_at, development_programs(name)")
+        .eq("streamer_id", widget.streamerId)
+        .order("created_at", ascending: false);
 
     final lead = await client.from("leads").select("id, created_at, converted_at, recruiter_id").eq("converted_streamer_id", widget.streamerId).maybeSingle();
 
@@ -332,7 +327,9 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
       "handoff": handoff,
       "creatorEmail": creatorEmail,
       "currentRecruiterEmail": currentRecruiterEmail,
-      "phaseHistoryByPhase": phaseHistoryByPhase,
+      "programProgressByPhase": programProgressByPhase,
+      "cycleParticipations": (cycleParticipations as List).cast<Map<String, dynamic>>(),
+      "programAwards": (programAwards as List).cast<Map<String, dynamic>>(),
     };
   }
 
@@ -591,42 +588,86 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
     );
   }
 
-  /// Aba de uma fase do acompanhamento (Onboarding 15, Onboarding 30 Dias,
-  /// etc.) -- mostra so o que aconteceu naquela fase (entrada, mudancas de
-  /// etapa, checklist concluido, observacoes, avaliacao final), na ordem em
-  /// que aconteceu. Fases que ainda nao existem como quadro proprio (so
-  /// Onboarding 15 tem hoje) simplesmente ainda nao tem registro nenhum.
-  Widget _buildPhaseHistoryTab(List<Map<String, dynamic>> entries) {
-    if (entries.isEmpty) {
-      return const Center(child: Text("Streamer ainda nao iniciou esta fase.", style: TextStyle(color: Colors.white38)));
+  String _programStatusIcon(Map<String, dynamic>? progress) {
+    if (progress == null) return "\u{1F512}"; // 🔒 ainda nao chegou nesta fase
+    if (progress["completed_at"] != null) {
+      final outcome = progress["outcome"] as String?;
+      if (outcome == "desligado") return "\u{274C}"; // ❌
+      return "\u{2714}"; // ✔
     }
-    return ListView.builder(
-      itemCount: entries.length,
-      itemBuilder: (context, index) {
-        final h = entries[index];
-        final date = DateTime.parse(h["created_at"] as String).toLocal().toString().substring(0, 16);
-        final label = _phaseActionLabels[h["action"]] ?? h["action"] as String;
-        final detail = h["detail"] as String?;
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Icon(Icons.circle, size: 8, color: Colors.lightBlueAccent),
-              const SizedBox(width: 8),
-              Expanded(
+    return "\u{1F7E1}"; // 🟡 em andamento
+  }
+
+  /// Jornada completa do streamer pelos 6 Programas de Desenvolvimento
+  /// (✔ concluido / 🟡 em andamento / 🔒 ainda nao chegou / ❌ desligado),
+  /// as campanhas mensais que participou e as premiacoes/medalhas
+  /// recebidas em qualquer programa -- tudo consultado direto
+  /// (streamer_phase_progress/campaign_cycle_participants/program_awards),
+  /// sem duplicar dado.
+  Widget _buildProgramasDesenvolvimentoTab(Map<String, dynamic> data) {
+    final progressByPhase = data["programProgressByPhase"] as Map<String, Map<String, dynamic>>;
+    final cycles = data["cycleParticipations"] as List<Map<String, dynamic>>;
+    final awards = data["programAwards"] as List<Map<String, dynamic>>;
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("Jornada", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+          const SizedBox(height: 6),
+          ..._programLabels.entries.map((entry) {
+            final progress = progressByPhase[entry.key];
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(children: [
+                Text(_programStatusIcon(progress), style: const TextStyle(fontSize: 14)),
+                const SizedBox(width: 8),
+                Text(entry.value, style: const TextStyle(color: Colors.white, fontSize: 13)),
+              ]),
+            );
+          }),
+          const SizedBox(height: 16),
+          const Text("Campanhas que participou", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+          const SizedBox(height: 6),
+          if (cycles.isEmpty)
+            const Text("Nenhuma ainda.", style: TextStyle(color: Colors.white38, fontSize: 12))
+          else
+            ...cycles.map((c) {
+              final cycle = c["campaign_cycles"];
+              final program = cycle is Map ? cycle["development_programs"] : null;
+              final programName = program is Map ? program["name"] as String? : null;
+              final periodLabel = cycle is Map ? cycle["period_label"] as String? : null;
+              final finalStatus = c["final_status"] as String?;
+              final statusText = finalStatus == "concluido" ? "Concluiu" : (finalStatus == "nao_concluido" ? "Nao concluiu" : "Em andamento");
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Text((programName ?? "-") + " - " + (periodLabel ?? "-") + " (" + statusText + ")", style: const TextStyle(color: Colors.white70, fontSize: 12)),
+              );
+            }),
+          const SizedBox(height: 16),
+          const Text("Premiacoes e medalhas", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+          const SizedBox(height: 6),
+          if (awards.isEmpty)
+            const Text("Nenhuma ainda.", style: TextStyle(color: Colors.white38, fontSize: 12))
+          else
+            ...awards.map((a) {
+              final program = a["development_programs"];
+              final programName = program is Map ? program["name"] as String? : null;
+              final date = a["created_at"] != null ? DateTime.parse(a["created_at"] as String).toLocal().toString().substring(0, 10) : "-";
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(date, style: const TextStyle(color: Colors.white38, fontSize: 11)),
-                    Text(label + (detail?.isNotEmpty == true ? ": " + detail! : ""), style: const TextStyle(color: Colors.lightBlueAccent, fontSize: 13)),
+                    Text((a["title"] as String? ?? "-") + (programName != null ? "  -  " + programName : ""), style: const TextStyle(color: Colors.amber, fontSize: 13, fontWeight: FontWeight.bold)),
+                    if ((a["reason"] as String?)?.isNotEmpty == true) Text(a["reason"] as String, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                    Text(date + "  -  " + (a["status"] == "entregue" ? "Entregue" : "Pendente"), style: const TextStyle(color: Colors.white38, fontSize: 11)),
                   ],
                 ),
-              ),
-            ],
-          ),
-        );
-      },
+              );
+            }),
+        ],
+      ),
     );
   }
 
@@ -715,11 +756,10 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
               final data = snapshot.data!;
               final p = data["profile"] as Map<String, dynamic>;
               final timeline = data["timeline"] as List<Map<String, dynamic>>;
-              final phaseHistoryByPhase = data["phaseHistoryByPhase"] as Map<String, List<Map<String, dynamic>>>;
               final active = p["is_active"] as bool? ?? true;
 
               return DefaultTabController(
-                length: 3 + _phaseTabs.length,
+                length: 4,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -757,7 +797,7 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
                       tabs: [
                         const Tab(text: "Perfil"),
                         const Tab(text: "Recrutamento"),
-                        ..._phaseTabs.map((t) => Tab(text: t.$2)),
+                        const Tab(text: "Programas de Desenvolvimento"),
                         const Tab(text: "Atividades"),
                       ],
                     ),
@@ -765,7 +805,7 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
                       child: TabBarView(children: [
                         _buildPerfilTab(p),
                         _buildRecrutamentoTab(data),
-                        ..._phaseTabs.map((t) => _buildPhaseHistoryTab(phaseHistoryByPhase[t.$1] ?? const [])),
+                        _buildProgramasDesenvolvimentoTab(data),
                         _buildTimelineTab(timeline),
                       ]),
                     ),
