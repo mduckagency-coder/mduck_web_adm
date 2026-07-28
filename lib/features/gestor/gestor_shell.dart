@@ -3,6 +3,7 @@ import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "../calendario/calendar_board_page.dart";
 import "../crm/crm_page.dart";
+import "../gestao/demandas_page.dart";
 import "../profile/app_top_bar.dart";
 import "gestor_dashboard_page.dart";
 import "gestor_my_streamers_page.dart";
@@ -12,6 +13,7 @@ import "onboarding_materials_page.dart";
 
 const _menuItems = [
   (Icons.dashboard, "Dashboard"),
+  (Icons.assignment_outlined, "Demandas"),
   (Icons.groups, "Meus Streamers"),
   (Icons.hourglass_bottom, "Proximos Agenciados"),
   (Icons.timelapse, "Onboarding 0-15 Dias"),
@@ -46,6 +48,8 @@ class _GestorShellState extends State<GestorShell> {
     switch (_selected) {
       case "Dashboard":
         return const GestorDashboardPage();
+      case "Demandas":
+        return const DemandasPage();
       case "Meus Streamers":
         return const GestorMyStreamersPage();
       case "Proximos Agenciados":

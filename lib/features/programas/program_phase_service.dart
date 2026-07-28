@@ -1,4 +1,5 @@
 import "package:supabase_flutter/supabase_flutter.dart";
+import "program_eligibility_service.dart";
 
 /// Programas fixos da jornada do streamer, na ordem de progressao. Cada um
 /// usa sua propria phase_key nas MESMAS tabelas streamer_phase_* ja usadas
@@ -8,18 +9,106 @@ const developmentProgramKeys = [
   "onboarding_0_15",
   "onboarding_30",
   "novatos",
+  "novatos_destaque",
+  "veteranos_20k",
+  "veteranos_40k",
   "top_ducker_80k",
   "programa_150k",
   "elite",
+  "placa_merito_500k",
+  "medalha_750k",
+  "placa_merito_1m",
 ];
 
+const _faixaMesAtualOuAnterior = "mes_atual_ou_anterior";
+
+/// (program_key, order_index, name, description, next_program_key, criteria)
+/// -- criteria nulo nasce vazio (100% configuravel depois); os programas em
+/// modo "faixa" ja nascem com os limiares que o gestor descreveu (nao ficam
+/// esperando configuracao manual pra funcionar).
 const _defaultPrograms = [
-  ("onboarding_0_15", 1, "Onboarding 15 Dias", "Primeiros 15 dias do streamer na agencia: boas-vindas, configuracao e acompanhamento inicial.", "onboarding_30"),
-  ("onboarding_30", 2, "Onboarding 30 Dias", "Continuidade do onboarding entre os dias 16 e 30: treinamento de nicho e avaliacao de consistencia.", "novatos"),
-  ("novatos", 3, "Novatos (2o e 3o mes)", "Acompanhamento do streamer no 2o e 3o mes de agencia.", "top_ducker_80k"),
-  ("top_ducker_80k", 4, "Top Ducker 80k", "Streamers que atingem a marca de 80 mil diamantes.", "programa_150k"),
-  ("programa_150k", 5, "Programa 150k", "Streamers que atingem a marca de 150 mil diamantes.", "elite"),
-  ("elite", 6, "Elite", "Nivel maximo de streamers da agencia.", null),
+  ("onboarding_0_15", 1, "Onboarding 15 Dias", "Primeiros 15 dias do streamer na agencia: boas-vindas, configuracao e acompanhamento inicial.", "onboarding_30", null),
+  ("onboarding_30", 2, "Onboarding 30 Dias", "Continuidade do onboarding entre os dias 16 e 30: treinamento de nicho e avaliacao de consistencia.", "novatos", null),
+  (
+    "novatos",
+    3,
+    "Novatos 90 Dias",
+    "Streamers com ate 3 meses de agencia que ainda nao bateram 40 mil diamantes no mes -- continuam podendo graduar.",
+    "top_ducker_80k",
+    {"max_days_in_agency": 90, "max_diamonds": 40000, "diamonds_period": _faixaMesAtualOuAnterior, "membership_mode": "faixa"},
+  ),
+  (
+    "novatos_destaque",
+    4,
+    "Novatos Destaque (Graduacao)",
+    "Streamers com ate 3 meses de agencia que ja bateram 40 mil diamantes no mes -- entram aqui com possibilidade de graduacao antecipada.",
+    null,
+    {"max_days_in_agency": 90, "min_diamonds": 40000, "diamonds_period": _faixaMesAtualOuAnterior, "membership_mode": "faixa"},
+  ),
+  (
+    "veteranos_20k",
+    5,
+    "Veteranos 20k",
+    "Streamers com mais de 3 meses de agencia e ate 20 mil diamantes no mes.",
+    "veteranos_40k",
+    {"min_days": 91, "max_diamonds": 20000, "diamonds_period": _faixaMesAtualOuAnterior, "membership_mode": "faixa"},
+  ),
+  (
+    "veteranos_40k",
+    6,
+    "Veteranos 40k",
+    "Streamers com mais de 3 meses de agencia e ate 40 mil diamantes no mes.",
+    "top_ducker_80k",
+    {"min_days": 91, "max_diamonds": 40000, "diamonds_period": _faixaMesAtualOuAnterior, "membership_mode": "faixa"},
+  ),
+  (
+    "top_ducker_80k",
+    7,
+    "Top Ducker 80k",
+    "Streamers que atingem a marca de 80 mil diamantes e precisam bater de novo todo mes.",
+    "programa_150k",
+    {"min_diamonds": 80000, "diamonds_period": _faixaMesAtualOuAnterior, "membership_mode": "faixa"},
+  ),
+  (
+    "programa_150k",
+    8,
+    "Programa 150k",
+    "Streamers que atingem a marca de 150 mil diamantes.",
+    "elite",
+    {"min_diamonds": 150000, "diamonds_period": _faixaMesAtualOuAnterior, "membership_mode": "faixa"},
+  ),
+  (
+    "elite",
+    9,
+    "Elite (250k+)",
+    "Streamers que atingem a marca de 250 mil diamantes.",
+    "placa_merito_500k",
+    {"min_diamonds": 250000, "diamonds_period": _faixaMesAtualOuAnterior, "membership_mode": "faixa"},
+  ),
+  (
+    "placa_merito_500k",
+    10,
+    "Placa Merito 500k",
+    "Streamers que atingem a marca de 500 mil diamantes.",
+    "medalha_750k",
+    {"min_diamonds": 500000, "diamonds_period": _faixaMesAtualOuAnterior, "membership_mode": "faixa"},
+  ),
+  (
+    "medalha_750k",
+    11,
+    "Medalha 750k",
+    "Streamers que atingem a marca de 750 mil diamantes.",
+    "placa_merito_1m",
+    {"min_diamonds": 750000, "diamonds_period": _faixaMesAtualOuAnterior, "membership_mode": "faixa"},
+  ),
+  (
+    "placa_merito_1m",
+    12,
+    "Placa Merito 1M",
+    "Streamers que atingem a marca de 1 milhao de diamantes.",
+    null,
+    {"min_diamonds": 1000000, "diamonds_period": _faixaMesAtualOuAnterior, "membership_mode": "faixa"},
+  ),
 ];
 
 /// Fluxo (colunas do Kanban) ja definido para os programas que tem exemplo
@@ -37,6 +126,18 @@ const _stageSeeds = <String, List<(String key, String name, String color, bool i
     ("avaliacao_final", "Avaliacao Final", "#EB5757", true),
     ("concluido", "Concluido", "#27AE60", false),
   ],
+  // Programas em modo "faixa" nao usam Kanban de verdade -- so precisam de
+  // uma etapa ativa pra createProgramCardIfNeeded/reativacao funcionarem.
+  "novatos": [("ativo", "Ativo", "#7A0BD4", false)],
+  "novatos_destaque": [("ativo", "Ativo", "#7A0BD4", false)],
+  "veteranos_20k": [("ativo", "Ativo", "#7A0BD4", false)],
+  "veteranos_40k": [("ativo", "Ativo", "#7A0BD4", false)],
+  "top_ducker_80k": [("ativo", "Ativo", "#7A0BD4", false)],
+  "programa_150k": [("ativo", "Ativo", "#7A0BD4", false)],
+  "elite": [("ativo", "Ativo", "#7A0BD4", false)],
+  "placa_merito_500k": [("ativo", "Ativo", "#7A0BD4", false)],
+  "medalha_750k": [("ativo", "Ativo", "#7A0BD4", false)],
+  "placa_merito_1m": [("ativo", "Ativo", "#7A0BD4", false)],
 };
 
 Future<String> currentAgencyId() async {
@@ -63,11 +164,14 @@ Future<void> seedDevelopmentPrograms({required String agencyId}) async {
               "name": p.$3,
               "description": p.$4,
               "next_program_key": p.$5,
+              "criteria": p.$6 ?? <String, dynamic>{},
             })
         .toList();
     await client.from("development_programs").insert(rows);
   }
-  await seedProgramStages(phaseKey: "onboarding_30", agencyId: agencyId);
+  for (final key in developmentProgramKeys) {
+    await seedProgramStages(phaseKey: key, agencyId: agencyId);
+  }
 }
 
 /// Semeia as etapas padrao (streamer_phase_stages) de um programa, se
@@ -198,7 +302,7 @@ Future<void> evaluateProgramCard({
   }
   if (observacao != null && observacao.isNotEmpty) data["outcome_note"] = observacao;
 
-  final program = await client.from("development_programs").select("name, agency_id, next_program_key, graduate_program_key").eq("id", programId).single();
+  final program = await client.from("development_programs").select("name, agency_id, next_program_key, graduate_program_key, criteria").eq("id", programId).single();
 
   if (outcome != "revisao") {
     final lastStage = await client
@@ -241,4 +345,30 @@ Future<void> evaluateProgramCard({
   if ((outcome == "aprovado" || outcome == "graduado") && nextKey != null) {
     await createProgramCardIfNeeded(phaseKey: nextKey, streamerId: streamerId);
   }
+
+  if (outcome == "aprovado" || outcome == "graduado") {
+    final criteria = ProgramCriteria.fromMap(program["criteria"] as Map<String, dynamic>?);
+    if (criteria.ticketQuantity > 0) {
+      await _grantFluxoTicket(programId: programId, streamerId: streamerId, quantity: criteria.ticketQuantity);
+    }
+  }
+}
+
+/// Ticket de sorteio concedido uma unica vez, na aprovacao final de um
+/// programa em modo "fluxo" (Onboarding). Programas em modo "faixa" usam
+/// syncFaixaMembership (program_eligibility_service.dart), que concede um
+/// ticket por mes enquanto o streamer estiver elegivel.
+Future<void> _grantFluxoTicket({required String programId, required String streamerId, required int quantity}) async {
+  final client = Supabase.instance.client;
+  await client.from("program_awards").insert({
+    "program_id": programId,
+    "streamer_id": streamerId,
+    "title": quantity.toString() + "x Ticket sorteio",
+    "items": [
+      {"name": "Ticket sorteio", "quantity": quantity, "value": null}
+    ],
+    "status": "pendente",
+    "reason": "Ticket automatico -- avaliacao final aprovada.",
+    "created_by": client.auth.currentUser?.id,
+  });
 }

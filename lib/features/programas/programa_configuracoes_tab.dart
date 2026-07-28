@@ -23,11 +23,14 @@ class _ProgramaConfiguracoesTabState extends State<ProgramaConfiguracoesTab> {
   late final _defaultMessageController = TextEditingController(text: widget.program["default_message"] as String? ?? "");
 
   late final _minDaysController = TextEditingController(text: (widget.program["criteria"]?["min_days"])?.toString() ?? "");
+  late final _maxDaysController = TextEditingController(text: (widget.program["criteria"]?["max_days_in_agency"])?.toString() ?? "");
   late final _minDaysValidatedController = TextEditingController(text: (widget.program["criteria"]?["min_days_validated"])?.toString() ?? "");
   late final _minHoursController = TextEditingController(text: (widget.program["criteria"]?["min_hours"])?.toString() ?? "");
   late final _minDiamondsController = TextEditingController(text: (widget.program["criteria"]?["min_diamonds"])?.toString() ?? "");
+  late final _maxDiamondsController = TextEditingController(text: (widget.program["criteria"]?["max_diamonds"])?.toString() ?? "");
   late final _minHeartMeController = TextEditingController(text: (widget.program["criteria"]?["min_heart_me"])?.toString() ?? "");
   late final _minBattlesController = TextEditingController(text: (widget.program["criteria"]?["min_battles"])?.toString() ?? "");
+  late final _ticketQuantityController = TextEditingController(text: ((widget.program["criteria"]?["ticket_quantity"] as int?) ?? 0).toString());
   final _approvalPercentageController = TextEditingController();
   late final _colorController = TextEditingController(text: widget.program["color"] as String? ?? "#7A0BD4");
 
@@ -39,7 +42,7 @@ class _ProgramaConfiguracoesTabState extends State<ProgramaConfiguracoesTab> {
   String? _nextProgramKey;
   String? _graduateProgramKey;
   Set<String> _categoryIds = {};
-  Set<String> _materialIds = {};
+  String _membershipMode = "fluxo";
 
   bool _daysEnabled = true;
   bool _daysRequired = true;
@@ -53,15 +56,20 @@ class _ProgramaConfiguracoesTabState extends State<ProgramaConfiguracoesTab> {
   bool _heartMeRequired = true;
   bool _battlesEnabled = true;
   bool _battlesRequired = true;
+  String _diamondsPeriod = "total";
+  String _hoursPeriod = "total";
+  String _daysValidatedPeriod = "total";
   String _approvalRuleMode = "todas";
 
   List<Map<String, dynamic>> _managers = [];
   List<Map<String, dynamic>> _otherPrograms = [];
   List<Map<String, dynamic>> _categories = [];
-  List<Map<String, dynamic>> _materials = [];
-  final Map<String, TextEditingController> _battlesByCategoryControllers = {};
-  Map<String, int> _initialBattlesByCategory = {};
-  bool _showBattlesByCategory = false;
+  Map<String, CategoryOverride> _initialCategoryOverrides = {};
+  final Map<String, TextEditingController> _catDaysValidatedControllers = {};
+  final Map<String, TextEditingController> _catHoursControllers = {};
+  final Map<String, TextEditingController> _catDiamondsControllers = {};
+  final Map<String, TextEditingController> _catBattlesControllers = {};
+  bool _showCategoryOverrides = false;
   PlatformFile? _imageFile;
   String? _imageUrl;
   bool _loadingOptions = true;
@@ -81,13 +89,13 @@ class _ProgramaConfiguracoesTabState extends State<ProgramaConfiguracoesTab> {
     _graduateProgramKey = widget.program["graduate_program_key"] as String?;
     final criteria = ProgramCriteria.fromMap(widget.program["criteria"] as Map<String, dynamic>?);
     _categoryIds = criteria.categoryIds.toSet();
-    _materialIds = criteria.requiredMaterialIds.toSet();
+    _membershipMode = criteria.membershipMode;
     _daysEnabled = criteria.daysEnabled;
     _daysRequired = criteria.daysRequired;
     _daysValidatedEnabled = criteria.daysValidatedEnabled;
     _daysValidatedRequired = criteria.daysValidatedRequired;
-    _showBattlesByCategory = criteria.battlesByCategory.isNotEmpty;
-    _initialBattlesByCategory = criteria.battlesByCategory;
+    _initialCategoryOverrides = criteria.categoryOverrides;
+    _showCategoryOverrides = criteria.categoryOverrides.isNotEmpty;
     _hoursEnabled = criteria.hoursEnabled;
     _hoursRequired = criteria.hoursRequired;
     _diamondsEnabled = criteria.diamondsEnabled;
@@ -96,6 +104,9 @@ class _ProgramaConfiguracoesTabState extends State<ProgramaConfiguracoesTab> {
     _heartMeRequired = criteria.heartMeRequired;
     _battlesEnabled = criteria.battlesEnabled;
     _battlesRequired = criteria.battlesRequired;
+    _diamondsPeriod = criteria.diamondsPeriod;
+    _hoursPeriod = criteria.hoursPeriod;
+    _daysValidatedPeriod = criteria.daysValidatedPeriod;
     _approvalRuleMode = criteria.approvalRuleMode;
     _approvalPercentageController.text = criteria.approvalMinPercentage.toString();
     _historyFuture = _loadHistory();
@@ -108,19 +119,21 @@ class _ProgramaConfiguracoesTabState extends State<ProgramaConfiguracoesTab> {
     final managers = await client.from("managers").select("id, login_email").order("login_email");
     final programs = await client.from("development_programs").select("program_key, name").eq("agency_id", agencyId).neq("id", widget.program["id"]).order("order_index");
     final categories = await client.from("streamer_categories").select("id, name").order("name");
-    final materials = await client.from("training_materials").select("id, title").eq("is_archived", false).order("title");
     final responsibles = await client.from("development_program_managers").select("manager_id").eq("program_id", widget.program["id"]);
     if (mounted) {
       setState(() {
         _managers = (managers as List).cast<Map<String, dynamic>>();
         _otherPrograms = (programs as List).cast<Map<String, dynamic>>();
         _categories = (categories as List).cast<Map<String, dynamic>>();
-        _materials = (materials as List).cast<Map<String, dynamic>>();
         _responsibleIds = (responsibles as List).map((r) => r["manager_id"] as String).toSet();
         _initialResponsibleIds = _responsibleIds.toSet();
         for (final c in _categories) {
           final id = c["id"] as String;
-          _battlesByCategoryControllers[id] = TextEditingController(text: _initialBattlesByCategory[id]?.toString() ?? "");
+          final o = _initialCategoryOverrides[id];
+          _catDaysValidatedControllers[id] = TextEditingController(text: o?.minDaysValidated?.toString() ?? "");
+          _catHoursControllers[id] = TextEditingController(text: o?.minHours?.toString() ?? "");
+          _catDiamondsControllers[id] = TextEditingController(text: o?.minDiamonds?.toString() ?? "");
+          _catBattlesControllers[id] = TextEditingController(text: o?.minBattles?.toString() ?? "");
         }
         _loadingOptions = false;
       });
@@ -202,19 +215,32 @@ class _ProgramaConfiguracoesTabState extends State<ProgramaConfiguracoesTab> {
     });
     try {
       final client = Supabase.instance.client;
-      final battlesByCategory = <String, int>{};
-      _battlesByCategoryControllers.forEach((categoryId, controller) {
-        final value = int.tryParse(controller.text.trim());
-        if (value != null) battlesByCategory[categoryId] = value;
-      });
+      final categoryOverrides = <String, dynamic>{};
+      for (final c in _categories) {
+        final id = c["id"] as String;
+        final dv = int.tryParse(_catDaysValidatedControllers[id]?.text.trim() ?? "");
+        final hr = double.tryParse((_catHoursControllers[id]?.text.trim() ?? "").replaceAll(",", "."));
+        final di = num.tryParse(_catDiamondsControllers[id]?.text.trim() ?? "");
+        final bt = int.tryParse(_catBattlesControllers[id]?.text.trim() ?? "");
+        if (dv != null || hr != null || di != null || bt != null) {
+          categoryOverrides[id] = {"min_days_validated": dv, "min_hours": hr, "min_diamonds": di, "min_battles": bt};
+        }
+      }
       final criteria = {
         "min_days": int.tryParse(_minDaysController.text.trim()),
+        "max_days_in_agency": int.tryParse(_maxDaysController.text.trim()),
         "min_days_validated": int.tryParse(_minDaysValidatedController.text.trim()),
         "min_hours": double.tryParse(_minHoursController.text.trim().replaceAll(",", ".")),
         "min_diamonds": num.tryParse(_minDiamondsController.text.trim()),
+        "max_diamonds": num.tryParse(_maxDiamondsController.text.trim()),
         "min_heart_me": num.tryParse(_minHeartMeController.text.trim().replaceAll(",", ".")),
         "min_battles": int.tryParse(_minBattlesController.text.trim()),
-        "battles_by_category": battlesByCategory,
+        "category_overrides": categoryOverrides,
+        "membership_mode": _membershipMode,
+        "ticket_quantity": int.tryParse(_ticketQuantityController.text.trim()) ?? 0,
+        "diamonds_period": _diamondsPeriod,
+        "hours_period": _hoursPeriod,
+        "days_validated_period": _daysValidatedPeriod,
         "days_enabled": _daysEnabled,
         "days_required": _daysRequired,
         "days_validated_enabled": _daysValidatedEnabled,
@@ -230,7 +256,6 @@ class _ProgramaConfiguracoesTabState extends State<ProgramaConfiguracoesTab> {
         "approval_rule_mode": _approvalRuleMode,
         "approval_min_percentage": int.tryParse(_approvalPercentageController.text.trim()) ?? 100,
         "category_ids": _categoryIds.toList(),
-        "required_material_ids": _materialIds.toList(),
       };
 
       var imageUrl = _imageUrl;
@@ -338,6 +363,19 @@ class _ProgramaConfiguracoesTabState extends State<ProgramaConfiguracoesTab> {
     );
   }
 
+  Widget _sectionTitle(String text, {String? subtitle}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8, top: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(text, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+          if (subtitle != null) Text(subtitle, style: const TextStyle(color: Colors.white38, fontSize: 10, fontStyle: FontStyle.italic)),
+        ],
+      ),
+    );
+  }
+
   Widget _metaRow({
     required String label,
     required TextEditingController controller,
@@ -372,54 +410,126 @@ class _ProgramaConfiguracoesTabState extends State<ProgramaConfiguracoesTab> {
     );
   }
 
-  /// Igual _metaRow, mas so pra Batalhas: alem do padrao geral, permite
-  /// abrir um valor diferente por categoria de streamer (ex: Batalha precisa
-  /// de mais batalhas que Musica) -- vazio numa categoria usa o padrao.
-  Widget _battlesMetaCard() {
+  Widget _periodDropdown(String value, ValueChanged<String> onChanged) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 48, top: 2),
+      child: Row(children: [
+        const Text("Considerar: ", style: TextStyle(color: Colors.white38, fontSize: 10)),
+        DropdownButton<String>(
+          value: value,
+          isDense: true,
+          dropdownColor: const Color(0xFF232323),
+          style: const TextStyle(color: Colors.white70, fontSize: 11),
+          underline: Container(height: 1, color: Colors.white24),
+          items: const [
+            DropdownMenuItem(value: "total", child: Text("Total acumulado")),
+            DropdownMenuItem(value: "mes_atual", child: Text("Mes atual")),
+            DropdownMenuItem(value: "mes_anterior", child: Text("Mes anterior")),
+            DropdownMenuItem(value: "mes_atual_ou_anterior", child: Text("Mes atual ou anterior")),
+          ],
+          onChanged: (v) => onChanged(v ?? value),
+        ),
+      ]),
+    );
+  }
+
+  Widget _smallField(TextEditingController controller, String label, {bool enabled = true}) {
+    return SizedBox(
+      width: 200,
+      child: TextField(
+        controller: controller,
+        enabled: enabled,
+        keyboardType: TextInputType.number,
+        style: TextStyle(color: enabled ? Colors.white : Colors.white38, fontSize: 12),
+        decoration: InputDecoration(isDense: true, labelText: label, labelStyle: const TextStyle(color: Colors.white38, fontSize: 11)),
+      ),
+    );
+  }
+
+  /// Dias na agencia mostrado como uma faixa unica (a partir de / ate no
+  /// maximo), em vez de dois campos soltos sem relacao visivel entre eles.
+  Widget _dayRangeCard() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          Switch(value: _daysEnabled, activeColor: const Color(0xFF7A0BD4), onChanged: (v) => setState(() => _daysEnabled = v)),
+          const Expanded(child: Text("Dias na agencia (faixa)", style: TextStyle(color: Colors.white))),
+          Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text("Obrigatoria", style: TextStyle(color: Colors.white38, fontSize: 9)),
+            Checkbox(value: _daysRequired, activeColor: const Color(0xFF7A0BD4), onChanged: _daysEnabled ? (v) => setState(() => _daysRequired = v ?? true) : null),
+          ]),
+        ]),
+        Padding(
+          padding: const EdgeInsets.only(left: 48),
+          child: Wrap(spacing: 12, runSpacing: 4, children: [
+            _smallField(_minDaysController, "A partir de (minimo)", enabled: _daysEnabled),
+            _smallField(_maxDaysController, "Ate no maximo (opcional)", enabled: _daysEnabled),
+          ]),
+        ),
+      ],
+    );
+  }
+
+  /// Diamantes: minimo + maximo (opcional, filtro duro -- ex "ate 20k") +
+  /// periodo, tudo junto (o maximo usa o mesmo periodo do minimo).
+  Widget _diamondsMetaCard() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _metaRow(
-          label: "Quantidade minima de batalhas (padrao)",
-          controller: _minBattlesController,
-          enabled: _battlesEnabled,
-          onEnabledChanged: (v) => setState(() => _battlesEnabled = v),
-          required: _battlesRequired,
-          onRequiredChanged: (v) => setState(() => _battlesRequired = v),
+          label: "Diamantes minimos",
+          controller: _minDiamondsController,
+          enabled: _diamondsEnabled,
+          onEnabledChanged: (v) => setState(() => _diamondsEnabled = v),
+          required: _diamondsRequired,
+          onRequiredChanged: (v) => setState(() => _diamondsRequired = v),
         ),
-        if (_battlesEnabled) ...[
-          TextButton.icon(
-            onPressed: () => setState(() => _showBattlesByCategory = !_showBattlesByCategory),
-            icon: Icon(_showBattlesByCategory ? Icons.expand_less : Icons.expand_more, size: 16),
-            label: const Text("Personalizar por categoria", style: TextStyle(fontSize: 11)),
-          ),
-          if (_showBattlesByCategory)
-            Padding(
-              padding: const EdgeInsets.only(left: 8, bottom: 4),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: _categories.map((c) {
-                  final id = c["id"] as String;
-                  final controller = _battlesByCategoryControllers[id];
-                  if (controller == null) return const SizedBox.shrink();
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Row(children: [
-                      SizedBox(width: 110, child: Text(c["name"] as String, style: const TextStyle(color: Colors.white70, fontSize: 12))),
-                      Expanded(
-                        child: TextField(
-                          controller: controller,
-                          keyboardType: TextInputType.number,
-                          style: const TextStyle(color: Colors.white, fontSize: 12),
-                          decoration: const InputDecoration(isDense: true, hintText: "Usa o padrao", hintStyle: TextStyle(color: Colors.white24)),
-                        ),
-                      ),
-                    ]),
-                  );
-                }).toList(),
-              ),
+        Padding(
+          padding: const EdgeInsets.only(left: 48),
+          child: _smallField(_maxDiamondsController, "Maximo (opcional)"),
+        ),
+        _periodDropdown(_diamondsPeriod, (v) => setState(() => _diamondsPeriod = v)),
+      ],
+    );
+  }
+
+  Widget _categoryOverridesSection() {
+    if (_categories.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextButton.icon(
+          onPressed: () => setState(() => _showCategoryOverrides = !_showCategoryOverrides),
+          icon: Icon(_showCategoryOverrides ? Icons.expand_less : Icons.expand_more, size: 16),
+          label: const Text("Personalizar por categoria", style: TextStyle(fontSize: 12)),
+        ),
+        if (_showCategoryOverrides)
+          Padding(
+            padding: const EdgeInsets.only(left: 8, bottom: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: _categories.map((c) {
+                final id = c["id"] as String;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(c["name"] as String, style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 4),
+                      Wrap(spacing: 10, runSpacing: 6, children: [
+                        _smallField(_catDaysValidatedControllers[id]!, "Dias validados"),
+                        _smallField(_catHoursControllers[id]!, "Horas"),
+                        _smallField(_catDiamondsControllers[id]!, "Diamantes"),
+                        _smallField(_catBattlesControllers[id]!, "Batalhas"),
+                      ]),
+                    ],
+                  ),
+                );
+              }).toList(),
             ),
-        ],
+          ),
       ],
     );
   }
@@ -435,30 +545,13 @@ class _ProgramaConfiguracoesTabState extends State<ProgramaConfiguracoesTab> {
           const SizedBox(height: 4),
           const Text("Nada fica fixo -- todas as metas abaixo podem ser ativadas/desativadas e marcadas como obrigatorias ou opcionais.", style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic)),
           const SizedBox(height: 16),
-          Align(alignment: Alignment.centerLeft, child: OutlinedButton.icon(onPressed: _openFluxoConfig, icon: const Icon(Icons.view_column, size: 16), label: const Text("Configurar fluxo (colunas do Kanban)"))),
-          const SizedBox(height: 20),
-          _field(_nameController, "Nome"),
-          _field(_descriptionController, "Descricao", maxLines: 2),
-          _field(_objectiveController, "Objetivo", maxLines: 2),
           if (_loadingOptions)
             const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Center(child: CircularProgressIndicator()))
           else ...[
-            const Text("Responsaveis", style: TextStyle(color: Colors.white54, fontSize: 12)),
-            const SizedBox(height: 4),
-            Wrap(spacing: 6, runSpacing: 6, children: _managers.map((m) {
-              final id = m["id"] as String;
-              final selected = _responsibleIds.contains(id);
-              return FilterChip(
-                label: Text(m["login_email"] as String, style: TextStyle(color: selected ? Colors.white : Colors.white70, fontSize: 12)),
-                selected: selected,
-                selectedColor: const Color(0xFF7A0BD4),
-                backgroundColor: Colors.white.withOpacity(0.05),
-                onSelected: (v) => setState(() => v ? _responsibleIds.add(id) : _responsibleIds.remove(id)),
-              );
-            }).toList()),
-            const SizedBox(height: 16),
-            const Text("Identidade visual", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-            const SizedBox(height: 8),
+            _sectionTitle("Identidade"),
+            _field(_nameController, "Nome"),
+            _field(_descriptionController, "Descricao", maxLines: 2),
+            _field(_objectiveController, "Objetivo", maxLines: 2),
             Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
@@ -497,6 +590,20 @@ class _ProgramaConfiguracoesTabState extends State<ProgramaConfiguracoesTab> {
                 onChanged: (v) => setState(() => _iconKey = v),
               ),
             ]),
+            const SizedBox(height: 20),
+
+            _sectionTitle("Responsaveis"),
+            Wrap(spacing: 6, runSpacing: 6, children: _managers.map((m) {
+              final id = m["id"] as String;
+              final selected = _responsibleIds.contains(id);
+              return FilterChip(
+                label: Text(m["login_email"] as String, style: TextStyle(color: selected ? Colors.white : Colors.white70, fontSize: 12)),
+                selected: selected,
+                selectedColor: const Color(0xFF7A0BD4),
+                backgroundColor: Colors.white.withOpacity(0.05),
+                onSelected: (v) => setState(() => v ? _responsibleIds.add(id) : _responsibleIds.remove(id)),
+              );
+            }).toList()),
             const SizedBox(height: 16),
             Row(children: [
               Expanded(
@@ -515,56 +622,65 @@ class _ProgramaConfiguracoesTabState extends State<ProgramaConfiguracoesTab> {
                 ),
               ),
             ]),
+            const SizedBox(height: 20),
+
+            _sectionTitle(
+              "Modo de participacao",
+              subtitle: "Fluxo: Kanban com etapas e avaliacao final manual (aprovar/graduar/revisao/desligar). Faixa automatica: sem avaliacao manual, o sistema entra e sai o streamer sozinho conforme os criterios abaixo baterem ou deixarem de bater.",
+            ),
+            RadioListTile<String>(
+              value: "fluxo",
+              groupValue: _membershipMode,
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              activeColor: const Color(0xFF7A0BD4),
+              title: const Text("Fluxo manual (Kanban + avaliacao)", style: TextStyle(color: Colors.white, fontSize: 13)),
+              onChanged: (v) => setState(() => _membershipMode = v ?? _membershipMode),
+            ),
+            RadioListTile<String>(
+              value: "faixa",
+              groupValue: _membershipMode,
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              activeColor: const Color(0xFF7A0BD4),
+              title: const Text("Faixa automatica (entra e sai sozinho)", style: TextStyle(color: Colors.white, fontSize: 13)),
+              onChanged: (v) => setState(() => _membershipMode = v ?? _membershipMode),
+            ),
             const SizedBox(height: 16),
-            const Text("Metas do programa", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-            const SizedBox(height: 4),
-            const Text("O interruptor liga/desliga a meta; o valor fica guardado mesmo desligada.", style: TextStyle(color: Colors.white24, fontSize: 10, fontStyle: FontStyle.italic)),
+
+            _sectionTitle("Metas do programa", subtitle: "O interruptor liga/desliga a meta; o valor fica guardado mesmo desligada."),
             const SizedBox(height: 8),
             Wrap(spacing: 16, runSpacing: 12, children: [
+              SizedBox(width: 320, child: _dayRangeCard()),
               SizedBox(
                 width: 300,
-                child: _metaRow(
-                  label: "Dias desde que entrou na agencia",
-                  controller: _minDaysController,
-                  enabled: _daysEnabled,
-                  onEnabledChanged: (v) => setState(() => _daysEnabled = v),
-                  required: _daysRequired,
-                  onRequiredChanged: (v) => setState(() => _daysRequired = v),
-                ),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  _metaRow(
+                    label: "Dias validados (ficou ao vivo)",
+                    controller: _minDaysValidatedController,
+                    enabled: _daysValidatedEnabled,
+                    onEnabledChanged: (v) => setState(() => _daysValidatedEnabled = v),
+                    required: _daysValidatedRequired,
+                    onRequiredChanged: (v) => setState(() => _daysValidatedRequired = v),
+                  ),
+                  _periodDropdown(_daysValidatedPeriod, (v) => setState(() => _daysValidatedPeriod = v)),
+                ]),
               ),
               SizedBox(
                 width: 300,
-                child: _metaRow(
-                  label: "Dias validados (ficou ao vivo)",
-                  controller: _minDaysValidatedController,
-                  enabled: _daysValidatedEnabled,
-                  onEnabledChanged: (v) => setState(() => _daysValidatedEnabled = v),
-                  required: _daysValidatedRequired,
-                  onRequiredChanged: (v) => setState(() => _daysValidatedRequired = v),
-                ),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  _metaRow(
+                    label: "Horas minimas",
+                    controller: _minHoursController,
+                    enabled: _hoursEnabled,
+                    onEnabledChanged: (v) => setState(() => _hoursEnabled = v),
+                    required: _hoursRequired,
+                    onRequiredChanged: (v) => setState(() => _hoursRequired = v),
+                  ),
+                  _periodDropdown(_hoursPeriod, (v) => setState(() => _hoursPeriod = v)),
+                ]),
               ),
-              SizedBox(
-                width: 300,
-                child: _metaRow(
-                  label: "Horas minimas",
-                  controller: _minHoursController,
-                  enabled: _hoursEnabled,
-                  onEnabledChanged: (v) => setState(() => _hoursEnabled = v),
-                  required: _hoursRequired,
-                  onRequiredChanged: (v) => setState(() => _hoursRequired = v),
-                ),
-              ),
-              SizedBox(
-                width: 300,
-                child: _metaRow(
-                  label: "Diamantes minimos",
-                  controller: _minDiamondsController,
-                  enabled: _diamondsEnabled,
-                  onEnabledChanged: (v) => setState(() => _diamondsEnabled = v),
-                  required: _diamondsRequired,
-                  onRequiredChanged: (v) => setState(() => _diamondsRequired = v),
-                ),
-              ),
+              SizedBox(width: 320, child: _diamondsMetaCard()),
               SizedBox(
                 width: 300,
                 child: _metaRow(
@@ -576,12 +692,23 @@ class _ProgramaConfiguracoesTabState extends State<ProgramaConfiguracoesTab> {
                   onRequiredChanged: (v) => setState(() => _heartMeRequired = v),
                 ),
               ),
-              SizedBox(width: 300, child: _battlesMetaCard()),
+              SizedBox(
+                width: 300,
+                child: _metaRow(
+                  label: "Quantidade minima de batalhas (padrao)",
+                  controller: _minBattlesController,
+                  enabled: _battlesEnabled,
+                  onEnabledChanged: (v) => setState(() => _battlesEnabled = v),
+                  required: _battlesRequired,
+                  onRequiredChanged: (v) => setState(() => _battlesRequired = v),
+                ),
+              ),
             ]),
-            const SizedBox(height: 12),
-            const Text("Regra de aprovacao", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-            const SizedBox(height: 2),
-            const Text("Decide o que conta pra elegibilidade entre as metas ativas acima.", style: TextStyle(color: Colors.white24, fontSize: 10, fontStyle: FontStyle.italic)),
+            const SizedBox(height: 8),
+            _categoryOverridesSection(),
+            const SizedBox(height: 8),
+
+            _sectionTitle("Regra de aprovacao", subtitle: "Decide o que conta pra elegibilidade entre as metas ativas acima."),
             RadioListTile<String>(
               value: "todas",
               groupValue: _approvalRuleMode,
@@ -623,8 +750,8 @@ class _ProgramaConfiguracoesTabState extends State<ProgramaConfiguracoesTab> {
                 ),
               ),
             const SizedBox(height: 8),
-            const Text("Categoria (vazio = qualquer categoria)", style: TextStyle(color: Colors.white54, fontSize: 12)),
-            const SizedBox(height: 4),
+
+            _sectionTitle("Categorias elegiveis", subtitle: "Vazio = qualquer categoria pode participar."),
             Wrap(spacing: 6, runSpacing: 6, children: _categories.map((c) {
               final id = c["id"] as String;
               final selected = _categoryIds.contains(id);
@@ -636,56 +763,52 @@ class _ProgramaConfiguracoesTabState extends State<ProgramaConfiguracoesTab> {
                 onSelected: (v) => setState(() => v ? _categoryIds.add(id) : _categoryIds.remove(id)),
               );
             }).toList()),
-            const SizedBox(height: 12),
-            const Text("Treinamentos obrigatorios (informativo por enquanto)", style: TextStyle(color: Colors.white54, fontSize: 12)),
-            const Text("O sistema ainda nao registra quando um streamer conclui um material -- isso fica listado no programa, mas nao bloqueia a elegibilidade ainda.", style: TextStyle(color: Colors.white24, fontSize: 10, fontStyle: FontStyle.italic)),
-            const SizedBox(height: 4),
-            Wrap(spacing: 6, runSpacing: 6, children: _materials.map((m) {
-              final id = m["id"] as String;
-              final selected = _materialIds.contains(id);
-              return FilterChip(
-                label: Text(m["title"] as String, style: TextStyle(color: selected ? Colors.white : Colors.white70, fontSize: 12)),
-                selected: selected,
-                selectedColor: const Color(0xFF7A0BD4),
-                backgroundColor: Colors.white.withOpacity(0.05),
-                onSelected: (v) => setState(() => v ? _materialIds.add(id) : _materialIds.remove(id)),
-              );
-            }).toList()),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
+
+            _sectionTitle("Tickets de sorteio", subtitle: "Quantidade concedida automaticamente quando o streamer bate a meta (0 = desativado). Em modo faixa, um ticket por mes enquanto elegivel; em modo fluxo, um ticket na aprovacao final."),
+            SizedBox(width: 220, child: _field(_ticketQuantityController, "Quantidade de tickets", keyboardType: TextInputType.number)),
+
+            _sectionTitle("Mensagem e premiacoes"),
             _field(_defaultMessageController, "Mensagem padrao", maxLines: 3),
             _field(_awardsController, "Premiacoes (descricao)", maxLines: 2),
-            const SizedBox(height: 8),
-            const Text("Proximo programa", style: TextStyle(color: Colors.white54, fontSize: 12)),
-            const Text("Quando aprovado na avaliacao final, o streamer entra automaticamente aqui.", style: TextStyle(color: Colors.white24, fontSize: 10, fontStyle: FontStyle.italic)),
-            const SizedBox(height: 4),
-            DropdownButton<String?>(
-              value: _nextProgramKey,
-              isExpanded: true,
-              hint: const Text("Nenhum (fim da jornada)", style: TextStyle(color: Colors.white38)),
-              dropdownColor: const Color(0xFF232323),
-              style: const TextStyle(color: Colors.white),
-              items: [
-                const DropdownMenuItem<String?>(value: null, child: Text("Nenhum (fim da jornada)")),
-                ..._otherPrograms.map((p) => DropdownMenuItem<String?>(value: p["program_key"] as String, child: Text(p["name"] as String))),
-              ],
-              onChanged: (v) => setState(() => _nextProgramKey = v),
-            ),
-            const SizedBox(height: 12),
-            const Text("Programa de destaque (Graduar)", style: TextStyle(color: Colors.white54, fontSize: 12)),
-            const Text("Quando o gestor clicar em \"Graduar\" na avaliacao final, o streamer vai para este programa em vez do proximo padrao.", style: TextStyle(color: Colors.white24, fontSize: 10, fontStyle: FontStyle.italic)),
-            const SizedBox(height: 4),
-            DropdownButton<String?>(
-              value: _graduateProgramKey,
-              isExpanded: true,
-              hint: const Text("Nenhum ainda", style: TextStyle(color: Colors.white38)),
-              dropdownColor: const Color(0xFF232323),
-              style: const TextStyle(color: Colors.white),
-              items: [
-                const DropdownMenuItem<String?>(value: null, child: Text("Nenhum ainda")),
-                ..._otherPrograms.map((p) => DropdownMenuItem<String?>(value: p["program_key"] as String, child: Text(p["name"] as String))),
-              ],
-              onChanged: (v) => setState(() => _graduateProgramKey = v),
-            ),
+
+            if (_membershipMode == "fluxo") ...[
+              const SizedBox(height: 8),
+              _sectionTitle("Encadeamento"),
+              const Text("Proximo programa", style: TextStyle(color: Colors.white54, fontSize: 12)),
+              const Text("Quando aprovado na avaliacao final, o streamer entra automaticamente aqui.", style: TextStyle(color: Colors.white24, fontSize: 10, fontStyle: FontStyle.italic)),
+              const SizedBox(height: 4),
+              DropdownButton<String?>(
+                value: _nextProgramKey,
+                isExpanded: true,
+                hint: const Text("Nenhum (fim da jornada)", style: TextStyle(color: Colors.white38)),
+                dropdownColor: const Color(0xFF232323),
+                style: const TextStyle(color: Colors.white),
+                items: [
+                  const DropdownMenuItem<String?>(value: null, child: Text("Nenhum (fim da jornada)")),
+                  ..._otherPrograms.map((p) => DropdownMenuItem<String?>(value: p["program_key"] as String, child: Text(p["name"] as String))),
+                ],
+                onChanged: (v) => setState(() => _nextProgramKey = v),
+              ),
+              const SizedBox(height: 12),
+              const Text("Programa de destaque (Graduar)", style: TextStyle(color: Colors.white54, fontSize: 12)),
+              const Text("Quando o gestor clicar em \"Graduar\" na avaliacao final, o streamer vai para este programa em vez do proximo padrao.", style: TextStyle(color: Colors.white24, fontSize: 10, fontStyle: FontStyle.italic)),
+              const SizedBox(height: 4),
+              DropdownButton<String?>(
+                value: _graduateProgramKey,
+                isExpanded: true,
+                hint: const Text("Nenhum ainda", style: TextStyle(color: Colors.white38)),
+                dropdownColor: const Color(0xFF232323),
+                style: const TextStyle(color: Colors.white),
+                items: [
+                  const DropdownMenuItem<String?>(value: null, child: Text("Nenhum ainda")),
+                  ..._otherPrograms.map((p) => DropdownMenuItem<String?>(value: p["program_key"] as String, child: Text(p["name"] as String))),
+                ],
+                onChanged: (v) => setState(() => _graduateProgramKey = v),
+              ),
+              const SizedBox(height: 12),
+              Align(alignment: Alignment.centerLeft, child: OutlinedButton.icon(onPressed: _openFluxoConfig, icon: const Icon(Icons.view_column, size: 16), label: const Text("Configurar fluxo (colunas do Kanban)"))),
+            ],
           ],
           if (_message != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_message!, style: TextStyle(color: _messageIsError ? Colors.redAccent : Colors.greenAccent, fontSize: 12))),
           const SizedBox(height: 16),

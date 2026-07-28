@@ -76,18 +76,11 @@ class _ProgramaFluxoTabState extends State<ProgramaFluxoTab> {
   Future<void> _syncNow() async {
     setState(() => _syncing = true);
     try {
-      final client = Supabase.instance.client;
       final criteria = ProgramCriteria.fromMap(widget.program["criteria"] as Map<String, dynamic>?);
       final snapshots = await fetchActiveStreamerSnapshots(agencyId: _agencyId);
       final enrolled = await fetchEnrolledStreamerIds(phaseKey: _phaseKey);
 
-      final previous = await client
-          .from("development_programs")
-          .select("program_key")
-          .eq("agency_id", _agencyId)
-          .or("next_program_key.eq." + _phaseKey + ",graduate_program_key.eq." + _phaseKey)
-          .maybeSingle();
-      final previousKey = previous?["program_key"] as String?;
+      final previousKey = await findPreviousProgramKey(agencyId: _agencyId, phaseKey: _phaseKey);
       final completedPrev = previousKey != null ? await fetchCompletedStreamerIds(phaseKey: previousKey) : null;
 
       final created = await syncEligibleStreamers(
@@ -295,6 +288,15 @@ class _CardDetailDialog extends StatefulWidget {
 
 class _CardDetailDialogState extends State<_CardDetailDialog> {
   bool _saving = false;
+  Future<StreamerSnapshot?>? _snapshotFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.stage["is_evaluation_stage"] == true) {
+      _snapshotFuture = fetchStreamerSnapshotsByIds(streamerIds: [widget.card["streamer_id"] as String]).then((list) => list.isEmpty ? null : list.first);
+    }
+  }
 
   Future<void> _evaluate(String outcome) async {
     final streamer = widget.card["streamer"];
@@ -394,6 +396,32 @@ class _CardDetailDialogState extends State<_CardDetailDialog> {
                 Text("Desde " + stageChangedAt.toLocal().toString().substring(0, 10), style: const TextStyle(color: Colors.white38, fontSize: 12)),
               const SizedBox(height: 16),
               if (isEvaluation) ...[
+                FutureBuilder<StreamerSnapshot?>(
+                  future: _snapshotFuture,
+                  builder: (context, snap) {
+                    if (!snap.hasData || snap.data == null) return const SizedBox.shrink();
+                    final criteria = ProgramCriteria.fromMap(widget.program["criteria"] as Map<String, dynamic>?);
+                    final result = evaluateEligibility(snap.data!, criteria);
+                    final color = result.eligible ? Colors.greenAccent : Colors.orangeAccent;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8), border: Border.all(color: color)),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Row(children: [
+                          Icon(result.eligible ? Icons.check_circle : Icons.info_outline, size: 14, color: color),
+                          const SizedBox(width: 6),
+                          Text(
+                            result.eligible ? "Bateu os criterios configurados" : "Ainda nao bate os criterios configurados",
+                            style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ]),
+                        if (!result.eligible && result.gaps.isNotEmpty)
+                          Padding(padding: const EdgeInsets.only(top: 4, left: 20), child: Text(result.gaps.join(", "), style: TextStyle(color: color, fontSize: 11))),
+                      ]),
+                    );
+                  },
+                ),
                 const Text("Avaliacao final", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
                 const SizedBox(height: 8),
                 Wrap(spacing: 8, runSpacing: 8, children: [

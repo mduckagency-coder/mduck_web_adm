@@ -38,7 +38,7 @@ Future<void> setPinnedNote({required String progressId, required String? note}) 
 /// diario suficiente pra comparar semana a semana.
 Future<void> ensureTodaySnapshot({required String streamerId, required String agencyId}) async {
   final client = Supabase.instance.client;
-  final stats = await client.from("streamer_stats").select("hours_live, diamonds, heart_me, battles").eq("streamer_id", streamerId).maybeSingle();
+  final stats = await client.from("streamer_stats").select("hours_live, diamonds, heart_me, battles, days_live").eq("streamer_id", streamerId).maybeSingle();
   if (stats == null) return;
   try {
     await client.from("streamer_stat_snapshots").insert({
@@ -49,6 +49,7 @@ Future<void> ensureTodaySnapshot({required String streamerId, required String ag
       "diamonds": stats["diamonds"],
       "heart_me": stats["heart_me"],
       "battles": stats["battles"],
+      "days_live": stats["days_live"],
     });
   } catch (_) {
     // Ja existe snapshot de hoje -- ignora (unique constraint).

@@ -1,5 +1,6 @@
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
+import "../metricas/streamer_metrics_share_card.dart";
 import "../programas/program_phase_service.dart" show developmentProgramKeys;
 
 class CrmPage extends StatefulWidget {
@@ -27,9 +28,18 @@ class _CrmPageState extends State<CrmPage> {
 
   Future<List<Map<String, dynamic>>> _load() async {
     final client = Supabase.instance.client;
-    dynamic query = client.from("profiles").select("id, display_name, tiktok_creator_id, joined_at, is_active, recruited_by");
+    dynamic query = client
+        .from("profiles")
+        .select(
+          "id, display_name, tiktok_creator_id, joined_at, is_active, recruited_by",
+        );
     if (widget.managerId != null) {
-      query = query.or("assigned_manager_id.eq." + widget.managerId! + ",recruited_by_manager_id.eq." + widget.managerId!);
+      query = query.or(
+        "assigned_manager_id.eq." +
+            widget.managerId! +
+            ",recruited_by_manager_id.eq." +
+            widget.managerId!,
+      );
     }
     final rows = await query.order("display_name");
     return (rows as List).cast<Map<String, dynamic>>();
@@ -41,16 +51,27 @@ class _CrmPageState extends State<CrmPage> {
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text("Erro ao carregar: " + snapshot.error.toString(), style: const TextStyle(color: Colors.redAccent), textAlign: TextAlign.center)));
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                "Erro ao carregar: " + snapshot.error.toString(),
+                style: const TextStyle(color: Colors.redAccent),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          );
         }
-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+        if (!snapshot.hasData)
+          return const Center(child: CircularProgressIndicator());
         final all = snapshot.data!;
         final filtered = _search.isEmpty
             ? all
             : all.where((s) {
                 final name = (s["display_name"] as String).toLowerCase();
                 final id = (s["tiktok_creator_id"] as String?) ?? "";
-                return name.contains(_search.toLowerCase()) || id.contains(_search);
+                return name.contains(_search.toLowerCase()) ||
+                    id.contains(_search);
               }).toList();
 
         return Padding(
@@ -60,9 +81,19 @@ class _CrmPageState extends State<CrmPage> {
             children: [
               Row(
                 children: [
-                  const Text("CRM - Curriculo dos Streamers", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+                  const Text(
+                    "CRM - Curriculo dos Streamers",
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
                   const SizedBox(width: 12),
-                  IconButton(icon: const Icon(Icons.refresh, color: Colors.white70), onPressed: () => setState(() => _future = _load())),
+                  IconButton(
+                    icon: const Icon(Icons.refresh, color: Colors.white70),
+                    onPressed: () => setState(() => _future = _load()),
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -70,12 +101,20 @@ class _CrmPageState extends State<CrmPage> {
                 width: 320,
                 child: TextField(
                   style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(prefixIcon: Icon(Icons.search, color: Colors.white54), hintText: "Buscar por nick ou ID", hintStyle: TextStyle(color: Colors.white38), isDense: true),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search, color: Colors.white54),
+                    hintText: "Buscar por nick ou ID",
+                    hintStyle: TextStyle(color: Colors.white38),
+                    isDense: true,
+                  ),
                   onChanged: (v) => setState(() => _search = v),
                 ),
               ),
               const SizedBox(height: 12),
-              Text(filtered.length.toString() + " streamers", style: const TextStyle(color: Colors.white54)),
+              Text(
+                filtered.length.toString() + " streamers",
+                style: const TextStyle(color: Colors.white54),
+              ),
               const SizedBox(height: 8),
               Expanded(
                 child: ListView.builder(
@@ -86,16 +125,50 @@ class _CrmPageState extends State<CrmPage> {
                     return Column(
                       children: [
                         ListTile(
-                          leading: const CircleAvatar(radius: 18, backgroundColor: Colors.white24, child: Icon(Icons.person, color: Colors.white54, size: 18)),
-                          title: Text(s["display_name"] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          leading: const CircleAvatar(
+                            radius: 18,
+                            backgroundColor: Colors.white24,
+                            child: Icon(
+                              Icons.person,
+                              color: Colors.white54,
+                              size: 18,
+                            ),
+                          ),
+                          title: Text(
+                            s["display_name"] as String,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                           subtitle: Text(
-                            (s["tiktok_creator_id"] as String? ?? "-") + (s["recruited_by"] != null ? "  -  Recrutado por: " + s["recruited_by"] : ""),
-                            style: const TextStyle(color: Colors.white38, fontSize: 12),
+                            (s["tiktok_creator_id"] as String? ?? "-") +
+                                (s["recruited_by"] != null
+                                    ? "  -  Recrutado por: " + s["recruited_by"]
+                                    : ""),
+                            style: const TextStyle(
+                              color: Colors.white38,
+                              fontSize: 12,
+                            ),
                           ),
                           trailing: !active
-                              ? const Text("INATIVO", style: TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold))
-                              : const Icon(Icons.chevron_right, color: Colors.white38),
-                          onTap: () => showDialog(context: context, builder: (context) => _CrmDetailDialog(streamerId: s["id"] as String)),
+                              ? const Text(
+                                  "INATIVO",
+                                  style: TextStyle(
+                                    color: Colors.redAccent,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.chevron_right,
+                                  color: Colors.white38,
+                                ),
+                          onTap: () => showDialog(
+                            context: context,
+                            builder: (context) =>
+                                _CrmDetailDialog(streamerId: s["id"] as String),
+                          ),
                         ),
                         const Divider(color: Colors.white12, height: 1),
                       ],
@@ -168,7 +241,8 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
     final profile = await client
         .from("profiles")
         .select(
-            "display_name, tiktok_username, tiktok_creator_id, tiktok_group_name, joined_at, is_active, left_at, left_reason, recruited_by, phone, email, avatar_url, category_id, group_id, streamer_categories(name), groups!profiles_group_id_fkey(name)")
+          "display_name, tiktok_username, tiktok_creator_id, tiktok_group_name, joined_at, is_active, left_at, left_reason, recruited_by, phone, email, avatar_url, category_id, group_id, streamer_categories(name), groups!profiles_group_id_fkey(name), streamer_stats(diamonds, days_live, hours_live)",
+        )
         .eq("id", widget.streamerId)
         .single();
 
@@ -178,7 +252,9 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
 
     final campaignRewards = await client
         .from("campaign_rewards")
-        .select("value, reward_type, description, created_at, agency_campaigns(title)")
+        .select(
+          "value, reward_type, description, created_at, agency_campaigns(title)",
+        )
         .eq("streamer_id", widget.streamerId);
 
     final eventAwards = await client
@@ -188,7 +264,9 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
 
     final scheduleLinks = await client
         .from("event_schedule_streamers")
-        .select("event_schedule(description, start_at, status, agency_events(title))")
+        .select(
+          "event_schedule(description, start_at, status, agency_events(title))",
+        )
         .eq("streamer_id", widget.streamerId);
 
     final completedMissions = await client
@@ -205,7 +283,9 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
 
     final assignmentHistory = await client
         .from("manager_assignment_history")
-        .select("manager_id, assigned_at, managers!manager_assignment_history_manager_id_fkey(login_email)")
+        .select(
+          "manager_id, assigned_at, managers!manager_assignment_history_manager_id_fkey(login_email)",
+        )
         .eq("streamer_id", widget.streamerId)
         .order("assigned_at");
 
@@ -214,11 +294,16 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
         .select("phase_key, stage_key, outcome, completed_at")
         .eq("streamer_id", widget.streamerId)
         .inFilter("phase_key", developmentProgramKeys);
-    final programProgressByPhase = {for (final r in (programProgressRows as List)) r["phase_key"] as String: r as Map<String, dynamic>};
+    final programProgressByPhase = {
+      for (final r in (programProgressRows as List))
+        r["phase_key"] as String: r as Map<String, dynamic>,
+    };
 
     final cycleParticipations = await client
         .from("campaign_cycle_participants")
-        .select("final_status, joined_at, campaign_cycles(period_label, development_programs(name))")
+        .select(
+          "final_status, joined_at, campaign_cycles(period_label, development_programs(name))",
+        )
         .eq("streamer_id", widget.streamerId)
         .order("joined_at", ascending: false);
 
@@ -228,7 +313,11 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
         .eq("streamer_id", widget.streamerId)
         .order("created_at", ascending: false);
 
-    final lead = await client.from("leads").select("id, created_at, converted_at, recruiter_id").eq("converted_streamer_id", widget.streamerId).maybeSingle();
+    final lead = await client
+        .from("leads")
+        .select("id, created_at, converted_at, recruiter_id")
+        .eq("converted_streamer_id", widget.streamerId)
+        .maybeSingle();
 
     List<Map<String, dynamic>> leadHistory = [];
     Map<String, dynamic>? handoff;
@@ -236,21 +325,41 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
     String? currentRecruiterEmail;
     if (lead != null) {
       final leadId = lead["id"] as String;
-      final histRows = await client.from("lead_history").select().eq("lead_id", leadId).order("created_at");
+      final histRows = await client
+          .from("lead_history")
+          .select()
+          .eq("lead_id", leadId)
+          .order("created_at");
       leadHistory = (histRows as List).cast<Map<String, dynamic>>();
 
-      handoff = await client.from("lead_recruitment_handoff").select().eq("lead_id", leadId).maybeSingle();
+      handoff = await client
+          .from("lead_recruitment_handoff")
+          .select()
+          .eq("lead_id", leadId)
+          .maybeSingle();
 
       final managerIds = <String>{
         lead["recruiter_id"] as String,
-        ...leadHistory.map((h) => h["performed_by"] as String?).whereType<String>(),
+        ...leadHistory
+            .map((h) => h["performed_by"] as String?)
+            .whereType<String>(),
       };
-      final managerRows = await client.from("managers").select("id, login_email").inFilter("id", managerIds.toList());
-      final managerMap = {for (final m in (managerRows as List)) m["id"] as String: m["login_email"] as String};
+      final managerRows = await client
+          .from("managers")
+          .select("id, login_email")
+          .inFilter("id", managerIds.toList());
+      final managerMap = {
+        for (final m in (managerRows as List))
+          m["id"] as String: m["login_email"] as String,
+      };
 
       currentRecruiterEmail = managerMap[lead["recruiter_id"]];
-      final creationEntry = leadHistory.where((h) => h["action"] == "criacao").firstOrNull;
-      creatorEmail = creationEntry != null ? managerMap[creationEntry["performed_by"]] : null;
+      final creationEntry = leadHistory
+          .where((h) => h["action"] == "criacao")
+          .firstOrNull;
+      creatorEmail = creationEntry != null
+          ? managerMap[creationEntry["performed_by"]]
+          : null;
     }
 
     final timeline = <Map<String, dynamic>>[];
@@ -260,29 +369,69 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
       timeline.add({
         "date": r["created_at"],
         "type": "premio",
-        "text": "Premio recebido: " + ((r["description"] as String?) ?? (r["reward_type"] as String)) + (campaign is Map ? " (" + (campaign["title"] as String) + ")" : ""),
+        "text":
+            "Premio recebido: " +
+            ((r["description"] as String?) ?? (r["reward_type"] as String)) +
+            (campaign is Map ? " (" + (campaign["title"] as String) + ")" : ""),
       });
     }
     for (final a in (eventAwards as List)) {
       final event = a["agency_events"];
-      final items = (a["items"] as List?)?.cast<Map<String, dynamic>>() ?? const [];
-      final itemsText = items.isEmpty ? "" : " (" + items.map((it) => (it["quantity"] ?? 1).toString() + "x " + ((it["name"] as String?) ?? "-")).join(", ") + ")";
-      final statusLabel = a["status"] == "pago" ? "Pago" : (a["status"] == "agendado" ? "Agendado" : "Pendente");
+      final items =
+          (a["items"] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      final itemsText = items.isEmpty
+          ? ""
+          : " (" +
+                items
+                    .map(
+                      (it) =>
+                          (it["quantity"] ?? 1).toString() +
+                          "x " +
+                          ((it["name"] as String?) ?? "-"),
+                    )
+                    .join(", ") +
+                ")";
+      final statusLabel = a["status"] == "pago"
+          ? "Pago"
+          : (a["status"] == "agendado" ? "Agendado" : "Pendente");
       timeline.add({
         "date": a["created_at"],
         "type": "premio",
-        "text": "Premiado em evento" + (event is Map ? " \"" + ((event["title"] as String?) ?? "-") + "\"" : "") + ": " + (a["name"] as String) + itemsText + " - " + statusLabel,
+        "text":
+            "Premiado em evento" +
+            (event is Map
+                ? " \"" + ((event["title"] as String?) ?? "-") + "\""
+                : "") +
+            ": " +
+            (a["name"] as String) +
+            itemsText +
+            " - " +
+            statusLabel,
       });
     }
     for (final l in (scheduleLinks as List)) {
       final schedule = (l as Map)["event_schedule"];
       if (schedule is! Map) continue;
       final event = schedule["agency_events"];
-      final scheduleStatus = schedule["status"] == "concluido" ? "Concluido" : (schedule["status"] == "cancelado" ? "Cancelado" : (schedule["status"] == "em_andamento" ? "Em andamento" : "Pendente"));
+      final scheduleStatus = schedule["status"] == "concluido"
+          ? "Concluido"
+          : (schedule["status"] == "cancelado"
+                ? "Cancelado"
+                : (schedule["status"] == "em_andamento"
+                      ? "Em andamento"
+                      : "Pendente"));
       timeline.add({
         "date": schedule["start_at"],
         "type": "cronograma",
-        "text": "Atividade" + (event is Map ? " do evento \"" + ((event["title"] as String?) ?? "-") + "\"" : "") + ": " + (schedule["description"] as String) + " - " + scheduleStatus,
+        "text":
+            "Atividade" +
+            (event is Map
+                ? " do evento \"" + ((event["title"] as String?) ?? "-") + "\""
+                : "") +
+            ": " +
+            (schedule["description"] as String) +
+            " - " +
+            scheduleStatus,
       });
     }
     for (final m in (completedMissions as List)) {
@@ -291,14 +440,24 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
       timeline.add({
         "date": m["completed_at"],
         "type": "missao",
-        "text": "Missao concluida: " + (mission["title"] as String) + " - Premio: " + (mission["reward_type"]?.toString() ?? "-"),
+        "text":
+            "Missao concluida: " +
+            (mission["title"] as String) +
+            " - Premio: " +
+            (mission["reward_type"]?.toString() ?? "-"),
       });
     }
     for (final n in (notes as List)) {
       timeline.add({
         "date": n["created_at"],
         "type": "nota",
-        "text": "[" + (n["context"] as String) + "] " + (n["manager_label"] ?? "Gestor") + ": " + (n["message_sent"] as String? ?? ""),
+        "text":
+            "[" +
+            (n["context"] as String) +
+            "] " +
+            (n["manager_label"] ?? "Gestor") +
+            ": " +
+            (n["message_sent"] as String? ?? ""),
       });
     }
     for (final a in (assignmentHistory as List)) {
@@ -306,18 +465,26 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
       timeline.add({
         "date": a["assigned_at"],
         "type": "gestor",
-        "text": "Gestor definido: " + (m is Map ? m["login_email"] as String? ?? "-" : "-"),
+        "text":
+            "Gestor definido: " +
+            (m is Map ? m["login_email"] as String? ?? "-" : "-"),
       });
     }
     for (final h in leadHistory) {
       timeline.add({
         "date": h["created_at"],
         "type": "recrutamento",
-        "text": (_actionLabels[h["action"]] ?? h["action"] as String) + ((h["detail"] as String?)?.isNotEmpty == true ? ": " + (h["detail"] as String) : ""),
+        "text":
+            (_actionLabels[h["action"]] ?? h["action"] as String) +
+            ((h["detail"] as String?)?.isNotEmpty == true
+                ? ": " + (h["detail"] as String)
+                : ""),
       });
     }
 
-    timeline.sort((a, b) => (b["date"] as String).compareTo(a["date"] as String));
+    timeline.sort(
+      (a, b) => (b["date"] as String).compareTo(a["date"] as String),
+    );
 
     return {
       "profile": profile,
@@ -328,7 +495,8 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
       "creatorEmail": creatorEmail,
       "currentRecruiterEmail": currentRecruiterEmail,
       "programProgressByPhase": programProgressByPhase,
-      "cycleParticipations": (cycleParticipations as List).cast<Map<String, dynamic>>(),
+      "cycleParticipations": (cycleParticipations as List)
+          .cast<Map<String, dynamic>>(),
       "programAwards": (programAwards as List).cast<Map<String, dynamic>>(),
     };
   }
@@ -336,17 +504,23 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
   Future<void> _saveRecruitedBy() async {
     setState(() => _savingRecruited = true);
     final client = Supabase.instance.client;
-    await client.from("profiles").update({"recruited_by": _recruitedByController.text.trim()}).eq("id", widget.streamerId);
+    await client
+        .from("profiles")
+        .update({"recruited_by": _recruitedByController.text.trim()})
+        .eq("id", widget.streamerId);
     setState(() => _savingRecruited = false);
   }
 
   Future<void> _saveContact() async {
     setState(() => _savingContact = true);
     final client = Supabase.instance.client;
-    await client.from("profiles").update({
-      "phone": _phoneController.text.trim(),
-      "email": _emailController.text.trim(),
-    }).eq("id", widget.streamerId);
+    await client
+        .from("profiles")
+        .update({
+          "phone": _phoneController.text.trim(),
+          "email": _emailController.text.trim(),
+        })
+        .eq("id", widget.streamerId);
     setState(() => _savingContact = false);
   }
 
@@ -357,21 +531,40 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
         context: context,
         builder: (context) => AlertDialog(
           backgroundColor: const Color(0xFF1A1A1A),
-          title: const Text("Encerrar participacao do streamer?", style: TextStyle(color: Colors.white)),
+          title: const Text(
+            "Encerrar participacao do streamer?",
+            style: TextStyle(color: Colors.white),
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text("Ele sera marcado como inativo e removido de rankings e missoes atuais. O historico permanece salvo.", style: TextStyle(color: Colors.white70, fontSize: 13)),
+              const Text(
+                "Ele sera marcado como inativo e removido de rankings e missoes atuais. O historico permanece salvo.",
+                style: TextStyle(color: Colors.white70, fontSize: 13),
+              ),
               const SizedBox(height: 12),
-              TextField(controller: reasonController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Motivo (opcional)", labelStyle: TextStyle(color: Colors.white54))),
+              TextField(
+                controller: reasonController,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: "Motivo (opcional)",
+                  labelStyle: TextStyle(color: Colors.white54),
+                ),
+              ),
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text("Cancelar")),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text("Cancelar"),
+            ),
             ElevatedButton(
               onPressed: () => Navigator.of(context).pop(true),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+              ),
               child: const Text("Encerrar participacao"),
             ),
           ],
@@ -379,24 +572,38 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
       );
       if (confirmed != true) return;
       final client = Supabase.instance.client;
-      await client.from("profiles").update({
-        "is_active": false,
-        "left_at": DateTime.now().toIso8601String(),
-        "left_reason": reasonController.text.trim(),
-        "assigned_manager_id": null,
-      }).eq("id", widget.streamerId);
+      await client
+          .from("profiles")
+          .update({
+            "is_active": false,
+            "left_at": DateTime.now().toIso8601String(),
+            "left_reason": reasonController.text.trim(),
+            "assigned_manager_id": null,
+          })
+          .eq("id", widget.streamerId);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Participacao encerrada. Streamer marcado como inativo."), backgroundColor: Colors.redAccent));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Participacao encerrada. Streamer marcado como inativo.",
+            ),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
       }
     } else {
       final client = Supabase.instance.client;
-      await client.from("profiles").update({
-        "is_active": true,
-        "left_at": null,
-        "left_reason": null,
-      }).eq("id", widget.streamerId);
+      await client
+          .from("profiles")
+          .update({"is_active": true, "left_at": null, "left_reason": null})
+          .eq("id", widget.streamerId);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Streamer reativado com sucesso."), backgroundColor: Colors.greenAccent));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Streamer reativado com sucesso."),
+            backgroundColor: Colors.greenAccent,
+          ),
+        );
       }
     }
     setState(() => _future = _load());
@@ -421,17 +628,26 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
   }
 
   Widget _infoRow(String label, String value) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 3),
-        child: Row(
-          children: [
-            SizedBox(width: 140, child: Text(label, style: const TextStyle(color: Colors.white54))),
-            Expanded(child: Text(value, style: const TextStyle(color: Colors.white))),
-          ],
+    padding: const EdgeInsets.symmetric(vertical: 3),
+    child: Row(
+      children: [
+        SizedBox(
+          width: 140,
+          child: Text(label, style: const TextStyle(color: Colors.white54)),
         ),
-      );
+        Expanded(
+          child: Text(value, style: const TextStyle(color: Colors.white)),
+        ),
+      ],
+    ),
+  );
 
   void _openEditProfile(Map<String, dynamic> p) {
-    showDialog<bool>(context: context, builder: (context) => _EditProfileDialog(streamerId: widget.streamerId, profile: p)).then((saved) {
+    showDialog<bool>(
+      context: context,
+      builder: (context) =>
+          _EditProfileDialog(streamerId: widget.streamerId, profile: p),
+    ).then((saved) {
       if (saved == true) setState(() => _future = _load());
     });
   }
@@ -440,6 +656,21 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
     final groupData = p["groups"];
     final catData = p["streamer_categories"];
     final active = p["is_active"] as bool? ?? true;
+    final categoria = catData is Map
+        ? (catData["name"] as String? ?? "Sem categoria")
+        : "Sem categoria";
+
+    final statsData = p["streamer_stats"];
+    Map<String, dynamic>? stats;
+    if (statsData is List && statsData.isNotEmpty) {
+      stats = statsData.first as Map<String, dynamic>;
+    } else if (statsData is Map) {
+      stats = statsData as Map<String, dynamic>;
+    }
+    final diamonds = stats?["diamonds"] as int? ?? 0;
+    final daysLive = stats?["days_live"] as int? ?? 0;
+    final hoursLive = (stats?["hours_live"] as num?)?.toDouble() ?? 0;
+
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -450,18 +681,56 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
             child: TextButton.icon(
               onPressed: () => _openEditProfile(p),
               icon: const Icon(Icons.edit, size: 16, color: Color(0xFF7A0BD4)),
-              label: const Text("Editar perfil", style: TextStyle(color: Color(0xFF7A0BD4))),
+              label: const Text(
+                "Editar perfil",
+                style: TextStyle(color: Color(0xFF7A0BD4)),
+              ),
             ),
           ),
+          StreamerMetricsShareCard(
+            nick: (p["display_name"] as String?) ?? "-",
+            categoria: categoria,
+            diamonds: diamonds,
+            daysLive: daysLive,
+            hoursLive: hoursLive,
+          ),
+          const SizedBox(height: 16),
           _infoRow("Nome", (p["display_name"] as String?) ?? "-"),
           _infoRow("ID TikTok", (p["tiktok_creator_id"] as String?) ?? "-"),
           _infoRow("Nick TikTok", (p["tiktok_username"] as String?) ?? "-"),
-          _infoRow("Entrada na agencia", DateTime.parse(p["joined_at"] as String).toLocal().toString().substring(0, 10)),
-          _infoRow("Categoria", catData is Map ? catData["name"] as String? ?? "-" : "-"),
-          _infoRow("Grupo (interno)", groupData is Map ? groupData["name"] as String? ?? "Sem grupo" : "Sem grupo"),
-          _infoRow("Grupo (TikTok)", (p["tiktok_group_name"] as String?)?.isNotEmpty == true ? p["tiktok_group_name"] as String : "-"),
-          if (!active) _infoRow("Encerrado em", p["left_at"] != null ? DateTime.parse(p["left_at"] as String).toLocal().toString().substring(0, 16) : "-"),
-          if (!active && (p["left_reason"] as String?)?.isNotEmpty == true) _infoRow("Motivo", p["left_reason"] as String),
+          _infoRow(
+            "Entrada na agencia",
+            DateTime.parse(
+              p["joined_at"] as String,
+            ).toLocal().toString().substring(0, 10),
+          ),
+          _infoRow(
+            "Categoria",
+            catData is Map ? catData["name"] as String? ?? "-" : "-",
+          ),
+          _infoRow(
+            "Grupo (interno)",
+            groupData is Map
+                ? groupData["name"] as String? ?? "Sem grupo"
+                : "Sem grupo",
+          ),
+          _infoRow(
+            "Grupo (TikTok)",
+            (p["tiktok_group_name"] as String?)?.isNotEmpty == true
+                ? p["tiktok_group_name"] as String
+                : "-",
+          ),
+          if (!active)
+            _infoRow(
+              "Encerrado em",
+              p["left_at"] != null
+                  ? DateTime.parse(
+                      p["left_at"] as String,
+                    ).toLocal().toString().substring(0, 16)
+                  : "-",
+            ),
+          if (!active && (p["left_reason"] as String?)?.isNotEmpty == true)
+            _infoRow("Motivo", p["left_reason"] as String),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -469,7 +738,10 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
                 child: TextField(
                   controller: _phoneController,
                   style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(labelText: "Telefone / WhatsApp", labelStyle: TextStyle(color: Colors.white54)),
+                  decoration: const InputDecoration(
+                    labelText: "Telefone / WhatsApp",
+                    labelStyle: TextStyle(color: Colors.white54),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -477,13 +749,19 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
                 child: TextField(
                   controller: _emailController,
                   style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(labelText: "E-mail", labelStyle: TextStyle(color: Colors.white54)),
+                  decoration: const InputDecoration(
+                    labelText: "E-mail",
+                    labelStyle: TextStyle(color: Colors.white54),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               ElevatedButton(
                 onPressed: _savingContact ? null : _saveContact,
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF7A0BD4),
+                  foregroundColor: Colors.white,
+                ),
                 child: Text(_savingContact ? "..." : "Salvar"),
               ),
             ],
@@ -495,13 +773,19 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
                 child: TextField(
                   controller: _recruitedByController,
                   style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(labelText: "Recrutado por (legado)", labelStyle: TextStyle(color: Colors.white54)),
+                  decoration: const InputDecoration(
+                    labelText: "Recrutado por (legado)",
+                    labelStyle: TextStyle(color: Colors.white54),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               ElevatedButton(
                 onPressed: _savingRecruited ? null : _saveRecruitedBy,
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF7A0BD4),
+                  foregroundColor: Colors.white,
+                ),
                 child: Text(_savingRecruited ? "..." : "Salvar"),
               ),
             ],
@@ -517,7 +801,11 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
       return const Padding(
         padding: EdgeInsets.only(top: 24),
         child: Center(
-          child: Text("Este streamer nao esta vinculado a um lead de recrutamento (cadastro antigo ou manual).", style: TextStyle(color: Colors.white54), textAlign: TextAlign.center),
+          child: Text(
+            "Este streamer nao esta vinculado a um lead de recrutamento (cadastro antigo ou manual).",
+            style: TextStyle(color: Colors.white54),
+            textAlign: TextAlign.center,
+          ),
         ),
       );
     }
@@ -525,8 +813,15 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
     final leadHistory = data["leadHistory"] as List<Map<String, dynamic>>;
     final creatorEmail = data["creatorEmail"] as String?;
     final currentRecruiterEmail = data["currentRecruiterEmail"] as String?;
-    final etapaEvents = leadHistory.where((h) => h["action"] == "mudanca_etapa" || h["action"] == "transferencia").toList();
-    final observations = leadHistory.where((h) => h["action"] == "observacao").toList();
+    final etapaEvents = leadHistory
+        .where(
+          (h) =>
+              h["action"] == "mudanca_etapa" || h["action"] == "transferencia",
+        )
+        .toList();
+    final observations = leadHistory
+        .where((h) => h["action"] == "observacao")
+        .toList();
 
     return SingleChildScrollView(
       child: Column(
@@ -535,54 +830,162 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
           const SizedBox(height: 12),
           _infoRow("Encontrado por", creatorEmail ?? "-"),
           _infoRow("Recrutador responsavel", currentRecruiterEmail ?? "-"),
-          _infoRow("Lead criado em", DateTime.parse(lead["created_at"] as String).toLocal().toString().substring(0, 16)),
-          if (lead["converted_at"] != null) _infoRow("Agenciado em", DateTime.parse(lead["converted_at"] as String).toLocal().toString().substring(0, 16)),
+          _infoRow(
+            "Lead criado em",
+            DateTime.parse(
+              lead["created_at"] as String,
+            ).toLocal().toString().substring(0, 16),
+          ),
+          if (lead["converted_at"] != null)
+            _infoRow(
+              "Agenciado em",
+              DateTime.parse(
+                lead["converted_at"] as String,
+              ).toLocal().toString().substring(0, 16),
+            ),
           const SizedBox(height: 16),
-          const Text("Resumo da transferencia para o gestor", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          const Text(
+            "Resumo da transferencia para o gestor",
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 6),
           if (handoff == null)
-            const Text("Ainda nao preenchido.", style: TextStyle(color: Colors.white38, fontSize: 12))
+            const Text(
+              "Ainda nao preenchido.",
+              style: TextStyle(color: Colors.white38, fontSize: 12),
+            )
           else ...[
-            _infoRow("Nicho", (handoff["niche"] as String?)?.isNotEmpty == true ? handoff["niche"] as String : "-"),
-            _infoRow("Categoria", (handoff["category"] as String?)?.isNotEmpty == true ? handoff["category"] as String : "-"),
-            _infoRow("Dias disponiveis", (handoff["available_days"] as String?)?.isNotEmpty == true ? handoff["available_days"] as String : "-"),
-            _infoRow("Horarios disponiveis", (handoff["available_hours"] as String?)?.isNotEmpty == true ? handoff["available_hours"] as String : "-"),
-            _infoRow("Experiencia anterior", (handoff["previous_experience"] as String?)?.isNotEmpty == true ? handoff["previous_experience"] as String : "-"),
-            _infoRow("Objetivos", (handoff["objectives"] as String?)?.isNotEmpty == true ? handoff["objectives"] as String : "-"),
-            _infoRow("Pontos de atencao", (handoff["attention_points"] as String?)?.isNotEmpty == true ? handoff["attention_points"] as String : "-"),
-            if ((handoff["recruitment_summary"] as String?)?.isNotEmpty == true) ...[
+            _infoRow(
+              "Nicho",
+              (handoff["niche"] as String?)?.isNotEmpty == true
+                  ? handoff["niche"] as String
+                  : "-",
+            ),
+            _infoRow(
+              "Categoria",
+              (handoff["category"] as String?)?.isNotEmpty == true
+                  ? handoff["category"] as String
+                  : "-",
+            ),
+            _infoRow(
+              "Dias disponiveis",
+              (handoff["available_days"] as String?)?.isNotEmpty == true
+                  ? handoff["available_days"] as String
+                  : "-",
+            ),
+            _infoRow(
+              "Horarios disponiveis",
+              (handoff["available_hours"] as String?)?.isNotEmpty == true
+                  ? handoff["available_hours"] as String
+                  : "-",
+            ),
+            _infoRow(
+              "Experiencia anterior",
+              (handoff["previous_experience"] as String?)?.isNotEmpty == true
+                  ? handoff["previous_experience"] as String
+                  : "-",
+            ),
+            _infoRow(
+              "Objetivos",
+              (handoff["objectives"] as String?)?.isNotEmpty == true
+                  ? handoff["objectives"] as String
+                  : "-",
+            ),
+            _infoRow(
+              "Pontos de atencao",
+              (handoff["attention_points"] as String?)?.isNotEmpty == true
+                  ? handoff["attention_points"] as String
+                  : "-",
+            ),
+            if ((handoff["recruitment_summary"] as String?)?.isNotEmpty ==
+                true) ...[
               const SizedBox(height: 6),
-              const Text("Resumo do recrutamento", style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
-              Text(handoff["recruitment_summary"] as String, style: const TextStyle(color: Colors.white, fontSize: 13)),
+              const Text(
+                "Resumo do recrutamento",
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                handoff["recruitment_summary"] as String,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+              ),
             ],
             if ((handoff["notes"] as String?)?.isNotEmpty == true) ...[
               const SizedBox(height: 6),
-              const Text("Observacoes para o gestor", style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
-              Text(handoff["notes"] as String, style: const TextStyle(color: Colors.white, fontSize: 13)),
+              const Text(
+                "Observacoes para o gestor",
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                handoff["notes"] as String,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+              ),
             ],
           ],
           const SizedBox(height: 16),
-          const Text("Mudancas de etapa e transferencias entre recrutadores", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          const Text(
+            "Mudancas de etapa e transferencias entre recrutadores",
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 6),
           if (etapaEvents.isEmpty)
-            const Text("Nenhum registro.", style: TextStyle(color: Colors.white38, fontSize: 12))
+            const Text(
+              "Nenhum registro.",
+              style: TextStyle(color: Colors.white38, fontSize: 12),
+            )
           else
             ...etapaEvents.map((h) {
-              final date = DateTime.parse(h["created_at"] as String).toLocal().toString().substring(0, 16);
-              return Padding(padding: const EdgeInsets.only(bottom: 4), child: Text("- (" + date + ") " + (h["detail"] as String? ?? ""), style: const TextStyle(color: Colors.white70, fontSize: 12)));
+              final date = DateTime.parse(
+                h["created_at"] as String,
+              ).toLocal().toString().substring(0, 16);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  "- (" + date + ") " + (h["detail"] as String? ?? ""),
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              );
             }),
           const SizedBox(height: 16),
-          const Text("Observacoes adicionadas", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          const Text(
+            "Observacoes adicionadas",
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 6),
           if (observations.isEmpty)
-            const Text("Nenhuma observacao.", style: TextStyle(color: Colors.white38, fontSize: 12))
+            const Text(
+              "Nenhuma observacao.",
+              style: TextStyle(color: Colors.white38, fontSize: 12),
+            )
           else
             ...observations.map((h) {
-              final date = DateTime.parse(h["created_at"] as String).toLocal().toString().substring(0, 16);
-              return Padding(padding: const EdgeInsets.only(bottom: 4), child: Text("- (" + date + ") " + (h["detail"] as String? ?? ""), style: const TextStyle(color: Colors.white70, fontSize: 12)));
+              final date = DateTime.parse(
+                h["created_at"] as String,
+              ).toLocal().toString().substring(0, 16);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  "- (" + date + ") " + (h["detail"] as String? ?? ""),
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              );
             }),
           const SizedBox(height: 8),
-          const Text("Estas informacoes sao historicas e nao mudam apos a entrada na agencia.", style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic)),
+          const Text(
+            "Estas informacoes sao historicas e nao mudam apos a entrada na agencia.",
+            style: TextStyle(
+              color: Colors.white38,
+              fontSize: 11,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
         ],
       ),
     );
@@ -605,7 +1008,8 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
   /// (streamer_phase_progress/campaign_cycle_participants/program_awards),
   /// sem duplicar dado.
   Widget _buildProgramasDesenvolvimentoTab(Map<String, dynamic> data) {
-    final progressByPhase = data["programProgressByPhase"] as Map<String, Map<String, dynamic>>;
+    final progressByPhase =
+        data["programProgressByPhase"] as Map<String, Map<String, dynamic>>;
     final cycles = data["cycleParticipations"] as List<Map<String, dynamic>>;
     final awards = data["programAwards"] as List<Map<String, dynamic>>;
 
@@ -613,55 +1017,137 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("Jornada", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+          const Text(
+            "Jornada",
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+            ),
+          ),
           const SizedBox(height: 6),
           ..._programLabels.entries.map((entry) {
             final progress = progressByPhase[entry.key];
             return Padding(
               padding: const EdgeInsets.symmetric(vertical: 3),
-              child: Row(children: [
-                Text(_programStatusIcon(progress), style: const TextStyle(fontSize: 14)),
-                const SizedBox(width: 8),
-                Text(entry.value, style: const TextStyle(color: Colors.white, fontSize: 13)),
-              ]),
+              child: Row(
+                children: [
+                  Text(
+                    _programStatusIcon(progress),
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    entry.value,
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                  ),
+                ],
+              ),
             );
           }),
           const SizedBox(height: 16),
-          const Text("Campanhas que participou", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+          const Text(
+            "Campanhas que participou",
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+            ),
+          ),
           const SizedBox(height: 6),
           if (cycles.isEmpty)
-            const Text("Nenhuma ainda.", style: TextStyle(color: Colors.white38, fontSize: 12))
+            const Text(
+              "Nenhuma ainda.",
+              style: TextStyle(color: Colors.white38, fontSize: 12),
+            )
           else
             ...cycles.map((c) {
               final cycle = c["campaign_cycles"];
-              final program = cycle is Map ? cycle["development_programs"] : null;
-              final programName = program is Map ? program["name"] as String? : null;
-              final periodLabel = cycle is Map ? cycle["period_label"] as String? : null;
+              final program = cycle is Map
+                  ? cycle["development_programs"]
+                  : null;
+              final programName = program is Map
+                  ? program["name"] as String?
+                  : null;
+              final periodLabel = cycle is Map
+                  ? cycle["period_label"] as String?
+                  : null;
               final finalStatus = c["final_status"] as String?;
-              final statusText = finalStatus == "concluido" ? "Concluiu" : (finalStatus == "nao_concluido" ? "Nao concluiu" : "Em andamento");
+              final statusText = finalStatus == "concluido"
+                  ? "Concluiu"
+                  : (finalStatus == "nao_concluido"
+                        ? "Nao concluiu"
+                        : "Em andamento");
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Text((programName ?? "-") + " - " + (periodLabel ?? "-") + " (" + statusText + ")", style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                child: Text(
+                  (programName ?? "-") +
+                      " - " +
+                      (periodLabel ?? "-") +
+                      " (" +
+                      statusText +
+                      ")",
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                ),
               );
             }),
           const SizedBox(height: 16),
-          const Text("Premiacoes e medalhas", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+          const Text(
+            "Premiacoes e medalhas",
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+            ),
+          ),
           const SizedBox(height: 6),
           if (awards.isEmpty)
-            const Text("Nenhuma ainda.", style: TextStyle(color: Colors.white38, fontSize: 12))
+            const Text(
+              "Nenhuma ainda.",
+              style: TextStyle(color: Colors.white38, fontSize: 12),
+            )
           else
             ...awards.map((a) {
               final program = a["development_programs"];
-              final programName = program is Map ? program["name"] as String? : null;
-              final date = a["created_at"] != null ? DateTime.parse(a["created_at"] as String).toLocal().toString().substring(0, 10) : "-";
+              final programName = program is Map
+                  ? program["name"] as String?
+                  : null;
+              final date = a["created_at"] != null
+                  ? DateTime.parse(
+                      a["created_at"] as String,
+                    ).toLocal().toString().substring(0, 10)
+                  : "-";
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text((a["title"] as String? ?? "-") + (programName != null ? "  -  " + programName : ""), style: const TextStyle(color: Colors.amber, fontSize: 13, fontWeight: FontWeight.bold)),
-                    if ((a["reason"] as String?)?.isNotEmpty == true) Text(a["reason"] as String, style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                    Text(date + "  -  " + (a["status"] == "entregue" ? "Entregue" : "Pendente"), style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                    Text(
+                      (a["title"] as String? ?? "-") +
+                          (programName != null ? "  -  " + programName : ""),
+                      style: const TextStyle(
+                        color: Colors.amber,
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    if ((a["reason"] as String?)?.isNotEmpty == true)
+                      Text(
+                        a["reason"] as String,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11,
+                        ),
+                      ),
+                    Text(
+                      date +
+                          "  -  " +
+                          (a["status"] == "entregue" ? "Entregue" : "Pendente"),
+                      style: const TextStyle(
+                        color: Colors.white38,
+                        fontSize: 11,
+                      ),
+                    ),
                   ],
                 ),
               );
@@ -676,7 +1162,12 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
       children: [
         Expanded(
           child: timeline.isEmpty
-              ? const Center(child: Text("Nenhum registro ainda.", style: TextStyle(color: Colors.white54)))
+              ? const Center(
+                  child: Text(
+                    "Nenhum registro ainda.",
+                    style: TextStyle(color: Colors.white54),
+                  ),
+                )
               : ListView.builder(
                   itemCount: timeline.length,
                   itemBuilder: (context, index) {
@@ -684,15 +1175,17 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
                     final color = t["type"] == "premio"
                         ? Colors.amber
                         : t["type"] == "missao"
-                            ? Colors.greenAccent
-                            : t["type"] == "gestor"
-                                ? Colors.tealAccent
-                                : t["type"] == "recrutamento"
-                                    ? const Color(0xFF7A0BD4)
-                                    : t["type"] == "onboarding"
-                                        ? Colors.lightBlueAccent
-                                        : Colors.white70;
-                    final date = DateTime.parse(t["date"] as String).toLocal().toString().substring(0, 16);
+                        ? Colors.greenAccent
+                        : t["type"] == "gestor"
+                        ? Colors.tealAccent
+                        : t["type"] == "recrutamento"
+                        ? const Color(0xFF7A0BD4)
+                        : t["type"] == "onboarding"
+                        ? Colors.lightBlueAccent
+                        : Colors.white70;
+                    final date = DateTime.parse(
+                      t["date"] as String,
+                    ).toLocal().toString().substring(0, 16);
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4),
                       child: Row(
@@ -704,8 +1197,17 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(date, style: const TextStyle(color: Colors.white38, fontSize: 11)),
-                                Text(t["text"] as String, style: TextStyle(color: color, fontSize: 13)),
+                                Text(
+                                  date,
+                                  style: const TextStyle(
+                                    color: Colors.white38,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                                Text(
+                                  t["text"] as String,
+                                  style: TextStyle(color: color, fontSize: 13),
+                                ),
                               ],
                             ),
                           ),
@@ -722,13 +1224,19 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
               child: TextField(
                 controller: _noteController,
                 style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(labelText: "Nota geral do CRM", labelStyle: TextStyle(color: Colors.white54)),
+                decoration: const InputDecoration(
+                  labelText: "Nota geral do CRM",
+                  labelStyle: TextStyle(color: Colors.white54),
+                ),
               ),
             ),
             const SizedBox(width: 8),
             ElevatedButton(
               onPressed: _savingNote ? null : _saveNote,
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFB026FF), foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFB026FF),
+                foregroundColor: Colors.white,
+              ),
               child: Text(_savingNote ? "..." : "Salvar"),
             ),
           ],
@@ -742,16 +1250,32 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
     return Dialog(
       backgroundColor: const Color(0xFF1A1A1A),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 560, maxHeight: 800, minHeight: 800),
+        constraints: const BoxConstraints(
+          maxWidth: 560,
+          maxHeight: 800,
+          minHeight: 800,
+        ),
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: FutureBuilder<Map<String, dynamic>>(
             future: _future,
             builder: (context, snapshot) {
               if (snapshot.hasError) {
-                return SizedBox(height: 150, child: Center(child: Text("Erro: " + snapshot.error.toString(), style: const TextStyle(color: Colors.redAccent))));
+                return SizedBox(
+                  height: 150,
+                  child: Center(
+                    child: Text(
+                      "Erro: " + snapshot.error.toString(),
+                      style: const TextStyle(color: Colors.redAccent),
+                    ),
+                  ),
+                );
               }
-              if (!snapshot.hasData) return const SizedBox(height: 300, child: Center(child: CircularProgressIndicator()));
+              if (!snapshot.hasData)
+                return const SizedBox(
+                  height: 300,
+                  child: Center(child: CircularProgressIndicator()),
+                );
 
               final data = snapshot.data!;
               final p = data["profile"] as Map<String, dynamic>;
@@ -768,23 +1292,73 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
                         CircleAvatar(
                           radius: 22,
                           backgroundColor: Colors.white24,
-                          backgroundImage: p["avatar_url"] != null ? NetworkImage(p["avatar_url"] as String) : null,
-                          child: p["avatar_url"] == null ? const Icon(Icons.person, color: Colors.white, size: 22) : null,
+                          backgroundImage: p["avatar_url"] != null
+                              ? NetworkImage(p["avatar_url"] as String)
+                              : null,
+                          child: p["avatar_url"] == null
+                              ? const Icon(
+                                  Icons.person,
+                                  color: Colors.white,
+                                  size: 22,
+                                )
+                              : null,
                         ),
                         const SizedBox(width: 12),
-                        Expanded(child: Text(p["display_name"] as String, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold))),
+                        Expanded(
+                          child: Text(
+                            p["display_name"] as String,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
                         if (!active)
                           Container(
                             margin: const EdgeInsets.only(right: 8),
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
-                            child: const Text("INATIVO", style: TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.redAccent.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text(
+                              "INATIVO",
+                              style: TextStyle(
+                                color: Colors.redAccent,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
                         OutlinedButton.icon(
                           onPressed: () => _endParticipation(active),
-                          icon: Icon(active ? Icons.person_remove : Icons.person_add_alt, size: 16, color: active ? Colors.redAccent : Colors.greenAccent),
-                          label: Text(active ? "Encerrar participacao" : "Reativar", style: TextStyle(color: active ? Colors.redAccent : Colors.greenAccent, fontSize: 12)),
-                          style: OutlinedButton.styleFrom(side: BorderSide(color: active ? Colors.redAccent : Colors.greenAccent)),
+                          icon: Icon(
+                            active ? Icons.person_remove : Icons.person_add_alt,
+                            size: 16,
+                            color: active
+                                ? Colors.redAccent
+                                : Colors.greenAccent,
+                          ),
+                          label: Text(
+                            active ? "Encerrar participacao" : "Reativar",
+                            style: TextStyle(
+                              color: active
+                                  ? Colors.redAccent
+                                  : Colors.greenAccent,
+                              fontSize: 12,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(
+                              color: active
+                                  ? Colors.redAccent
+                                  : Colors.greenAccent,
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -802,15 +1376,23 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
                       ],
                     ),
                     Expanded(
-                      child: TabBarView(children: [
-                        _buildPerfilTab(p),
-                        _buildRecrutamentoTab(data),
-                        _buildProgramasDesenvolvimentoTab(data),
-                        _buildTimelineTab(timeline),
-                      ]),
+                      child: TabBarView(
+                        children: [
+                          _buildPerfilTab(p),
+                          _buildRecrutamentoTab(data),
+                          _buildProgramasDesenvolvimentoTab(data),
+                          _buildTimelineTab(timeline),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 8),
-                    Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text("Fechar"))),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text("Fechar"),
+                      ),
+                    ),
                   ],
                 ),
               );
@@ -835,10 +1417,18 @@ class _EditProfileDialog extends StatefulWidget {
 }
 
 class _EditProfileDialogState extends State<_EditProfileDialog> {
-  late final _nameController = TextEditingController(text: widget.profile["display_name"] as String? ?? "");
-  late final _tiktokIdController = TextEditingController(text: widget.profile["tiktok_creator_id"] as String? ?? "");
-  late final _tiktokUsernameController = TextEditingController(text: widget.profile["tiktok_username"] as String? ?? "");
-  late final _tiktokGroupController = TextEditingController(text: widget.profile["tiktok_group_name"] as String? ?? "");
+  late final _nameController = TextEditingController(
+    text: widget.profile["display_name"] as String? ?? "",
+  );
+  late final _tiktokIdController = TextEditingController(
+    text: widget.profile["tiktok_creator_id"] as String? ?? "",
+  );
+  late final _tiktokUsernameController = TextEditingController(
+    text: widget.profile["tiktok_username"] as String? ?? "",
+  );
+  late final _tiktokGroupController = TextEditingController(
+    text: widget.profile["tiktok_group_name"] as String? ?? "",
+  );
   String? _categoryId;
   String? _groupId;
   List<Map<String, dynamic>> _categories = [];
@@ -857,13 +1447,17 @@ class _EditProfileDialogState extends State<_EditProfileDialog> {
 
   Future<void> _load() async {
     final client = Supabase.instance.client;
-    final categories = await client.from("streamer_categories").select("id, name").order("name");
+    final categories = await client
+        .from("streamer_categories")
+        .select("id, name")
+        .order("name");
     final groups = await client.from("groups").select("id, name").order("name");
-    if (mounted) setState(() {
-      _categories = (categories as List).cast<Map<String, dynamic>>();
-      _groups = (groups as List).cast<Map<String, dynamic>>();
-      _loading = false;
-    });
+    if (mounted)
+      setState(() {
+        _categories = (categories as List).cast<Map<String, dynamic>>();
+        _groups = (groups as List).cast<Map<String, dynamic>>();
+        _loading = false;
+      });
   }
 
   Future<void> _save() async {
@@ -876,14 +1470,17 @@ class _EditProfileDialogState extends State<_EditProfileDialog> {
       _errorMessage = null;
     });
     try {
-      await Supabase.instance.client.from("profiles").update({
-        "display_name": _nameController.text.trim(),
-        "tiktok_creator_id": _tiktokIdController.text.trim(),
-        "tiktok_username": _tiktokUsernameController.text.trim(),
-        "tiktok_group_name": _tiktokGroupController.text.trim(),
-        "category_id": _categoryId,
-        "group_id": _groupId,
-      }).eq("id", widget.streamerId);
+      await Supabase.instance.client
+          .from("profiles")
+          .update({
+            "display_name": _nameController.text.trim(),
+            "tiktok_creator_id": _tiktokIdController.text.trim(),
+            "tiktok_username": _tiktokUsernameController.text.trim(),
+            "tiktok_group_name": _tiktokGroupController.text.trim(),
+            "category_id": _categoryId,
+            "group_id": _groupId,
+          })
+          .eq("id", widget.streamerId);
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       setState(() {
@@ -902,62 +1499,147 @@ class _EditProfileDialogState extends State<_EditProfileDialog> {
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: _loading
-              ? const SizedBox(height: 200, child: Center(child: CircularProgressIndicator()))
+              ? const SizedBox(
+                  height: 200,
+                  child: Center(child: CircularProgressIndicator()),
+                )
               : SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text("Editar Perfil", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                      const Text(
+                        "Editar Perfil",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                       const SizedBox(height: 16),
-                      TextField(controller: _nameController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Nome", labelStyle: TextStyle(color: Colors.white54))),
+                      TextField(
+                        controller: _nameController,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: const InputDecoration(
+                          labelText: "Nome",
+                          labelStyle: TextStyle(color: Colors.white54),
+                        ),
+                      ),
                       const SizedBox(height: 8),
-                      TextField(controller: _tiktokIdController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "ID TikTok", labelStyle: TextStyle(color: Colors.white54))),
+                      TextField(
+                        controller: _tiktokIdController,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: const InputDecoration(
+                          labelText: "ID TikTok",
+                          labelStyle: TextStyle(color: Colors.white54),
+                        ),
+                      ),
                       const SizedBox(height: 8),
-                      TextField(controller: _tiktokUsernameController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Nick TikTok", labelStyle: TextStyle(color: Colors.white54))),
+                      TextField(
+                        controller: _tiktokUsernameController,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: const InputDecoration(
+                          labelText: "Nick TikTok",
+                          labelStyle: TextStyle(color: Colors.white54),
+                        ),
+                      ),
                       const SizedBox(height: 12),
-                      const Text("Categoria", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      const Text(
+                        "Categoria",
+                        style: TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
                       const SizedBox(height: 4),
                       DropdownButton<String?>(
                         value: _categoryId,
                         isExpanded: true,
-                        hint: const Text("Sem categoria", style: TextStyle(color: Colors.white38)),
+                        hint: const Text(
+                          "Sem categoria",
+                          style: TextStyle(color: Colors.white38),
+                        ),
                         dropdownColor: const Color(0xFF1A1A1A),
                         style: const TextStyle(color: Colors.white),
                         items: [
-                          const DropdownMenuItem<String?>(value: null, child: Text("Sem categoria")),
-                          ..._categories.map((c) => DropdownMenuItem<String?>(value: c["id"] as String, child: Text(c["name"] as String))),
+                          const DropdownMenuItem<String?>(
+                            value: null,
+                            child: Text("Sem categoria"),
+                          ),
+                          ..._categories.map(
+                            (c) => DropdownMenuItem<String?>(
+                              value: c["id"] as String,
+                              child: Text(c["name"] as String),
+                            ),
+                          ),
                         ],
                         onChanged: (v) => setState(() => _categoryId = v),
                       ),
                       const SizedBox(height: 12),
-                      const Text("Grupo (interno)", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      const Text(
+                        "Grupo (interno)",
+                        style: TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
                       const SizedBox(height: 4),
                       DropdownButton<String?>(
                         value: _groupId,
                         isExpanded: true,
-                        hint: const Text("Sem grupo", style: TextStyle(color: Colors.white38)),
+                        hint: const Text(
+                          "Sem grupo",
+                          style: TextStyle(color: Colors.white38),
+                        ),
                         dropdownColor: const Color(0xFF1A1A1A),
                         style: const TextStyle(color: Colors.white),
                         items: [
-                          const DropdownMenuItem<String?>(value: null, child: Text("Sem grupo")),
-                          ..._groups.map((g) => DropdownMenuItem<String?>(value: g["id"] as String, child: Text(g["name"] as String))),
+                          const DropdownMenuItem<String?>(
+                            value: null,
+                            child: Text("Sem grupo"),
+                          ),
+                          ..._groups.map(
+                            (g) => DropdownMenuItem<String?>(
+                              value: g["id"] as String,
+                              child: Text(g["name"] as String),
+                            ),
+                          ),
                         ],
                         onChanged: (v) => setState(() => _groupId = v),
                       ),
                       const SizedBox(height: 12),
-                      TextField(controller: _tiktokGroupController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Grupo (TikTok)", labelStyle: TextStyle(color: Colors.white54))),
-                      if (_errorMessage != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_errorMessage!, style: const TextStyle(color: Colors.redAccent, fontSize: 12))),
-                      const SizedBox(height: 16),
-                      Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                        TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text("Cancelar")),
-                        const SizedBox(width: 8),
-                        ElevatedButton(
-                          onPressed: _saving ? null : _save,
-                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
-                          child: Text(_saving ? "Salvando..." : "Salvar"),
+                      TextField(
+                        controller: _tiktokGroupController,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: const InputDecoration(
+                          labelText: "Grupo (TikTok)",
+                          labelStyle: TextStyle(color: Colors.white54),
                         ),
-                      ]),
+                      ),
+                      if (_errorMessage != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            _errorMessage!,
+                            style: const TextStyle(
+                              color: Colors.redAccent,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(false),
+                            child: const Text("Cancelar"),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: _saving ? null : _save,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF7A0BD4),
+                              foregroundColor: Colors.white,
+                            ),
+                            child: Text(_saving ? "Salvando..." : "Salvar"),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -966,5 +1648,3 @@ class _EditProfileDialogState extends State<_EditProfileDialog> {
     );
   }
 }
-
-

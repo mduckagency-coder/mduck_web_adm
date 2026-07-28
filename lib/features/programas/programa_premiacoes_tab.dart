@@ -17,6 +17,30 @@ String _itemsSummary(List<Map<String, dynamic>> items) {
   }).join(", ");
 }
 
+const _awardStatusOptions = ["pendente", "agendado", "entregue"];
+
+Color _awardStatusColor(String status) {
+  switch (status) {
+    case "agendado":
+      return Colors.amber;
+    case "entregue":
+      return Colors.greenAccent;
+    default:
+      return Colors.orangeAccent;
+  }
+}
+
+String _awardStatusLabel(String status) {
+  switch (status) {
+    case "agendado":
+      return "Agendado";
+    case "entregue":
+      return "Entregue";
+    default:
+      return "Pendente";
+  }
+}
+
 class ProgramaPremiacoesTab extends StatefulWidget {
   final Map<String, dynamic> program;
   const ProgramaPremiacoesTab({super.key, required this.program});
@@ -45,7 +69,11 @@ class _ProgramaPremiacoesTabState extends State<ProgramaPremiacoesTab> {
     return (rows as List).cast<Map<String, dynamic>>();
   }
 
-  void _reload() => setState(() => _future = _load());
+  void _reload() {
+    setState(() {
+      _future = _load();
+    });
+  }
 
   Future<void> _markDelivered(Map<String, dynamic> award) async {
     final ok = await confirmAction(context, title: "Marcar premiacao como entregue", message: "Confirmar entrega de \"" + (award["title"] as String) + "\"?");
@@ -94,6 +122,8 @@ class _ProgramaPremiacoesTabState extends State<ProgramaPremiacoesTab> {
           Row(children: [
             ChoiceChip(label: const Text("Pendentes"), selected: _filter == "pendentes", selectedColor: Colors.orangeAccent, onSelected: (_) => setState(() => _filter = "pendentes")),
             const SizedBox(width: 6),
+            ChoiceChip(label: const Text("Agendadas"), selected: _filter == "agendadas", selectedColor: Colors.amber, onSelected: (_) => setState(() => _filter = "agendadas")),
+            const SizedBox(width: 6),
             ChoiceChip(label: const Text("Entregues"), selected: _filter == "entregues", selectedColor: Colors.greenAccent, onSelected: (_) => setState(() => _filter = "entregues")),
             const SizedBox(width: 6),
             ChoiceChip(label: const Text("Todos"), selected: _filter == "todos", selectedColor: Colors.white24, onSelected: (_) => setState(() => _filter = "todos")),
@@ -107,6 +137,7 @@ class _ProgramaPremiacoesTabState extends State<ProgramaPremiacoesTab> {
                 if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
                 final list = snapshot.data!.where((a) {
                   if (_filter == "pendentes") return a["status"] == "pendente";
+                  if (_filter == "agendadas") return a["status"] == "agendado";
                   if (_filter == "entregues") return a["status"] == "entregue";
                   return true;
                 }).toList();
@@ -116,33 +147,47 @@ class _ProgramaPremiacoesTabState extends State<ProgramaPremiacoesTab> {
                   itemBuilder: (context, index) {
                     final award = list[index];
                     final streamer = award["streamer"];
-                    final name = streamer is Map ? (streamer["display_name"] as String? ?? "-") : "-";
+                    final name = streamer is Map ? (streamer["display_name"] as String? ?? "-") : "Sem streamer (manual)";
                     final nick = streamer is Map ? streamer["tiktok_username"] as String? : null;
                     final avatarUrl = streamer is Map ? streamer["avatar_url"] as String? : null;
-                    final pending = award["status"] == "pendente";
+                    final status = award["status"] as String? ?? "pendente";
+                    final statusColor = _awardStatusColor(status);
                     final items = _parseItems(award["items"]);
                     final scheduledDate = award["scheduled_delivery_date"] as String?;
+                    final reason = award["reason"] as String?;
+                    final isAutoTicket = award["ticket_period_key"] != null;
                     return Card(
                       color: Colors.white.withOpacity(0.05),
                       margin: const EdgeInsets.only(bottom: 8),
                       child: ListTile(
                         onTap: () => _openForm(existing: award),
                         leading: CircleAvatar(radius: 18, backgroundColor: Colors.white24, backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null, child: avatarUrl == null ? const Icon(Icons.person, color: Colors.white54, size: 18) : null),
-                        title: Text(name + (nick != null && nick.isNotEmpty ? " (@" + nick + ")" : ""), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                        title: Row(children: [
+                          Flexible(child: Text(name + (nick != null && nick.isNotEmpty ? " (@" + nick + ")" : ""), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13), overflow: TextOverflow.ellipsis)),
+                          if (isAutoTicket) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                              decoration: BoxDecoration(color: const Color(0xFF7A0BD4).withOpacity(0.2), borderRadius: BorderRadius.circular(6), border: Border.all(color: const Color(0xFF7A0BD4))),
+                              child: const Text("Automatico", style: TextStyle(color: Color(0xFF7A0BD4), fontSize: 9, fontWeight: FontWeight.bold)),
+                            ),
+                          ],
+                        ]),
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(items.isNotEmpty ? _itemsSummary(items) : (award["title"] as String? ?? "-"), style: const TextStyle(color: Colors.white70, fontSize: 12)),
                             if (scheduledDate != null) Text("Entrega prevista: " + scheduledDate, style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                            if (reason != null && reason.isNotEmpty) Text(reason, style: const TextStyle(color: Colors.white38, fontSize: 11)),
                           ],
                         ),
                         trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(border: Border.all(color: pending ? Colors.orangeAccent : Colors.greenAccent), borderRadius: BorderRadius.circular(8)),
-                            child: Text(pending ? "Pendente" : "Entregue", style: TextStyle(color: pending ? Colors.orangeAccent : Colors.greenAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                            decoration: BoxDecoration(border: Border.all(color: statusColor), borderRadius: BorderRadius.circular(8)),
+                            child: Text(_awardStatusLabel(status), style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold)),
                           ),
-                          if (pending)
+                          if (status != "entregue")
                             IconButton(icon: const Icon(Icons.check_circle_outline, color: Colors.greenAccent, size: 20), tooltip: "Marcar como entregue", onPressed: () => _markDelivered(award)),
                         ]),
                       ),
@@ -182,6 +227,7 @@ class _AwardFormDialogState extends State<_AwardFormDialog> {
   late List<_ItemRow> _items = _initialItems();
   late DateTime? _scheduledDeliveryDate =
       widget.existing?["scheduled_delivery_date"] != null ? DateTime.parse(widget.existing!["scheduled_delivery_date"] as String) : null;
+  late String _status = widget.existing?["status"] as String? ?? "pendente";
   Map<String, dynamic>? _selectedStreamer;
   bool _saving = false;
   String? _error;
@@ -232,10 +278,6 @@ class _AwardFormDialogState extends State<_AwardFormDialog> {
       setState(() => _error = "Adicione pelo menos um item de premiacao.");
       return;
     }
-    if (_selectedStreamer == null) {
-      setState(() => _error = "Selecione o streamer vinculado.");
-      return;
-    }
 
     setState(() {
       _saving = true;
@@ -244,21 +286,26 @@ class _AwardFormDialogState extends State<_AwardFormDialog> {
     try {
       final client = Supabase.instance.client;
       final userId = client.auth.currentUser!.id;
-      final streamerId = _selectedStreamer!["id"] as String;
+      final streamerId = _selectedStreamer?["id"] as String?;
+      final wasEntregue = widget.existing?["status"] == "entregue";
       final data = {
         "program_id": widget.program["id"],
         "streamer_id": streamerId,
         "title": _itemsSummary(itemsData),
         "items": itemsData,
+        "status": _status,
+        "delivered_at": _status == "entregue" ? (wasEntregue ? widget.existing!["delivered_at"] : DateTime.now().toIso8601String()) : null,
         "scheduled_delivery_date": _scheduledDeliveryDate != null ? _scheduledDeliveryDate!.toIso8601String().substring(0, 10) : null,
         "reason": _reasonController.text.trim().isEmpty ? null : _reasonController.text.trim(),
       };
       if (widget.existing != null) {
         await client.from("program_awards").update(data).eq("id", widget.existing!["id"]);
       } else {
-        await client.from("program_awards").insert({...data, "created_by": userId, "status": "pendente"});
+        await client.from("program_awards").insert({...data, "created_by": userId});
       }
-      await logProgramaHistory(streamerId: streamerId, phaseKey: widget.program["program_key"] as String, action: "premiacao_registrada", detail: data["title"] as String);
+      if (streamerId != null) {
+        await logProgramaHistory(streamerId: streamerId, phaseKey: widget.program["program_key"] as String, action: "premiacao_registrada", detail: data["title"] as String);
+      }
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       setState(() {
@@ -320,7 +367,7 @@ class _AwardFormDialogState extends State<_AwardFormDialog> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text("Streamer vinculado", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      const Text("Streamer vinculado (opcional)", style: TextStyle(color: Colors.white54, fontSize: 12)),
                       const SizedBox(height: 4),
                       Row(children: [
                         Expanded(
@@ -347,9 +394,10 @@ class _AwardFormDialogState extends State<_AwardFormDialog> {
                                     ),
                                   ),
                                 ])
-                              : const Text("Nenhum streamer selecionado", style: TextStyle(color: Colors.white38, fontSize: 12, fontStyle: FontStyle.italic)),
+                              : const Text("Sem streamer vinculado (manual)", style: TextStyle(color: Colors.white38, fontSize: 12, fontStyle: FontStyle.italic)),
                         ),
                         TextButton(onPressed: _pickStreamer, child: Text(_selectedStreamer != null ? "Trocar" : "Selecionar")),
+                        if (_selectedStreamer != null) IconButton(icon: const Icon(Icons.clear, size: 16, color: Colors.white38), onPressed: () => setState(() => _selectedStreamer = null)),
                       ]),
                       const SizedBox(height: 14),
                       const Text("Itens premiados", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
@@ -364,6 +412,15 @@ class _AwardFormDialogState extends State<_AwardFormDialog> {
                         ),
                       ),
                       const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        initialValue: _status,
+                        dropdownColor: const Color(0xFF232323),
+                        decoration: const InputDecoration(labelText: "Status", labelStyle: TextStyle(color: Colors.white54)),
+                        style: const TextStyle(color: Colors.white),
+                        items: _awardStatusOptions.map((s) => DropdownMenuItem(value: s, child: Text(_awardStatusLabel(s)))).toList(),
+                        onChanged: (v) => setState(() => _status = v!),
+                      ),
+                      const SizedBox(height: 10),
                       Row(children: [
                         Expanded(
                           child: Text(

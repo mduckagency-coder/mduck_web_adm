@@ -3,9 +3,11 @@ import "package:flutter/services.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "program_phase_service.dart";
 import "program_eligibility_service.dart";
+import "program_monthly_stats_service.dart";
 import "programa_history_helpers.dart";
 import "participant_extras_service.dart";
 import "participante_panel.dart";
+import "../calendario/widgets/streamer_picker_dialog.dart";
 
 const _activeFilterOptions = [
   ("todos", "Todos"),
@@ -47,7 +49,9 @@ const _pageSize = 30;
 
 class ProgramaParticipantesTab extends StatefulWidget {
   final Map<String, dynamic> program;
-  const ProgramaParticipantesTab({super.key, required this.program});
+  final int year;
+  final int month;
+  const ProgramaParticipantesTab({super.key, required this.program, required this.year, required this.month});
 
   @override
   State<ProgramaParticipantesTab> createState() => _ProgramaParticipantesTabState();
@@ -82,6 +86,12 @@ class _ProgramaParticipantesTabState extends State<ProgramaParticipantesTab> {
     });
   }
 
+  @override
+  void didUpdateWidget(ProgramaParticipantesTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.year != widget.year || oldWidget.month != widget.month) _load();
+  }
+
   Future<void> _loadSavedFilters() async {
     final filters = await fetchSavedFilters();
     if (mounted) setState(() => _savedFilters = filters);
@@ -96,18 +106,36 @@ class _ProgramaParticipantesTabState extends State<ProgramaParticipantesTab> {
       final client = Supabase.instance.client;
       final criteria = ProgramCriteria.fromMap(widget.program["criteria"] as Map<String, dynamic>?);
 
+      await runProgramSync(
+        programId: widget.program["id"] as String,
+        phaseKey: _phaseKey,
+        agencyId: _agencyId,
+        criteria: criteria,
+        year: widget.year,
+        month: widget.month,
+      );
+
+      // A sincronizacao acima pode ter criado/reativado/arquivado cards --
+      // busca a lista atualizada pra exibir.
       final progressRows = await client
           .from("streamer_phase_progress")
-          .select("id, streamer_id, stage_key, outcome, completed_at, started_at, tags, pinned_note, archived_at")
+          .select("id, streamer_id, stage_key, outcome, completed_at, started_at, tags, pinned_note, archived_at, manual_override")
           .eq("phase_key", _phaseKey);
       final progressList = (progressRows as List).cast<Map<String, dynamic>>();
       final streamerIds = progressList.map((r) => r["streamer_id"] as String).toList();
 
+      final snapshotsRaw = await fetchStreamerSnapshotsByIds(streamerIds: streamerIds);
+      final snapshotsResolved = await resolveMonthlySnapshots(
+        snapshots: snapshotsRaw,
+        criteria: criteria,
+        agencyId: _agencyId,
+        year: widget.year,
+        month: widget.month,
+      );
+      final snapshotById = {for (final s in snapshotsResolved) s.id: s};
+
       final stageRows = await client.from("streamer_phase_stages").select("stage_key, is_evaluation_stage").eq("agency_id", _agencyId).eq("phase_key", _phaseKey);
       final evalStages = (stageRows as List).where((r) => r["is_evaluation_stage"] == true).map((r) => r["stage_key"] as String).toSet();
-
-      final snapshots = await fetchStreamerSnapshotsByIds(streamerIds: streamerIds);
-      final snapshotById = {for (final s in snapshots) s.id: s};
 
       final awardRows = streamerIds.isEmpty
           ? []
@@ -133,7 +161,6 @@ class _ProgramaParticipantesTabState extends State<ProgramaParticipantesTab> {
       await Future.wait(progressList.map((p) async {
         final streamerId = p["streamer_id"] as String;
         try {
-          await ensureTodaySnapshot(streamerId: streamerId, agencyId: _agencyId);
           p["_delta"] = await fetchWeekOverWeekDelta(streamerId: streamerId);
         } catch (_) {
           p["_delta"] = const WeekDelta();
@@ -190,6 +217,13 @@ class _ProgramaParticipantesTabState extends State<ProgramaParticipantesTab> {
     return days >= 3 ? days : null;
   }
 
+  /// Paleta simplificada em 3 niveis: verde = conseguiu (elegivel, ou ja
+  /// chegou na avaliacao final -- chegar ali ja e um sucesso, so falta a
+  /// decisao do gestor), amarelo = em andamento (perto ou nao da meta,
+  /// ainda tem chance), vermelho = critico (distante, dificilmente vai
+  /// bater a tempo). Premiacao pendente e concluido/atrasado (arquivados)
+  /// continuam com suas cores proprias, por serem estados operacionais, nao
+  /// de progresso.
   StreamerBadge _badgeFor(String category) {
     switch (category) {
       case "concluidos":
@@ -197,7 +231,7 @@ class _ProgramaParticipantesTabState extends State<ProgramaParticipantesTab> {
       case "premiacoes_pendentes":
         return StreamerBadge.premiacao;
       case "avaliacao_pendente":
-        return StreamerBadge.atencao;
+        return StreamerBadge.eligivel;
       case "elegiveis":
         return StreamerBadge.eligivel;
       case "proximos_meta":
@@ -207,7 +241,7 @@ class _ProgramaParticipantesTabState extends State<ProgramaParticipantesTab> {
       case "atrasados":
         return StreamerBadge.atrasado;
       default:
-        return StreamerBadge.emAndamento;
+        return StreamerBadge.atencao;
     }
   }
 
@@ -345,6 +379,68 @@ class _ProgramaParticipantesTabState extends State<ProgramaParticipantesTab> {
     try {
       await createProgramCardIfNeeded(phaseKey: nextKey, streamerId: row["streamer_id"] as String);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Movido para o proximo programa.")));
+    } catch (e) {
+      if (mounted) showProgramasActionError(context, e);
+    }
+  }
+
+  /// Adiciona streamer(s) manualmente ao programa, independente de bater
+  /// (ou nao) os criterios automaticos. Em modo faixa, reaproveita
+  /// reactivateOrCreateCard (mesma linha, nunca duplica) e grava
+  /// manual_override='add' -- assim a sincronizacao automatica nunca desfaz
+  /// essa adicao manual. Em modo fluxo, createProgramCardIfNeeded (sem
+  /// override, ja idempotente, ja usado no encadeamento automatico).
+  Future<void> _addStreamerManually() async {
+    final selected = await showDialog<List<Map<String, dynamic>>>(context: context, builder: (context) => const StreamerPickerDialog());
+    if (selected == null || selected.isEmpty) return;
+    final criteria = ProgramCriteria.fromMap(widget.program["criteria"] as Map<String, dynamic>?);
+    final client = Supabase.instance.client;
+    var added = 0;
+    for (final s in selected) {
+      try {
+        final streamerId = s["id"] as String;
+        if (criteria.membershipMode == "faixa") {
+          await reactivateOrCreateCard(phaseKey: _phaseKey, streamerId: streamerId);
+          await client.from("streamer_phase_progress").update({"manual_override": "add"}).eq("streamer_id", streamerId).eq("phase_key", _phaseKey);
+        } else {
+          await createProgramCardIfNeeded(phaseKey: _phaseKey, streamerId: streamerId);
+        }
+        added++;
+      } catch (_) {}
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(added.toString() + " streamer(s) adicionado(s) ao programa.")));
+      _load();
+    }
+  }
+
+  /// Em modo faixa, nao apaga a linha -- arquiva e grava manual_override=
+  /// 'remove', pra sincronizacao automatica nunca trazer o streamer de
+  /// volta sozinha. Em modo fluxo, comportamento de sempre (apaga a linha).
+  Future<void> _removeFromProgram(Map<String, dynamic> row) async {
+    final snapshot = row["snapshot"] as StreamerSnapshot?;
+    final ok = await confirmAction(
+      context,
+      title: "Remover do programa",
+      message: "Remover " + (snapshot?.displayName ?? "este streamer") + " deste programa?",
+      confirmLabel: "Remover",
+      confirmColor: Colors.redAccent,
+    );
+    if (!ok) return;
+    try {
+      final criteria = ProgramCriteria.fromMap(widget.program["criteria"] as Map<String, dynamic>?);
+      if (criteria.membershipMode == "faixa") {
+        await Supabase.instance.client.from("streamer_phase_progress").update({
+          "completed_at": DateTime.now().toIso8601String(),
+          "archived_at": DateTime.now().toIso8601String(),
+          "outcome": "removido_manual",
+          "manual_override": "remove",
+        }).eq("id", row["id"]);
+      } else {
+        await deleteProgramCard(progressId: row["id"] as String);
+      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Removido do programa.")));
+      _load();
     } catch (e) {
       if (mounted) showProgramasActionError(context, e);
     }
@@ -675,6 +771,7 @@ class _ProgramaParticipantesTabState extends State<ProgramaParticipantesTab> {
                 IconButton(iconSize: 16, icon: const Icon(Icons.person_search, color: Colors.white54), tooltip: "Abrir perfil", onPressed: () => openParticipantPanel(context, program: widget.program, row: row, nextAction: _nextAction(row, category))),
                 IconButton(iconSize: 16, icon: const Icon(Icons.edit_note, color: Colors.white54), tooltip: "Observacao", onPressed: () => _sendNote(row, isMessage: false)),
                 if (!_showArchived) IconButton(iconSize: 16, icon: const Icon(Icons.arrow_forward, color: Colors.white54), tooltip: "Mover", onPressed: () => _moveToNextProgram(row)),
+                if (!_showArchived) IconButton(iconSize: 16, icon: const Icon(Icons.person_remove, color: Colors.redAccent), tooltip: "Remover do programa", onPressed: () => _removeFromProgram(row)),
               ])),
             ]);
           }).toList(),
@@ -739,6 +836,13 @@ class _ProgramaParticipantesTabState extends State<ProgramaParticipantesTab> {
             const SizedBox(width: 12),
             IconButton(icon: const Icon(Icons.refresh, color: Colors.white70), onPressed: _load),
             if (_lastLoadedAt != null) Text(relativeTimeLabel(_lastLoadedAt!), style: const TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic)),
+            const SizedBox(width: 16),
+            if (!_showArchived)
+              TextButton.icon(
+                onPressed: _addStreamerManually,
+                icon: const Icon(Icons.person_add_alt, size: 16, color: Colors.white70),
+                label: const Text("Adicionar streamer", style: TextStyle(color: Colors.white70, fontSize: 12)),
+              ),
             const Spacer(),
             IconButton(
               tooltip: "Visualizacao em cards",
@@ -1014,6 +1118,8 @@ class _ProgramaParticipantesTabState extends State<ProgramaParticipantesTab> {
                                         IconButton(iconSize: 16, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 28, minHeight: 28), visualDensity: VisualDensity.compact, tooltip: "Observacao", icon: const Icon(Icons.edit_note, color: Colors.white54), onPressed: () => _sendNote(row, isMessage: false)),
                                         if (!_showArchived)
                                           IconButton(iconSize: 16, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 28, minHeight: 28), visualDensity: VisualDensity.compact, tooltip: "Mover", icon: const Icon(Icons.arrow_forward, color: Colors.white54), onPressed: () => _moveToNextProgram(row)),
+                                        if (!_showArchived)
+                                          IconButton(iconSize: 16, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 28, minHeight: 28), visualDensity: VisualDensity.compact, tooltip: "Remover do programa", icon: const Icon(Icons.person_remove, color: Colors.redAccent), onPressed: () => _removeFromProgram(row)),
                                       ]),
                                     ],
                                   ),

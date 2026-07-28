@@ -38,9 +38,15 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
       return d.year == now.year && d.month == now.month;
     }).length;
 
-    final recrutamentosDoMes = leadsList.where((l) {
-      if (l["status"] != "agenciado" || l["converted_at"] == null) return false;
-      final d = DateTime.parse(l["converted_at"]);
+    // Recrutamentos contam pelos dados oficiais da planilha (profiles), nao pelo status
+    // "agenciado" do kanban de leads, que e apenas o funil interno do recrutador.
+    final officialProfiles = await client.from("profiles").select("joined_at, agent_relationship_date");
+    final officialProfilesList = (officialProfiles as List).cast<Map<String, dynamic>>();
+    String? relDate(Map<String, dynamic> p) => (p["agent_relationship_date"] as String?) ?? (p["joined_at"] as String?);
+    final recrutamentosDoMes = officialProfilesList.where((p) {
+      final ds = relDate(p);
+      if (ds == null) return false;
+      final d = DateTime.parse(ds);
       return d.year == now.year && d.month == now.month;
     }).length;
 
@@ -81,9 +87,10 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
       final weekStart = now.subtract(Duration(days: now.weekday - 1 + i * 7));
       recrutamentosPerWeek["Sem " + weekStart.day.toString() + "/" + weekStart.month.toString()] = 0;
     }
-    for (final l in leadsList) {
-      if (l["status"] != "agenciado" || l["converted_at"] == null) continue;
-      final d = DateTime.parse(l["converted_at"]);
+    for (final p in officialProfilesList) {
+      final ds = relDate(p);
+      if (ds == null) continue;
+      final d = DateTime.parse(ds);
       final diffWeeks = ((now.difference(d).inDays) / 7).floor();
       if (diffWeeks > 7 || diffWeeks < 0) continue;
       final weekStart = now.subtract(Duration(days: now.weekday - 1 + diffWeeks * 7));

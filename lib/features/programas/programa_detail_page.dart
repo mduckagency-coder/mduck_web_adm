@@ -2,6 +2,7 @@ import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "programa_history_helpers.dart";
 import "program_visual.dart";
+import "program_monthly_stats_service.dart";
 import "programa_visao_geral_tab.dart";
 import "programa_fluxo_tab.dart";
 import "programa_participantes_tab.dart";
@@ -20,11 +21,30 @@ class ProgramaDetailPage extends StatefulWidget {
 
 class _ProgramaDetailPageState extends State<ProgramaDetailPage> {
   late Future<Map<String, dynamic>> _future;
+  int _selectedYear = DateTime.now().year;
+  int _selectedMonth = DateTime.now().month;
 
   @override
   void initState() {
     super.initState();
     _future = _load();
+  }
+
+  void _changeMonth(int delta) {
+    var year = _selectedYear;
+    var month = _selectedMonth + delta;
+    while (month < 1) {
+      month += 12;
+      year -= 1;
+    }
+    while (month > 12) {
+      month -= 12;
+      year += 1;
+    }
+    setState(() {
+      _selectedYear = year;
+      _selectedMonth = month;
+    });
   }
 
   Future<Map<String, dynamic>> _load() async {
@@ -67,7 +87,11 @@ class _ProgramaDetailPageState extends State<ProgramaDetailPage> {
     };
   }
 
-  void _reload() => setState(() => _future = _load());
+  void _reload() {
+    setState(() {
+      _future = _load();
+    });
+  }
 
   Future<void> _changeStatus(String newStatus) async {
     final client = Supabase.instance.client;
@@ -231,6 +255,14 @@ class _ProgramaDetailPageState extends State<ProgramaDetailPage> {
                               ),
                             ]),
                             const SizedBox(height: 6),
+                            Row(mainAxisSize: MainAxisSize.min, children: [
+                              IconButton(icon: const Icon(Icons.chevron_left, size: 18), padding: EdgeInsets.zero, constraints: const BoxConstraints(), visualDensity: VisualDensity.compact, onPressed: () => _changeMonth(-1), tooltip: "Mes anterior"),
+                              const SizedBox(width: 4),
+                              Text(monthLabel(_selectedYear, _selectedMonth), style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
+                              const SizedBox(width: 4),
+                              IconButton(icon: const Icon(Icons.chevron_right, size: 18), padding: EdgeInsets.zero, constraints: const BoxConstraints(), visualDensity: VisualDensity.compact, onPressed: () => _changeMonth(1), tooltip: "Proximo mes"),
+                            ]),
+                            const SizedBox(height: 6),
                             Wrap(spacing: 14, runSpacing: 4, children: [
                               _metaChip(Icons.people_outline, _responsiblesLabel(program)),
                               _metaChip(Icons.groups_outlined, activeCount.toString() + " participantes"),
@@ -281,9 +313,9 @@ class _ProgramaDetailPageState extends State<ProgramaDetailPage> {
                 ),
                 Expanded(
                   child: TabBarView(children: [
-                    ProgramaVisaoGeralTab(program: program, onChanged: _reload),
+                    ProgramaVisaoGeralTab(program: program, onChanged: _reload, year: _selectedYear, month: _selectedMonth),
                     ProgramaFluxoTab(program: program),
-                    ProgramaParticipantesTab(program: program),
+                    ProgramaParticipantesTab(program: program, year: _selectedYear, month: _selectedMonth),
                     ProgramaPremiacoesTab(program: program),
                     ProgramaAnotacoesTab(program: program),
                     ProgramaConfiguracoesTab(program: program, onChanged: _reload),

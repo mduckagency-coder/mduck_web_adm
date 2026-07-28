@@ -28,12 +28,19 @@ String periodLabelFor(DateTime date) => _monthNames[date.month - 1] + " " + date
 ProgramCriteria mergeCriteria(ProgramCriteria base, ProgramCriteria mission) {
   return ProgramCriteria(
     minDays: mission.minDays ?? base.minDays,
+    maxDaysInAgency: base.maxDaysInAgency,
     minDaysValidated: mission.minDaysValidated ?? base.minDaysValidated,
     minHours: mission.minHours ?? base.minHours,
     minDiamonds: mission.minDiamonds ?? base.minDiamonds,
+    maxDiamonds: base.maxDiamonds,
     minHeartMe: mission.minHeartMe ?? base.minHeartMe,
     minBattles: mission.minBattles ?? base.minBattles,
-    battlesByCategory: base.battlesByCategory,
+    categoryOverrides: base.categoryOverrides,
+    membershipMode: base.membershipMode,
+    ticketQuantity: base.ticketQuantity,
+    diamondsPeriod: base.diamondsPeriod,
+    hoursPeriod: base.hoursPeriod,
+    daysValidatedPeriod: base.daysValidatedPeriod,
     daysEnabled: base.daysEnabled,
     daysRequired: base.daysRequired,
     daysValidatedEnabled: base.daysValidatedEnabled,
@@ -49,7 +56,6 @@ ProgramCriteria mergeCriteria(ProgramCriteria base, ProgramCriteria mission) {
     approvalRuleMode: base.approvalRuleMode,
     approvalMinPercentage: base.approvalMinPercentage,
     categoryIds: mission.categoryIds.isNotEmpty ? mission.categoryIds : base.categoryIds,
-    requiredMaterialIds: mission.requiredMaterialIds.isNotEmpty ? mission.requiredMaterialIds : base.requiredMaterialIds,
   );
 }
 

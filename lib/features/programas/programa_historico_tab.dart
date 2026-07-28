@@ -39,7 +39,11 @@ class _ProgramaHistoricoTabState extends State<ProgramaHistoricoTab> {
     return (rows as List).cast<Map<String, dynamic>>();
   }
 
-  void _reload() => setState(() => _future = _load());
+  void _reload() {
+    setState(() {
+      _future = _load();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -96,15 +96,15 @@ class AgentLinkImportRepository {
         }
 
         final manager = await _client.from("managers").select("id").ilike("login_email", agentEmail).maybeSingle();
-        if (manager == null) {
-          results.add(AgentLinkRowResult(tiktokId: tiktokId, nome: nomeCriador, agentEmail: agentEmail, status: "agente_nao_encontrado", detail: "Nenhum gestor/recrutador com esse e-mail de login"));
-          continue;
-        }
 
+        // O e-mail do agente e sempre gravado (mesmo sem conta cadastrada) para que ele
+        // conte nas metricas e no ranking por e-mail, mesmo sem login no sistema.
         final updateData = <String, dynamic>{
-          "recruited_by_manager_id": manager["id"],
           "tiktok_agent_email": agentEmail,
         };
+        if (manager != null) {
+          updateData["recruited_by_manager_id"] = manager["id"];
+        }
 
         final parsedDate = _parseFlexibleDate(dataRelacionamento);
         if (parsedDate != null) {
@@ -113,6 +113,11 @@ class AgentLinkImportRepository {
         }
 
         await _client.from("profiles").update(updateData).eq("id", profile["id"]);
+
+        if (manager == null) {
+          results.add(AgentLinkRowResult(tiktokId: tiktokId, nome: nomeCriador, agentEmail: agentEmail, status: "agente_nao_encontrado", detail: "Sem conta de gestor cadastrada, mas e-mail contabilizado nas metricas"));
+          continue;
+        }
 
         results.add(AgentLinkRowResult(tiktokId: tiktokId, nome: nomeCriador, agentEmail: agentEmail, status: "vinculado"));
       } catch (e) {

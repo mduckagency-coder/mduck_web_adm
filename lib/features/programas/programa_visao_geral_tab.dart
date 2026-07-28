@@ -1,12 +1,15 @@
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "program_eligibility_service.dart";
+import "program_monthly_stats_service.dart";
 import "programa_history_helpers.dart";
 
 class ProgramaVisaoGeralTab extends StatefulWidget {
   final Map<String, dynamic> program;
   final VoidCallback onChanged;
-  const ProgramaVisaoGeralTab({super.key, required this.program, required this.onChanged});
+  final int year;
+  final int month;
+  const ProgramaVisaoGeralTab({super.key, required this.program, required this.onChanged, required this.year, required this.month});
 
   @override
   State<ProgramaVisaoGeralTab> createState() => _ProgramaVisaoGeralTabState();
@@ -21,15 +24,10 @@ class _ProgramaVisaoGeralTabState extends State<ProgramaVisaoGeralTab> {
     _future = _load();
   }
 
-  Future<String?> _findPreviousProgramKey(String agencyId, String programKey) async {
-    final client = Supabase.instance.client;
-    final row = await client
-        .from("development_programs")
-        .select("program_key")
-        .eq("agency_id", agencyId)
-        .or("next_program_key.eq." + programKey + ",graduate_program_key.eq." + programKey)
-        .maybeSingle();
-    return row?["program_key"] as String?;
+  @override
+  void didUpdateWidget(ProgramaVisaoGeralTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.year != widget.year || oldWidget.month != widget.month) _reload();
   }
 
   Future<Map<String, dynamic>> _load() async {
@@ -37,18 +35,26 @@ class _ProgramaVisaoGeralTabState extends State<ProgramaVisaoGeralTab> {
     final program = widget.program;
     final agencyId = program["agency_id"] as String;
     final phaseKey = program["program_key"] as String;
+    final programId = program["id"] as String;
     final criteria = ProgramCriteria.fromMap(program["criteria"] as Map<String, dynamic>?);
 
-    final snapshots = await fetchActiveStreamerSnapshots(agencyId: agencyId);
+    await runProgramSync(programId: programId, phaseKey: phaseKey, agencyId: agencyId, criteria: criteria, year: widget.year, month: widget.month);
+
+    final snapshotsRaw = await fetchActiveStreamerSnapshots(agencyId: agencyId);
+    final snapshots = await resolveMonthlySnapshots(snapshots: snapshotsRaw, criteria: criteria, agencyId: agencyId, year: widget.year, month: widget.month);
     final enrolled = await fetchEnrolledStreamerIds(phaseKey: phaseKey);
-    final previousKey = await _findPreviousProgramKey(agencyId, phaseKey);
+    final previousKey = await findPreviousProgramKey(agencyId: agencyId, phaseKey: phaseKey);
     final completedPrev = previousKey != null ? await fetchCompletedStreamerIds(phaseKey: previousKey) : null;
 
     var eligibleCount = 0;
-    for (final s in snapshots) {
+    final eligibleNames = <String>[];
+    for (final s in criteria.isEmpty ? const <StreamerSnapshot>[] : snapshots) {
       if (enrolled.contains(s.id)) continue;
       if (completedPrev != null && !completedPrev.contains(s.id)) continue;
-      if (evaluateEligibility(s, criteria).eligible) eligibleCount++;
+      if (evaluateEligibility(s, criteria).eligible) {
+        eligibleCount++;
+        eligibleNames.add(s.displayName);
+      }
     }
 
     final progressRows = await client.from("streamer_phase_progress").select("streamer_id, stage_key, outcome, completed_at, stage_changed_at").eq("phase_key", phaseKey);
@@ -107,6 +113,7 @@ class _ProgramaVisaoGeralTabState extends State<ProgramaVisaoGeralTab> {
     return {
       "participantCount": activeRows.length,
       "eligibleCount": eligibleCount,
+      "eligibleNames": eligibleNames,
       "pendingEvaluations": pendingEvaluations,
       "pendingAwards": pendingAwards,
       "nextProgramName": nextProgramName,
@@ -114,17 +121,38 @@ class _ProgramaVisaoGeralTabState extends State<ProgramaVisaoGeralTab> {
     };
   }
 
-  void _reload() => setState(() => _future = _load());
+  void _reload() {
+    setState(() {
+      _future = _load();
+    });
+  }
+
+  static const _periodLabels = {
+    "total": "total acumulado",
+    "mes_atual": "mes atual",
+    "mes_anterior": "mes anterior",
+    "mes_atual_ou_anterior": "mes atual ou anterior",
+  };
 
   List<String> _criteriaLines(ProgramCriteria c) {
     final lines = <String>[];
-    if (c.minDays != null) lines.add("Dias minimos na agencia: " + c.minDays.toString());
-    if (c.minHours != null) lines.add("Horas minimas: " + c.minHours.toString());
-    if (c.minDiamonds != null) lines.add("Diamantes minimos: " + c.minDiamonds.toString());
+    lines.add(c.membershipMode == "faixa" ? "Modo: faixa automatica (entra e sai sozinho)" : "Modo: fluxo manual (Kanban + avaliacao)");
+    if (c.minDays != null || c.maxDaysInAgency != null) {
+      final from = c.minDays?.toString() ?? "0";
+      final to = c.maxDaysInAgency != null ? " ate " + c.maxDaysInAgency.toString() : "+";
+      lines.add("Dias na agencia: a partir de " + from + to);
+    }
+    if (c.minHours != null) lines.add("Horas minimas: " + c.minHours.toString() + " (" + (_periodLabels[c.hoursPeriod] ?? c.hoursPeriod) + ")");
+    if (c.minDiamonds != null || c.maxDiamonds != null) {
+      final from = c.minDiamonds?.toString() ?? "0";
+      final to = c.maxDiamonds != null ? " ate " + c.maxDiamonds.toString() : "+";
+      lines.add("Diamantes: a partir de " + from + to + " (" + (_periodLabels[c.diamondsPeriod] ?? c.diamondsPeriod) + ")");
+    }
     if (c.minHeartMe != null) lines.add("Heart Me minimo: " + c.minHeartMe.toString());
     if (c.minBattles != null) lines.add("Batalhas minimas: " + c.minBattles.toString());
     if (c.categoryIds.isNotEmpty) lines.add("Restrito a " + c.categoryIds.length.toString() + " categoria(s)");
-    if (c.requiredMaterialIds.isNotEmpty) lines.add(c.requiredMaterialIds.length.toString() + " treinamento(s) obrigatorio(s) (informativo)");
+    if (c.categoryOverrides.isNotEmpty) lines.add(c.categoryOverrides.length.toString() + " categoria(s) com meta personalizada");
+    if (c.ticketQuantity > 0) lines.add("Tickets de sorteio: " + c.ticketQuantity.toString() + " por conclusao");
     return lines;
   }
 
@@ -178,6 +206,7 @@ class _ProgramaVisaoGeralTabState extends State<ProgramaVisaoGeralTab> {
               if (!snapshot.hasData) return const Padding(padding: EdgeInsets.symmetric(vertical: 24), child: Center(child: CircularProgressIndicator()));
               final data = snapshot.data!;
               final attention = (data["attention"] as List).cast<Map<String, dynamic>>();
+              final eligibleNames = (data["eligibleNames"] as List).cast<String>();
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -187,6 +216,19 @@ class _ProgramaVisaoGeralTabState extends State<ProgramaVisaoGeralTab> {
                     _summaryCard("Avaliacoes pendentes", (data["pendingEvaluations"] as int).toString(), Colors.orangeAccent),
                     _summaryCard("Premiacoes pendentes", (data["pendingAwards"] as int).toString(), Colors.pinkAccent),
                   ]),
+                  const SizedBox(height: 20),
+                  const Text("Streamers Elegiveis", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                  const SizedBox(height: 4),
+                  const Text("Ja batem os criterios automaticos deste programa agora.", style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic)),
+                  const SizedBox(height: 8),
+                  if (eligibleNames.isEmpty)
+                    const Text("Nenhum streamer elegivel no momento.", style: TextStyle(color: Colors.white54, fontSize: 12))
+                  else
+                    Wrap(spacing: 6, runSpacing: 6, children: eligibleNames.map((name) => Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(color: Colors.greenAccent.withOpacity(0.1), borderRadius: BorderRadius.circular(6), border: Border.all(color: Colors.greenAccent)),
+                          child: Text(name, style: const TextStyle(color: Colors.greenAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+                        )).toList()),
                   const SizedBox(height: 20),
                   const Text("Precisam de Atencao", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
                   const SizedBox(height: 4),
@@ -212,7 +254,7 @@ class _ProgramaVisaoGeralTabState extends State<ProgramaVisaoGeralTab> {
           const SizedBox(height: 24),
           _section("Descricao", program["description"] as String?),
           _section("Objetivo", program["objective"] as String?),
-          if (criteriaLines.isNotEmpty) _section("Criterios", criteriaLines.join("\n")),
+          if (criteriaLines.isNotEmpty) _section("Configuracao deste programa", criteriaLines.join("\n")),
           _section("Premiacoes", program["awards_description"] as String?),
           _section("Responsavel", managerData is Map ? managerData["login_email"] as String? : null),
           FutureBuilder<Map<String, dynamic>>(

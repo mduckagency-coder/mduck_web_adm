@@ -35,7 +35,11 @@ class _ProgramaAnotacoesTabState extends State<ProgramaAnotacoesTab> {
     return (rows as List).cast<Map<String, dynamic>>();
   }
 
-  void _reload() => setState(() => _future = _load());
+  void _reload() {
+    setState(() {
+      _future = _load();
+    });
+  }
 
   Future<void> _add() async {
     final text = _controller.text.trim();

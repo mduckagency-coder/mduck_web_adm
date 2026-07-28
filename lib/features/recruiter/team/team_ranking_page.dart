@@ -29,40 +29,69 @@ class _TeamRankingPageState extends State<TeamRankingPage> {
     final client = Supabase.instance.client;
     final now = DateTime.now();
 
+    final allManagersRows = await client.from("managers").select("id, login_email");
+    final allManagersList = (allManagersRows as List).cast<Map<String, dynamic>>();
+    final managerEmailById = {for (final m in allManagersList) m["id"] as String: m["login_email"] as String};
+    final managerIdByEmail = {for (final m in allManagersList) (m["login_email"] as String).toLowerCase(): m["id"] as String};
+
+    // Recrutamentos vem dos dados oficiais da planilha (profiles), agrupados por e-mail do
+    // agente. Isso funciona mesmo para e-mails sem conta cadastrada no sistema, e ignora o
+    // status "agenciado" do kanban de leads, que e apenas o funil interno do recrutador.
+    final profiles = await client.from("profiles").select("recruited_by_manager_id, tiktok_agent_email, joined_at, agent_relationship_date");
+    final profilesList = (profiles as List).cast<Map<String, dynamic>>();
+
+    String? relDate(Map<String, dynamic> p) => (p["agent_relationship_date"] as String?) ?? (p["joined_at"] as String?);
+
+    final agentGroups = <String, List<Map<String, dynamic>>>{};
+    for (final p in profilesList) {
+      String? key = (p["tiktok_agent_email"] as String?)?.trim();
+      if ((key == null || key.isEmpty) && p["recruited_by_manager_id"] != null) {
+        key = managerEmailById[p["recruited_by_manager_id"]];
+      }
+      if (key == null || key.isEmpty) continue;
+      key = key.toLowerCase();
+      agentGroups.putIfAbsent(key, () => []).add(p);
+    }
+    if (agentGroups.isEmpty) return [];
+
     final leads = await client.from("leads").select("recruiter_id, status");
     final leadsList = (leads as List).cast<Map<String, dynamic>>();
-    final recruiterIds = leadsList.map((l) => l["recruiter_id"] as String).toSet();
-    if (recruiterIds.isEmpty) return [];
-
-    final managers = await client.from("managers").select("id, login_email").inFilter("id", recruiterIds.toList());
-    final managerMap = {for (final m in (managers as List)) m["id"] as String: m["login_email"] as String};
 
     final targets = await client.from("recruiter_targets").select("recruiter_id, target_value, starts_at, ends_at").eq("metric", "agenciamentos").eq("period_type", "mensal");
     final targetsList = (targets as List).cast<Map<String, dynamic>>();
 
     final result = <Map<String, dynamic>>[];
-    for (final rid in recruiterIds) {
-      final own = leadsList.where((l) => l["recruiter_id"] == rid).toList();
-      final recrutamentos = own.where((l) => l["status"] == "agenciado").length;
-      final conversao = own.isEmpty ? 0.0 : (recrutamentos / own.length) * 100;
+    agentGroups.forEach((email, own) {
+      final recrutamentos = own.where((p) {
+        final ds = relDate(p);
+        if (ds == null) return false;
+        final d = DateTime.parse(ds);
+        return d.year == now.year && d.month == now.month;
+      }).length;
+
+      final rid = managerIdByEmail[email];
+      final ownLeads = rid == null ? <Map<String, dynamic>>[] : leadsList.where((l) => l["recruiter_id"] == rid).toList();
+      final conversao = ownLeads.isEmpty ? 0.0 : (ownLeads.where((l) => l["status"] == "agenciado").length / ownLeads.length) * 100;
 
       double metaVal = 0;
-      for (final t in targetsList) {
-        if (t["recruiter_id"] != rid) continue;
-        final start = DateTime.parse(t["starts_at"]);
-        final end = DateTime.parse(t["ends_at"]);
-        if (!now.isBefore(start) && !now.isAfter(end)) metaVal = (t["target_value"] as num).toDouble();
+      if (rid != null) {
+        for (final t in targetsList) {
+          if (t["recruiter_id"] != rid) continue;
+          final start = DateTime.parse(t["starts_at"]);
+          final end = DateTime.parse(t["ends_at"]);
+          if (!now.isBefore(start) && !now.isAfter(end)) metaVal = (t["target_value"] as num).toDouble();
+        }
       }
       final cumprimento = metaVal == 0 ? 0.0 : (recrutamentos / metaVal) * 100;
 
       result.add({
-        "email": managerMap[rid] ?? "-",
+        "email": email,
         "recrutamentos": recrutamentos,
         "conversao": conversao,
-        "leads": own.length,
+        "leads": ownLeads.length,
         "meta": cumprimento,
       });
-    }
+    });
     return result;
   }
 

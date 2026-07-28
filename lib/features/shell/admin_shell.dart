@@ -117,6 +117,40 @@ class _AdminShellState extends State<AdminShell> {
     }
   }
 
+  Widget _groupTile(_MenuGroup group) {
+    final isExpanded = _expanded.contains(group.label);
+    return Column(
+      children: [
+        ListTile(
+          leading: Icon(group.icon, color: Colors.white70, size: 20),
+          title: Text(group.label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+          trailing: Icon(isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: Colors.white54, size: 18),
+          onTap: () => setState(() {
+            if (isExpanded) {
+              _expanded.remove(group.label);
+            } else {
+              _expanded.add(group.label);
+            }
+          }),
+        ),
+        if (isExpanded)
+          ...group.children.map((child) {
+            final selected = _selected == child.$2;
+            return Padding(
+              padding: const EdgeInsets.only(left: 16),
+              child: ListTile(
+                dense: true,
+                leading: Icon(child.$1, color: selected ? const Color(0xFF7A0BD4) : Colors.white54, size: 18),
+                title: Text(child.$2,
+                    style: TextStyle(color: selected ? const Color(0xFF7A0BD4) : Colors.white70, fontWeight: selected ? FontWeight.bold : FontWeight.normal, fontSize: 13)),
+                onTap: () => _select(child.$2),
+              ),
+            );
+          }),
+      ],
+    );
+  }
+
   Widget _buildContent() {
     debugPrint("[AdminShell] _buildContent() chamado com _selected=" + _selected);
     switch (_selected) {
@@ -212,39 +246,7 @@ class _AdminShellState extends State<AdminShell> {
                         onTap: () => _select("Programas de Desenvolvimento"),
                       ),
                       const Divider(color: Colors.white12, height: 12),
-                      ..._menuGroups.map((group) {
-                        final isExpanded = _expanded.contains(group.label);
-                        return Column(
-                          children: [
-                            ListTile(
-                              leading: Icon(group.icon, color: Colors.white70, size: 20),
-                              title: Text(group.label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                              trailing: Icon(isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: Colors.white54, size: 18),
-                              onTap: () => setState(() {
-                                if (isExpanded) {
-                                  _expanded.remove(group.label);
-                                } else {
-                                  _expanded.add(group.label);
-                                }
-                              }),
-                            ),
-                            if (isExpanded)
-                              ...group.children.map((child) {
-                                final selected = _selected == child.$2;
-                                return Padding(
-                                  padding: const EdgeInsets.only(left: 16),
-                                  child: ListTile(
-                                    dense: true,
-                                    leading: Icon(child.$1, color: selected ? const Color(0xFF7A0BD4) : Colors.white54, size: 18),
-                                    title: Text(child.$2,
-                                        style: TextStyle(color: selected ? const Color(0xFF7A0BD4) : Colors.white70, fontWeight: selected ? FontWeight.bold : FontWeight.normal, fontSize: 13)),
-                                    onTap: () => _select(child.$2),
-                                  ),
-                                );
-                              }),
-                          ],
-                        );
-                      }),
+                      ..._menuGroups.map(_groupTile),
                       const Divider(color: Colors.white12, height: 24),
                       ..._standaloneItems.map((item) {
                         final selected = _selected == item.$2;

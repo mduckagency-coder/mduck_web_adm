@@ -78,12 +78,44 @@ class _RecruiterDashboardPageState extends State<RecruiterDashboardPage> {
     final leadsAgenciadosKanban = leadsList.where((l) => l["status"] == "agenciado").length;
     final taxaConversao = totalLeads == 0 ? 0.0 : (leadsAgenciadosKanban / totalLeads) * 100;
 
-    // Dados oficiais da planilha: streamers com este agente logado como recrutador
-    final officialJoins = await client.from("profiles").select("id, display_name, joined_at").eq("recruited_by_manager_id", userId);
-    final officialJoinsList = (officialJoins as List).cast<Map<String, dynamic>>();
+    final allManagersRows = await client.from("managers").select("id, login_email, photo_url");
+    final allManagersList = (allManagersRows as List).cast<Map<String, dynamic>>();
+    final managerMap = {for (final m in allManagersList) m["id"] as String: m};
+    final managerByEmail = {for (final m in allManagersList) (m["login_email"] as String).toLowerCase(): m};
 
-    final agenciamentosMes = officialJoinsList.where((p) {
-      final d = DateTime.parse(p["joined_at"]);
+    final allProfilesFull = await client.from("profiles").select("id, joined_at, recruited_by_manager_id, tiktok_agent_email, agent_relationship_date");
+    final allProfilesFullList = (allProfilesFull as List).cast<Map<String, dynamic>>();
+
+    // Cada streamer conta uma unica vez, pelo e-mail do agente da planilha (funciona mesmo
+    // sem conta cadastrada), com fallback para o e-mail do gestor vinculado no sistema. Essa
+    // e a mesma regra usada no ranking, para nao haver dois numeros diferentes de "agenciamentos".
+    String? relDate(Map<String, dynamic> p) => (p["agent_relationship_date"] as String?) ?? (p["joined_at"] as String?);
+    String? resolvedEmail(Map<String, dynamic> p) {
+      final sheet = (p["tiktok_agent_email"] as String?)?.trim();
+      if (sheet != null && sheet.isNotEmpty) return sheet.toLowerCase();
+      final rid = p["recruited_by_manager_id"];
+      if (rid != null) {
+        final email = managerMap[rid]?["login_email"] as String?;
+        if (email != null && email.isNotEmpty) return email.toLowerCase();
+      }
+      return null;
+    }
+
+    final agentGroups = <String, List<Map<String, dynamic>>>{};
+    for (final p in allProfilesFullList) {
+      final key = resolvedEmail(p);
+      if (key == null) continue;
+      agentGroups.putIfAbsent(key, () => []).add(p);
+    }
+
+    final myEmailLower = (me["login_email"] as String).toLowerCase();
+    final myProfiles = agentGroups[myEmailLower] ?? const <Map<String, dynamic>>[];
+    final officialJoinsList = myProfiles.where((p) => relDate(p) != null).toList()..sort((a, b) => relDate(a)!.compareTo(relDate(b)!));
+
+    final agenciamentosMes = myProfiles.where((p) {
+      final ds = relDate(p);
+      if (ds == null) return false;
+      final d = DateTime.parse(ds);
       return d.year == now.year && d.month == now.month;
     }).length;
 
@@ -125,29 +157,10 @@ class _RecruiterDashboardPageState extends State<RecruiterDashboardPage> {
       }
     }
 
-    final allProfilesFull = await client.from("profiles").select("id, joined_at, recruited_by_manager_id, tiktok_agent_email, agent_relationship_date");
-    final allProfilesFullList = (allProfilesFull as List).cast<Map<String, dynamic>>();
     final allProfilesList = allProfilesFullList.where((p) => p["recruited_by_manager_id"] != null).toList();
     final recruiterIds = allProfilesList.map((p) => p["recruited_by_manager_id"] as String).toSet();
 
-    final allManagersRows = await client.from("managers").select("id, login_email, photo_url");
-    final allManagersList = (allManagersRows as List).cast<Map<String, dynamic>>();
-    final managerMap = {for (final m in allManagersList) m["id"] as String: m};
-    final managerByEmail = {for (final m in allManagersList) (m["login_email"] as String).toLowerCase(): m};
-
-    // Ranking agrupado pelo e-mail do agente da planilha (funciona mesmo sem conta cadastrada)
-    String? relDate(Map<String, dynamic> p) => (p["agent_relationship_date"] as String?) ?? (p["joined_at"] as String?);
-    final agentGroups = <String, List<Map<String, dynamic>>>{};
-    for (final p in allProfilesFullList) {
-      String? key = (p["tiktok_agent_email"] as String?)?.trim();
-      if ((key == null || key.isEmpty) && p["recruited_by_manager_id"] != null) {
-        key = managerMap[p["recruited_by_manager_id"]]?["login_email"] as String?;
-      }
-      if (key == null || key.isEmpty) continue;
-      key = key.toLowerCase();
-      agentGroups.putIfAbsent(key, () => []).add(p);
-    }
-    final myEmailLower = (me["login_email"] as String).toLowerCase();
+    // Ranking agrupado pelo mesmo e-mail resolvido acima (funciona mesmo sem conta cadastrada)
     final ranking = <Map<String, dynamic>>[];
     agentGroups.forEach((email, profiles) {
       final recrutamentosMes = profiles.where((p) {
@@ -162,14 +175,8 @@ class _RecruiterDashboardPageState extends State<RecruiterDashboardPage> {
     ranking.sort((a, b) => (b["recrutamentos"] as int).compareTo(a["recrutamentos"] as int));
     final minhaPosicao = ranking.indexWhere((r) => r["isMe"] == true) + 1;
 
-    final monthStartStr = DateTime(now.year, now.month, 1).toIso8601String();
-    final nextMonthStartStr = DateTime(now.year, now.month + 1, 1).toIso8601String();
-    final allJoinedThisMonth = await client
-        .from("profiles")
-        .select("id")
-        .gte("joined_at", monthStartStr)
-        .lt("joined_at", nextMonthStartStr);
-    final agenciadosGeralMes = (allJoinedThisMonth as List).length;
+    // Total da equipe = soma do ranking, entao nunca diverge do que aparece por gestor.
+    final agenciadosGeralMes = ranking.fold<int>(0, (sum, r) => sum + (r["recrutamentos"] as int));
 
     final allLeadsForConversion = await client.from("leads").select("recruiter_id, status");
     final allLeadsForConversionList = (allLeadsForConversion as List).cast<Map<String, dynamic>>();
@@ -238,10 +245,7 @@ class _RecruiterDashboardPageState extends State<RecruiterDashboardPage> {
         .limit(5);
     final duckersRecentes = (recentProfiles as List).cast<Map<String, dynamic>>();
     for (final dItem in duckersRecentes) {
-      final rid = dItem["recruited_by_manager_id"];
-      final fromManager = rid != null ? (managerMap[rid]?["login_email"] as String?) : null;
-      final fromSheet = (dItem["tiktok_agent_email"] as String?)?.trim();
-      dItem["recruiterEmail"] = fromManager ?? (fromSheet != null && fromSheet.isNotEmpty ? fromSheet : "-");
+      dItem["recruiterEmail"] = resolvedEmail(dItem) ?? "-";
     }
 
     final unreadFeedbacks = await client.from("recruiter_feedbacks").select().eq("recruiter_id", userId).isFilter("read_at", null).order("created_at", ascending: false);
@@ -278,6 +282,8 @@ class _RecruiterDashboardPageState extends State<RecruiterDashboardPage> {
     widget.onNavigateToFeedbacks?.call();
   }
 
+  DateTime _joinDate(Map<String, dynamic> p) => DateTime.parse((p["agent_relationship_date"] as String?) ?? p["joined_at"] as String);
+
   Map<String, int> _groupedCounts(List<Map<String, dynamic>> officialJoins) {
     final counts = <String, int>{};
     final now = DateTime.now();
@@ -287,7 +293,7 @@ class _RecruiterDashboardPageState extends State<RecruiterDashboardPage> {
         counts[day.day.toString().padLeft(2, "0") + "/" + day.month.toString().padLeft(2, "0")] = 0;
       }
       for (final p in officialJoins) {
-        final d = DateTime.parse(p["joined_at"]);
+        final d = _joinDate(p);
         if (now.difference(d).inDays > 6) continue;
         final key = d.day.toString().padLeft(2, "0") + "/" + d.month.toString().padLeft(2, "0");
         if (counts.containsKey(key)) counts[key] = counts[key]! + 1;
@@ -298,7 +304,7 @@ class _RecruiterDashboardPageState extends State<RecruiterDashboardPage> {
         counts["Sem " + weekStart.day.toString() + "/" + weekStart.month.toString()] = 0;
       }
       for (final p in officialJoins) {
-        final d = DateTime.parse(p["joined_at"]);
+        final d = _joinDate(p);
         final diffWeeks = ((now.difference(d).inDays) / 7).floor();
         if (diffWeeks > 5 || diffWeeks < 0) continue;
         final weekStart = now.subtract(Duration(days: now.weekday - 1 + diffWeeks * 7));
@@ -311,7 +317,7 @@ class _RecruiterDashboardPageState extends State<RecruiterDashboardPage> {
         counts[month.month.toString().padLeft(2, "0") + "/" + month.year.toString()] = 0;
       }
       for (final p in officialJoins) {
-        final d = DateTime.parse(p["joined_at"]);
+        final d = _joinDate(p);
         final key = d.month.toString().padLeft(2, "0") + "/" + d.year.toString();
         if (counts.containsKey(key)) counts[key] = counts[key]! + 1;
       }
@@ -468,7 +474,7 @@ class _RecruiterDashboardPageState extends State<RecruiterDashboardPage> {
           const Text("Nenhum agenciamento recente.", style: TextStyle(color: Colors.white54, fontSize: 12))
         else
           ...duckersRecentes.map((dk) {
-            final date = DateTime.parse(dk["joined_at"] as String).toLocal().toString().substring(0, 16);
+            final date = _joinDate(dk).toLocal().toString().substring(0, 16);
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: Row(children: [
