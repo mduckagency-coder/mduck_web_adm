@@ -10,6 +10,7 @@ class _StreamerMetric {
   final String id;
   final String displayName;
   final String? tiktokId;
+  final String? tiktokUsername;
   final String? phone;
   final String categoria;
   final int diamonds;
@@ -21,6 +22,7 @@ class _StreamerMetric {
     required this.id,
     required this.displayName,
     required this.tiktokId,
+    required this.tiktokUsername,
     required this.phone,
     required this.categoria,
     required this.diamonds,
@@ -28,6 +30,17 @@ class _StreamerMetric {
     required this.hoursLive,
     required this.joinedAt,
   });
+
+  /// Usado pela busca -- compara nick, @ e id (tanto o numerico do TikTok
+  /// quanto o id interno do cadastro), sem diferenciar maiusculas/minusculas.
+  bool matchesSearch(String query) {
+    if (query.isEmpty) return true;
+    final q = query.toLowerCase();
+    return displayName.toLowerCase().contains(q) ||
+        (tiktokUsername?.toLowerCase().contains(q) ?? false) ||
+        (tiktokId?.toLowerCase().contains(q) ?? false) ||
+        id.toLowerCase().contains(q);
+  }
 }
 
 class MetricasStreamersPage extends StatefulWidget {
@@ -45,6 +58,8 @@ class _MetricasStreamersPageState extends State<MetricasStreamersPage> {
   bool _pastMonth = false;
   bool _selectionMode = false;
   final Set<String> _selectedIds = {};
+  final _searchController = TextEditingController();
+  String _search = "";
 
   static const _tabs = [
     "15 dias",
@@ -55,6 +70,7 @@ class _MetricasStreamersPageState extends State<MetricasStreamersPage> {
     "Streamers 40k",
     "Streamers 79k",
     "Top Duckers",
+    "Streamers 150k",
     "Elite",
   ];
 
@@ -66,9 +82,10 @@ class _MetricasStreamersPageState extends State<MetricasStreamersPage> {
     "Streamers 10k": "Diamantes: de 5.001 ate 10.000.",
     "Streamers 20k": "Diamantes: de 10.001 ate 20.000.",
     "Streamers 40k": "Diamantes: de 20.001 ate 40.000.",
-    "Streamers 79k": "Diamantes: de 40.001 ate 79.000.",
+    "Streamers 79k": "Diamantes: de 40.001 ate 79.999.",
     "Top Duckers": "Diamantes: de 80.000 ate 149.999.",
-    "Elite": "Diamantes: acima de 250.000.",
+    "Streamers 150k": "Diamantes: de 150.000 ate 249.999.",
+    "Elite": "Diamantes: a partir de 250.000.",
   };
 
   @override
@@ -77,12 +94,18 @@ class _MetricasStreamersPageState extends State<MetricasStreamersPage> {
     _future = _load();
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<List<_StreamerMetric>> _load() async {
     final client = Supabase.instance.client;
     final rows = await client
         .from("profiles")
         .select(
-          "id, display_name, tiktok_creator_id, phone, joined_at, streamer_stats(diamonds, days_live, hours_live), streamer_categories(name)",
+          "id, display_name, tiktok_creator_id, tiktok_username, phone, joined_at, streamer_stats(diamonds, days_live, hours_live), streamer_categories(name)",
         )
         .eq("is_active", true);
 
@@ -135,6 +158,7 @@ class _MetricasStreamersPageState extends State<MetricasStreamersPage> {
         id: id,
         displayName: r["display_name"] as String,
         tiktokId: r["tiktok_creator_id"] as String?,
+        tiktokUsername: r["tiktok_username"] as String?,
         phone: r["phone"] as String?,
         categoria: categoria,
         diamonds: diamonds,
@@ -172,14 +196,18 @@ class _MetricasStreamersPageState extends State<MetricasStreamersPage> {
             .toList();
       case "Streamers 79k":
         return all
-            .where((s) => s.diamonds > 40000 && s.diamonds <= 79000)
+            .where((s) => s.diamonds > 40000 && s.diamonds <= 79999)
             .toList();
       case "Top Duckers":
         return all
-            .where((s) => s.diamonds >= 80000 && s.diamonds < 150000)
+            .where((s) => s.diamonds >= 80000 && s.diamonds <= 149999)
+            .toList();
+      case "Streamers 150k":
+        return all
+            .where((s) => s.diamonds >= 150000 && s.diamonds <= 249999)
             .toList();
       case "Elite":
-        return all.where((s) => s.diamonds > 250000).toList();
+        return all.where((s) => s.diamonds >= 250000).toList();
       default:
         return all;
     }
@@ -400,7 +428,9 @@ class _MetricasStreamersPageState extends State<MetricasStreamersPage> {
       builder: (context, snapshot) {
         if (!snapshot.hasData)
           return const Center(child: CircularProgressIndicator());
-        final filtered = _filter(snapshot.data!)..sort(_compare);
+        final filtered = _filter(snapshot.data!)
+          ..retainWhere((s) => s.matchesSearch(_search))
+          ..sort(_compare);
 
         return Padding(
           padding: const EdgeInsets.all(24),
@@ -466,6 +496,38 @@ class _MetricasStreamersPageState extends State<MetricasStreamersPage> {
                 ],
               ),
               const SizedBox(height: 16),
+              SizedBox(
+                width: 320,
+                child: TextField(
+                  controller: _searchController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    prefixIcon: const Icon(
+                      Icons.search,
+                      color: Colors.white54,
+                      size: 18,
+                    ),
+                    suffixIcon: _search.isEmpty
+                        ? null
+                        : IconButton(
+                            icon: const Icon(
+                              Icons.clear,
+                              color: Colors.white54,
+                              size: 18,
+                            ),
+                            onPressed: () => setState(() {
+                              _searchController.clear();
+                              _search = "";
+                            }),
+                          ),
+                    hintText: "Pesquisar por nick, @ ou ID",
+                    hintStyle: const TextStyle(color: Colors.white38),
+                  ),
+                  onChanged: (v) => setState(() => _search = v.trim()),
+                ),
+              ),
+              const SizedBox(height: 12),
               Wrap(
                 spacing: 8,
                 children: _tabs.map((tab) {

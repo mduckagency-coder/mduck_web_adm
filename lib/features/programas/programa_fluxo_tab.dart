@@ -2,6 +2,7 @@ import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "program_phase_service.dart";
 import "program_eligibility_service.dart";
+import "program_monthly_stats_service.dart";
 import "programa_history_helpers.dart";
 
 Color _hexToColor(String hex) {
@@ -11,7 +12,14 @@ Color _hexToColor(String hex) {
 
 class ProgramaFluxoTab extends StatefulWidget {
   final Map<String, dynamic> program;
-  const ProgramaFluxoTab({super.key, required this.program});
+  final int year;
+  final int month;
+  const ProgramaFluxoTab({
+    super.key,
+    required this.program,
+    required this.year,
+    required this.month,
+  });
 
   @override
   State<ProgramaFluxoTab> createState() => _ProgramaFluxoTabState();
@@ -25,6 +33,13 @@ class _ProgramaFluxoTabState extends State<ProgramaFluxoTab> {
   List<Map<String, dynamic>> _cards = [];
   final _horizontalController = ScrollController();
 
+  // Usados so pelo painel de status (baixo desempenho/em andamento/
+  // concluidos) abaixo do board -- o board em si (Kanban) nao depende de
+  // mes nem de criterio, so o painel novo precisa.
+  List<Map<String, dynamic>> _allProgress = [];
+  Map<String, StreamerSnapshot> _snapshotById = {};
+  ProgramCriteria _criteria = const ProgramCriteria();
+
   String get _phaseKey => widget.program["program_key"] as String;
   String get _agencyId => widget.program["agency_id"] as String;
 
@@ -32,6 +47,14 @@ class _ProgramaFluxoTabState extends State<ProgramaFluxoTab> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void didUpdateWidget(ProgramaFluxoTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.year != widget.year || oldWidget.month != widget.month) {
+      _load();
+    }
   }
 
   Future<void> _load() async {
@@ -53,16 +76,48 @@ class _ProgramaFluxoTabState extends State<ProgramaFluxoTab> {
 
       final progressRows = await client
           .from("streamer_phase_progress")
-          .select("id, streamer_id, stage_key, stage_changed_at, outcome, completed_at, streamer:profiles(id, display_name, avatar_url, tiktok_creator_id)")
+          .select(
+            "id, streamer_id, stage_key, stage_changed_at, outcome, completed_at, streamer:profiles(id, display_name, avatar_url, tiktok_creator_id)",
+          )
           .eq("phase_key", _phaseKey)
           .filter("completed_at", "is", null)
           .order("id", ascending: true);
 
       final cards = (progressRows as List).cast<Map<String, dynamic>>();
 
+      final allProgressRows = await client
+          .from("streamer_phase_progress")
+          .select(
+            "id, streamer_id, stage_key, outcome, completed_at, streamer:profiles(id, display_name, avatar_url)",
+          )
+          .eq("phase_key", _phaseKey);
+      final allProgress = (allProgressRows as List)
+          .cast<Map<String, dynamic>>();
+
+      final criteria = ProgramCriteria.fromMap(
+        widget.program["criteria"] as Map<String, dynamic>?,
+      );
+      final streamerIds = allProgress
+          .map((p) => p["streamer_id"] as String)
+          .toList();
+      final rawSnapshots = await fetchStreamerSnapshotsByIds(
+        streamerIds: streamerIds,
+      );
+      final snapshots = await resolveMonthlySnapshots(
+        snapshots: rawSnapshots,
+        criteria: criteria,
+        agencyId: _agencyId,
+        year: widget.year,
+        month: widget.month,
+      );
+      final snapshotById = {for (final s in snapshots) s.id: s};
+
       setState(() {
         _stages = stages;
         _cards = cards;
+        _allProgress = allProgress;
+        _snapshotById = snapshotById;
+        _criteria = criteria;
         _loading = false;
       });
     } catch (e) {
@@ -76,12 +131,19 @@ class _ProgramaFluxoTabState extends State<ProgramaFluxoTab> {
   Future<void> _syncNow() async {
     setState(() => _syncing = true);
     try {
-      final criteria = ProgramCriteria.fromMap(widget.program["criteria"] as Map<String, dynamic>?);
+      final criteria = ProgramCriteria.fromMap(
+        widget.program["criteria"] as Map<String, dynamic>?,
+      );
       final snapshots = await fetchActiveStreamerSnapshots(agencyId: _agencyId);
       final enrolled = await fetchEnrolledStreamerIds(phaseKey: _phaseKey);
 
-      final previousKey = await findPreviousProgramKey(agencyId: _agencyId, phaseKey: _phaseKey);
-      final completedPrev = previousKey != null ? await fetchCompletedStreamerIds(phaseKey: previousKey) : null;
+      final previousKey = await findPreviousProgramKey(
+        agencyId: _agencyId,
+        phaseKey: _phaseKey,
+      );
+      final completedPrev = previousKey != null
+          ? await fetchCompletedStreamerIds(phaseKey: previousKey)
+          : null;
 
       final created = await syncEligibleStreamers(
         phaseKey: _phaseKey,
@@ -92,7 +154,16 @@ class _ProgramaFluxoTabState extends State<ProgramaFluxoTab> {
       );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(created == 0 ? "Nenhum novo streamer elegivel encontrado." : created.toString() + " streamer(s) entraram automaticamente.")));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              created == 0
+                  ? "Nenhum novo streamer elegivel encontrado."
+                  : created.toString() +
+                        " streamer(s) entraram automaticamente.",
+            ),
+          ),
+        );
       }
       await _load();
     } catch (e) {
@@ -109,7 +180,10 @@ class _ProgramaFluxoTabState extends State<ProgramaFluxoTab> {
     if (index == -1) return;
     setState(() => _cards[index]["stage_key"] = newStageKey);
     try {
-      await moveProgramCard(progressId: card["id"] as String, newStageKey: newStageKey);
+      await moveProgramCard(
+        progressId: card["id"] as String,
+        newStageKey: newStageKey,
+      );
       final streamer = card["streamer"];
       await logProgramaHistory(
         streamerId: card["streamer_id"] as String,
@@ -126,11 +200,8 @@ class _ProgramaFluxoTabState extends State<ProgramaFluxoTab> {
   void _openCard(Map<String, dynamic> card, Map<String, dynamic> stage) {
     showDialog(
       context: context,
-      builder: (context) => _CardDetailDialog(
-        card: card,
-        stage: stage,
-        program: widget.program,
-      ),
+      builder: (context) =>
+          _CardDetailDialog(card: card, stage: stage, program: widget.program),
     ).then((changed) {
       if (changed == true) _load();
     });
@@ -143,33 +214,213 @@ class _ProgramaFluxoTabState extends State<ProgramaFluxoTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            const Text("Fluxo", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(width: 12),
-            IconButton(icon: const Icon(Icons.refresh, color: Colors.white70), onPressed: _load),
-            const Spacer(),
-            ElevatedButton.icon(
-              onPressed: _syncing ? null : _syncNow,
-              icon: const Icon(Icons.sync, size: 16),
-              label: Text(_syncing ? "Verificando..." : "Verificar elegibilidade agora"),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
-            ),
-          ]),
+          Row(
+            children: [
+              const Text(
+                "Fluxo",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(width: 12),
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.white70),
+                onPressed: _load,
+              ),
+              const Spacer(),
+              ElevatedButton.icon(
+                onPressed: _syncing ? null : _syncNow,
+                icon: const Icon(Icons.sync, size: 16),
+                label: Text(
+                  _syncing ? "Verificando..." : "Verificar elegibilidade agora",
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF7A0BD4),
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 4),
           const Text(
             "Entrada automatica: streamers que cumprem os criterios configurados entram sozinhos na primeira etapa. Sem criterio definido, ninguem entra automaticamente ainda.",
-            style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic),
+            style: TextStyle(
+              color: Colors.white38,
+              fontSize: 11,
+              fontStyle: FontStyle.italic,
+            ),
           ),
           const SizedBox(height: 16),
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _errorMessage != null
-                    ? buildProgramasLoadError(_errorMessage!)
-                    : _stages.isEmpty
-                        ? const Center(child: Text("Nenhuma etapa configurada ainda. Configure o fluxo na aba Configuracoes.", style: TextStyle(color: Colors.white54), textAlign: TextAlign.center))
-                        : _board(),
+                ? buildProgramasLoadError(_errorMessage!)
+                : _stages.isEmpty
+                ? const Center(
+                    child: Text(
+                      "Nenhuma etapa configurada ainda. Configure o fluxo na aba Configuracoes.",
+                      style: TextStyle(color: Colors.white54),
+                      textAlign: TextAlign.center,
+                    ),
+                  )
+                : SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _board(),
+                        const SizedBox(height: 20),
+                        _statusPanel(),
+                      ],
+                    ),
+                  ),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// Painel com 3 colunas abaixo do board: baixo desempenho (progresso medio
+  /// das metas ativas abaixo do limiar critico), em andamento (o resto de
+  /// quem ainda esta ativo) e concluidos (aprovado/graduado com data de
+  /// conclusao dentro do mes selecionado no cabecalho da pagina).
+  Widget _statusPanel() {
+    final active = _allProgress.where((p) => p["completed_at"] == null);
+    final baixoDesempenho = <Map<String, dynamic>>[];
+    final emAndamento = <Map<String, dynamic>>[];
+    for (final p in active) {
+      final snapshot = _snapshotById[p["streamer_id"] as String];
+      final progress = snapshot != null
+          ? progressFraction(snapshot, _criteria)
+          : 0.0;
+      if (progress < criticoThreshold) {
+        baixoDesempenho.add(p);
+      } else {
+        emAndamento.add(p);
+      }
+    }
+    final concluidos = _allProgress.where((p) {
+      if (p["completed_at"] == null) return false;
+      final outcome = p["outcome"] as String?;
+      if (outcome != "aprovado" && outcome != "graduado") return false;
+      final completedAt = DateTime.parse(p["completed_at"] as String);
+      return completedAt.year == widget.year &&
+          completedAt.month == widget.month;
+    }).toList();
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: _statusColumn(
+            "Baixo desempenho",
+            Colors.redAccent,
+            baixoDesempenho,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _statusColumn("Em andamento", Colors.amber, emAndamento),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _statusColumn(
+            "Concluidos (" + monthLabel(widget.year, widget.month) + ")",
+            Colors.greenAccent,
+            concluidos,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _statusColumn(
+    String title,
+    Color color,
+    List<Map<String, dynamic>> rows,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      constraints: const BoxConstraints(minHeight: 90),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.circle, size: 8, color: color),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                "(" + rows.length.toString() + ")",
+                style: TextStyle(color: color, fontSize: 11),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (rows.isEmpty)
+            const Text(
+              "Ninguem aqui.",
+              style: TextStyle(color: Colors.white38, fontSize: 11),
+            )
+          else
+            ...rows.map((p) {
+              final streamer = p["streamer"];
+              final name = streamer is Map
+                  ? (streamer["display_name"] as String? ?? "-")
+                  : "-";
+              final avatarUrl = streamer is Map
+                  ? streamer["avatar_url"] as String?
+                  : null;
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 10,
+                      backgroundColor: Colors.white24,
+                      backgroundImage: avatarUrl != null
+                          ? NetworkImage(avatarUrl)
+                          : null,
+                      child: avatarUrl == null
+                          ? const Icon(
+                              Icons.person,
+                              size: 10,
+                              color: Colors.white54,
+                            )
+                          : null,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        name,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
         ],
       ),
     );
@@ -187,43 +438,90 @@ class _ProgramaFluxoTabState extends State<ProgramaFluxoTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: _stages.map((stage) {
             final stageKey = stage["stage_key"] as String;
-            final stageColor = _hexToColor(stage["color"] as String? ?? "#7A0BD4");
-            final columnCards = _cards.where((c) => c["stage_key"] == stageKey).toList();
+            final stageColor = _hexToColor(
+              stage["color"] as String? ?? "#7A0BD4",
+            );
+            final columnCards = _cards
+                .where((c) => c["stage_key"] == stageKey)
+                .toList();
 
             return Container(
               width: 230,
               height: 560,
               margin: const EdgeInsets.only(right: 12),
               child: DragTarget<Map<String, dynamic>>(
-                onWillAcceptWithDetails: (details) => details.data["stage_key"] != stageKey,
-                onAcceptWithDetails: (details) => _moveCard(details.data, stageKey),
+                onWillAcceptWithDetails: (details) =>
+                    details.data["stage_key"] != stageKey,
+                onAcceptWithDetails: (details) =>
+                    _moveCard(details.data, stageKey),
                 builder: (context, candidateData, rejectedData) {
                   final highlighting = candidateData.isNotEmpty;
                   return Container(
                     decoration: BoxDecoration(
-                      color: highlighting ? stageColor.withOpacity(0.15) : Colors.white.withOpacity(0.03),
+                      color: highlighting
+                          ? stageColor.withOpacity(0.15)
+                          : Colors.white.withOpacity(0.03),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: highlighting ? stageColor : Colors.white12),
+                      border: Border.all(
+                        color: highlighting ? stageColor : Colors.white12,
+                      ),
                     ),
                     child: Column(
                       children: [
                         Container(
                           width: double.infinity,
-                          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(colors: [stageColor.withOpacity(0.35), stageColor.withOpacity(0.12)], begin: Alignment.topCenter, end: Alignment.bottomCenter),
-                            borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-                            border: Border(bottom: BorderSide(color: stageColor, width: 2)),
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 10,
+                            horizontal: 8,
                           ),
-                          child: Column(children: [
-                            Text(stage["name"] as String, style: TextStyle(color: stageColor, fontWeight: FontWeight.bold, fontSize: 13), textAlign: TextAlign.center),
-                            const SizedBox(height: 4),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(color: stageColor.withOpacity(0.25), borderRadius: BorderRadius.circular(10)),
-                              child: Text(columnCards.length.toString(), style: TextStyle(color: stageColor, fontSize: 11, fontWeight: FontWeight.bold)),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                stageColor.withOpacity(0.35),
+                                stageColor.withOpacity(0.12),
+                              ],
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
                             ),
-                          ]),
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(12),
+                            ),
+                            border: Border(
+                              bottom: BorderSide(color: stageColor, width: 2),
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              Text(
+                                stage["name"] as String,
+                                style: TextStyle(
+                                  color: stageColor,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: stageColor.withOpacity(0.25),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  columnCards.length.toString(),
+                                  style: TextStyle(
+                                    color: stageColor,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                         Expanded(
                           child: ListView.builder(
@@ -232,9 +530,14 @@ class _ProgramaFluxoTabState extends State<ProgramaFluxoTab> {
                             itemBuilder: (context, index) {
                               final card = columnCards[index];
                               final streamer = card["streamer"];
-                              final name = streamer is Map ? (streamer["display_name"] as String? ?? "-") : "-";
-                              final avatarUrl = streamer is Map ? streamer["avatar_url"] as String? : null;
-                              final isEvaluation = stage["is_evaluation_stage"] == true;
+                              final name = streamer is Map
+                                  ? (streamer["display_name"] as String? ?? "-")
+                                  : "-";
+                              final avatarUrl = streamer is Map
+                                  ? streamer["avatar_url"] as String?
+                                  : null;
+                              final isEvaluation =
+                                  stage["is_evaluation_stage"] == true;
                               final tile = InkWell(
                                 onTap: () => _openCard(card, stage),
                                 borderRadius: BorderRadius.circular(10),
@@ -244,20 +547,60 @@ class _ProgramaFluxoTabState extends State<ProgramaFluxoTab> {
                                   decoration: BoxDecoration(
                                     color: const Color(0xFF1A1A1A),
                                     borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(color: isEvaluation ? Colors.orangeAccent : Colors.white12),
+                                    border: Border.all(
+                                      color: isEvaluation
+                                          ? Colors.orangeAccent
+                                          : Colors.white12,
+                                    ),
                                   ),
-                                  child: Row(children: [
-                                    CircleAvatar(radius: 14, backgroundColor: Colors.white24, backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null, child: avatarUrl == null ? const Icon(Icons.person, size: 14, color: Colors.white54) : null),
-                                    const SizedBox(width: 8),
-                                    Expanded(child: Text(name, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
-                                    if (isEvaluation) const Icon(Icons.rate_review, size: 14, color: Colors.orangeAccent),
-                                  ]),
+                                  child: Row(
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 14,
+                                        backgroundColor: Colors.white24,
+                                        backgroundImage: avatarUrl != null
+                                            ? NetworkImage(avatarUrl)
+                                            : null,
+                                        child: avatarUrl == null
+                                            ? const Icon(
+                                                Icons.person,
+                                                size: 14,
+                                                color: Colors.white54,
+                                              )
+                                            : null,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          name,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      if (isEvaluation)
+                                        const Icon(
+                                          Icons.rate_review,
+                                          size: 14,
+                                          color: Colors.orangeAccent,
+                                        ),
+                                    ],
+                                  ),
                                 ),
                               );
                               return Draggable<Map<String, dynamic>>(
                                 data: card,
-                                feedback: Material(color: Colors.transparent, child: SizedBox(width: 210, child: tile)),
-                                childWhenDragging: Opacity(opacity: 0.3, child: tile),
+                                feedback: Material(
+                                  color: Colors.transparent,
+                                  child: SizedBox(width: 210, child: tile),
+                                ),
+                                childWhenDragging: Opacity(
+                                  opacity: 0.3,
+                                  child: tile,
+                                ),
                                 child: tile,
                               );
                             },
@@ -280,7 +623,11 @@ class _CardDetailDialog extends StatefulWidget {
   final Map<String, dynamic> card;
   final Map<String, dynamic> stage;
   final Map<String, dynamic> program;
-  const _CardDetailDialog({required this.card, required this.stage, required this.program});
+  const _CardDetailDialog({
+    required this.card,
+    required this.stage,
+    required this.program,
+  });
 
   @override
   State<_CardDetailDialog> createState() => _CardDetailDialogState();
@@ -294,16 +641,21 @@ class _CardDetailDialogState extends State<_CardDetailDialog> {
   void initState() {
     super.initState();
     if (widget.stage["is_evaluation_stage"] == true) {
-      _snapshotFuture = fetchStreamerSnapshotsByIds(streamerIds: [widget.card["streamer_id"] as String]).then((list) => list.isEmpty ? null : list.first);
+      _snapshotFuture = fetchStreamerSnapshotsByIds(
+        streamerIds: [widget.card["streamer_id"] as String],
+      ).then((list) => list.isEmpty ? null : list.first);
     }
   }
 
   Future<void> _evaluate(String outcome) async {
     final streamer = widget.card["streamer"];
-    final name = streamer is Map ? (streamer["display_name"] as String? ?? "este streamer") : "este streamer";
+    final name = streamer is Map
+        ? (streamer["display_name"] as String? ?? "este streamer")
+        : "este streamer";
     final result = await showDialog<(String?, String?)>(
       context: context,
-      builder: (context) => _EvaluationDialog(outcome: outcome, streamerName: name),
+      builder: (context) =>
+          _EvaluationDialog(outcome: outcome, streamerName: name),
     );
     if (result == null) return;
     final reason = result.$1;
@@ -328,7 +680,11 @@ class _CardDetailDialogState extends State<_CardDetailDialog> {
           "revisao": "Streamer colocado em revisao.",
           "desligado": "Streamer desligado.",
         };
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(outcomeMessages[outcome] ?? "Avaliacao registrada.")));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(outcomeMessages[outcome] ?? "Avaliacao registrada."),
+          ),
+        );
         Navigator.of(context).pop(true);
       }
     } catch (e) {
@@ -339,11 +695,14 @@ class _CardDetailDialogState extends State<_CardDetailDialog> {
 
   Future<void> _delete() async {
     final streamer = widget.card["streamer"];
-    final name = streamer is Map ? (streamer["display_name"] as String? ?? "este streamer") : "este streamer";
+    final name = streamer is Map
+        ? (streamer["display_name"] as String? ?? "este streamer")
+        : "este streamer";
     final ok = await confirmAction(
       context,
       title: "Remover do fluxo",
-      message: "Remover " + name + " deste programa? O card sera apagado do fluxo.",
+      message:
+          "Remover " + name + " deste programa? O card sera apagado do fluxo.",
       confirmLabel: "Remover",
       confirmColor: Colors.redAccent,
     );
@@ -361,11 +720,19 @@ class _CardDetailDialogState extends State<_CardDetailDialog> {
   @override
   Widget build(BuildContext context) {
     final streamer = widget.card["streamer"];
-    final name = streamer is Map ? (streamer["display_name"] as String? ?? "-") : "-";
-    final tiktokId = streamer is Map ? streamer["tiktok_creator_id"] as String? : null;
-    final avatarUrl = streamer is Map ? streamer["avatar_url"] as String? : null;
+    final name = streamer is Map
+        ? (streamer["display_name"] as String? ?? "-")
+        : "-";
+    final tiktokId = streamer is Map
+        ? streamer["tiktok_creator_id"] as String?
+        : null;
+    final avatarUrl = streamer is Map
+        ? streamer["avatar_url"] as String?
+        : null;
     final isEvaluation = widget.stage["is_evaluation_stage"] == true;
-    final stageChangedAt = widget.card["stage_changed_at"] != null ? DateTime.parse(widget.card["stage_changed_at"] as String) : null;
+    final stageChangedAt = widget.card["stage_changed_at"] != null
+        ? DateTime.parse(widget.card["stage_changed_at"] as String)
+        : null;
 
     return Dialog(
       backgroundColor: const Color(0xFF1A1A1A),
@@ -377,65 +744,184 @@ class _CardDetailDialogState extends State<_CardDetailDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(children: [
-                CircleAvatar(radius: 20, backgroundColor: Colors.white24, backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null, child: avatarUrl == null ? const Icon(Icons.person, color: Colors.white54) : null),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(name, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                      if (tiktokId != null) Text("ID: " + tiktokId, style: const TextStyle(color: Colors.white54, fontSize: 12)),
-                    ],
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: Colors.white24,
+                    backgroundImage: avatarUrl != null
+                        ? NetworkImage(avatarUrl)
+                        : null,
+                    child: avatarUrl == null
+                        ? const Icon(Icons.person, color: Colors.white54)
+                        : null,
                   ),
-                ),
-              ]),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        if (tiktokId != null)
+                          Text(
+                            "ID: " + tiktokId,
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 12,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 12),
-              Text("Etapa atual: " + (widget.stage["name"] as String), style: const TextStyle(color: Colors.white70, fontSize: 13)),
+              Text(
+                "Etapa atual: " + (widget.stage["name"] as String),
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              ),
               if (stageChangedAt != null)
-                Text("Desde " + stageChangedAt.toLocal().toString().substring(0, 10), style: const TextStyle(color: Colors.white38, fontSize: 12)),
+                Text(
+                  "Desde " +
+                      stageChangedAt.toLocal().toString().substring(0, 10),
+                  style: const TextStyle(color: Colors.white38, fontSize: 12),
+                ),
               const SizedBox(height: 16),
               if (isEvaluation) ...[
                 FutureBuilder<StreamerSnapshot?>(
                   future: _snapshotFuture,
                   builder: (context, snap) {
-                    if (!snap.hasData || snap.data == null) return const SizedBox.shrink();
-                    final criteria = ProgramCriteria.fromMap(widget.program["criteria"] as Map<String, dynamic>?);
+                    if (!snap.hasData || snap.data == null)
+                      return const SizedBox.shrink();
+                    final criteria = ProgramCriteria.fromMap(
+                      widget.program["criteria"] as Map<String, dynamic>?,
+                    );
                     final result = evaluateEligibility(snap.data!, criteria);
-                    final color = result.eligible ? Colors.greenAccent : Colors.orangeAccent;
+                    final color = result.eligible
+                        ? Colors.greenAccent
+                        : Colors.orangeAccent;
                     return Container(
                       margin: const EdgeInsets.only(bottom: 10),
                       padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8), border: Border.all(color: color)),
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Row(children: [
-                          Icon(result.eligible ? Icons.check_circle : Icons.info_outline, size: 14, color: color),
-                          const SizedBox(width: 6),
-                          Text(
-                            result.eligible ? "Bateu os criterios configurados" : "Ainda nao bate os criterios configurados",
-                            style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: color),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                result.eligible
+                                    ? Icons.check_circle
+                                    : Icons.info_outline,
+                                size: 14,
+                                color: color,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                result.eligible
+                                    ? "Bateu os criterios configurados"
+                                    : "Ainda nao bate os criterios configurados",
+                                style: TextStyle(
+                                  color: color,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
                           ),
-                        ]),
-                        if (!result.eligible && result.gaps.isNotEmpty)
-                          Padding(padding: const EdgeInsets.only(top: 4, left: 20), child: Text(result.gaps.join(", "), style: TextStyle(color: color, fontSize: 11))),
-                      ]),
+                          if (!result.eligible && result.gaps.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4, left: 20),
+                              child: Text(
+                                result.gaps.join(", "),
+                                style: TextStyle(color: color, fontSize: 11),
+                              ),
+                            ),
+                        ],
+                      ),
                     );
                   },
                 ),
-                const Text("Avaliacao final", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                const Text(
+                  "Avaliacao final",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
                 const SizedBox(height: 8),
-                Wrap(spacing: 8, runSpacing: 8, children: [
-                  ElevatedButton.icon(onPressed: _saving ? null : () => _evaluate("aprovado"), icon: const Icon(Icons.check, size: 16), label: const Text("Aprovar"), style: ElevatedButton.styleFrom(backgroundColor: Colors.greenAccent, foregroundColor: Colors.black)),
-                  ElevatedButton.icon(onPressed: _saving ? null : () => _evaluate("graduado"), icon: const Icon(Icons.star, size: 16), label: const Text("Graduar"), style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black)),
-                  ElevatedButton.icon(onPressed: _saving ? null : () => _evaluate("revisao"), icon: const Icon(Icons.hourglass_bottom, size: 16), label: const Text("Revisao"), style: ElevatedButton.styleFrom(backgroundColor: Colors.white24, foregroundColor: Colors.white)),
-                  ElevatedButton.icon(onPressed: _saving ? null : () => _evaluate("desligado"), icon: const Icon(Icons.close, size: 16), label: const Text("Encerrar parceria"), style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white)),
-                ]),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: _saving ? null : () => _evaluate("aprovado"),
+                      icon: const Icon(Icons.check, size: 16),
+                      label: const Text("Aprovar"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.greenAccent,
+                        foregroundColor: Colors.black,
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: _saving ? null : () => _evaluate("graduado"),
+                      icon: const Icon(Icons.star, size: 16),
+                      label: const Text("Graduar"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.amber,
+                        foregroundColor: Colors.black,
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: _saving ? null : () => _evaluate("revisao"),
+                      icon: const Icon(Icons.hourglass_bottom, size: 16),
+                      label: const Text("Revisao"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white24,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: _saving ? null : () => _evaluate("desligado"),
+                      icon: const Icon(Icons.close, size: 16),
+                      label: const Text("Encerrar parceria"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.redAccent,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 12),
               ],
-              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                TextButton(onPressed: _saving ? null : _delete, child: const Text("Remover do fluxo", style: TextStyle(color: Colors.redAccent))),
-                TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text("Fechar")),
-              ]),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  TextButton(
+                    onPressed: _saving ? null : _delete,
+                    child: const Text(
+                      "Remover do fluxo",
+                      style: TextStyle(color: Colors.redAccent),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text("Fechar"),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -451,7 +937,13 @@ const _outcomeQuestionLabels = {
   "desligado": "Encerrar a parceria com",
 };
 
-const _reprovalReasonKeys = ["baixa_frequencia", "poucas_horas", "sem_treinamento", "desistencia", "outro"];
+const _reprovalReasonKeys = [
+  "baixa_frequencia",
+  "poucas_horas",
+  "sem_treinamento",
+  "desistencia",
+  "outro",
+];
 const _reprovalReasonLabels = {
   "baixa_frequencia": "Baixa frequencia",
   "poucas_horas": "Poucas horas",
@@ -484,7 +976,10 @@ class _EvaluationDialogState extends State<_EvaluationDialog> {
     return AlertDialog(
       backgroundColor: const Color(0xFF1A1A1A),
       title: Text(
-        (_outcomeQuestionLabels[widget.outcome] ?? widget.outcome) + " " + widget.streamerName + "?",
+        (_outcomeQuestionLabels[widget.outcome] ?? widget.outcome) +
+            " " +
+            widget.streamerName +
+            "?",
         style: const TextStyle(color: Colors.white, fontSize: 16),
       ),
       content: SingleChildScrollView(
@@ -493,13 +988,23 @@ class _EvaluationDialogState extends State<_EvaluationDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (isReproval) ...[
-              const Text("Motivo", style: TextStyle(color: Colors.white54, fontSize: 12)),
+              const Text(
+                "Motivo",
+                style: TextStyle(color: Colors.white54, fontSize: 12),
+              ),
               DropdownButton<String>(
                 value: _reason,
                 isExpanded: true,
                 dropdownColor: const Color(0xFF232323),
                 style: const TextStyle(color: Colors.white),
-                items: _reprovalReasonKeys.map((k) => DropdownMenuItem(value: k, child: Text(_reprovalReasonLabels[k]!))).toList(),
+                items: _reprovalReasonKeys
+                    .map(
+                      (k) => DropdownMenuItem(
+                        value: k,
+                        child: Text(_reprovalReasonLabels[k]!),
+                      ),
+                    )
+                    .toList(),
                 onChanged: (v) => setState(() => _reason = v ?? _reason),
               ),
               if (_reason == "outro") ...[
@@ -507,33 +1012,56 @@ class _EvaluationDialogState extends State<_EvaluationDialog> {
                 TextField(
                   controller: _otherReasonController,
                   style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(labelText: "Detalhe o motivo", labelStyle: TextStyle(color: Colors.white54)),
+                  decoration: const InputDecoration(
+                    labelText: "Detalhe o motivo",
+                    labelStyle: TextStyle(color: Colors.white54),
+                  ),
                 ),
               ],
               const SizedBox(height: 12),
             ],
-            const Text("Observacoes (opcional)", style: TextStyle(color: Colors.white54, fontSize: 12)),
+            const Text(
+              "Observacoes (opcional)",
+              style: TextStyle(color: Colors.white54, fontSize: 12),
+            ),
             const SizedBox(height: 4),
             TextField(
               controller: _noteController,
               maxLines: 3,
               style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(hintText: "Registrar algo sobre esta avaliacao", hintStyle: TextStyle(color: Colors.white38)),
+              decoration: const InputDecoration(
+                hintText: "Registrar algo sobre esta avaliacao",
+                hintStyle: TextStyle(color: Colors.white38),
+              ),
             ),
           ],
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text("Cancelar")),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text("Cancelar"),
+        ),
         ElevatedButton(
           onPressed: () {
             String? reasonValue;
             if (isReproval) {
-              reasonValue = _reason == "outro" ? (_otherReasonController.text.trim().isEmpty ? "outro" : _otherReasonController.text.trim()) : _reason;
+              reasonValue = _reason == "outro"
+                  ? (_otherReasonController.text.trim().isEmpty
+                        ? "outro"
+                        : _otherReasonController.text.trim())
+                  : _reason;
             }
-            Navigator.of(context).pop((reasonValue, _noteController.text.trim()));
+            Navigator.of(
+              context,
+            ).pop((reasonValue, _noteController.text.trim()));
           },
-          style: ElevatedButton.styleFrom(backgroundColor: widget.outcome == "desligado" ? Colors.redAccent : const Color(0xFF7A0BD4), foregroundColor: Colors.white),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: widget.outcome == "desligado"
+                ? Colors.redAccent
+                : const Color(0xFF7A0BD4),
+            foregroundColor: Colors.white,
+          ),
           child: const Text("Confirmar"),
         ),
       ],

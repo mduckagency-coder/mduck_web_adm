@@ -39,6 +39,37 @@ const onboardingDayKeys = [
   ("dia_15", "Dia 15"),
 ];
 
+/// Dias da etapa "Onboarding 30 Dias" (mesmas colunas do Kanban de
+/// Onboarding 16-31 Dias -- o rotulo da aba ja existia antes do quadro,
+/// so ganhou os filtros de dia agora que o board existe).
+const onboardingDayKeysModule2 = [
+  ("dia_16", "Dia 16"),
+  ("dia_17", "Dia 17"),
+  ("dia_18", "Dia 18"),
+  ("dia_19", "Dia 19"),
+  ("dia_20", "Dia 20"),
+  ("dia_21", "Dia 21"),
+  ("dia_22", "Dia 22"),
+  ("dia_23", "Dia 23"),
+  ("dia_24", "Dia 24"),
+  ("dia_25", "Dia 25"),
+  ("dia_26", "Dia 26"),
+  ("dia_27", "Dia 27"),
+  ("dia_28", "Dia 28"),
+  ("dia_29", "Dia 29"),
+  ("dia_30", "Dia 30"),
+  ("dia_31", "Dia 31"),
+];
+
+/// Qual fase tem filtro/dropdown de dia, e com quais opcoes -- generaliza
+/// o que antes era so pra "onboarding_15" (isOnboarding15 hardcoded).
+const _dayKeysByStage = {
+  "onboarding_15": onboardingDayKeys,
+  "onboarding_30": onboardingDayKeysModule2,
+};
+
+const _allDayKeys = [...onboardingDayKeys, ...onboardingDayKeysModule2];
+
 const _nicheFilterOptions = [
   (null, "Todas"),
   ("gamer", "Gamers"),
@@ -58,7 +89,8 @@ const _authorPalette = [
 
 Color _colorForAuthor(String? email) {
   if (email == null || email.isEmpty) return _authorPalette[0];
-  final index = email.codeUnits.fold<int>(0, (sum, c) => sum + c) % _authorPalette.length;
+  final index =
+      email.codeUnits.fold<int>(0, (sum, c) => sum + c) % _authorPalette.length;
   return _authorPalette[index];
 }
 
@@ -84,7 +116,8 @@ class OnboardingMaterialsPage extends StatefulWidget {
   const OnboardingMaterialsPage({super.key});
 
   @override
-  State<OnboardingMaterialsPage> createState() => _OnboardingMaterialsPageState();
+  State<OnboardingMaterialsPage> createState() =>
+      _OnboardingMaterialsPageState();
 }
 
 class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
@@ -118,7 +151,10 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
           .order("stage")
           .order("onboarding_stage_key")
           .order("order_index");
-      final visible = (rows as List).cast<Map<String, dynamic>>().where((m) => isMaterialVisibleTo(m, _myUserId!)).toList();
+      final visible = (rows as List)
+          .cast<Map<String, dynamic>>()
+          .where((m) => isMaterialVisibleTo(m, _myUserId!))
+          .toList();
       if (mounted) {
         setState(() {
           _materials = visible;
@@ -138,11 +174,21 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
   void _reload() => _load();
 
   void _openDetail(Map<String, dynamic> material) {
-    showDialog(context: context, builder: (context) => _MaterialDetailDialog(material: material, myUserId: _myUserId!)).then((_) => _reload());
+    showDialog(
+      context: context,
+      builder: (context) =>
+          _MaterialDetailDialog(material: material, myUserId: _myUserId!),
+    ).then((_) => _reload());
   }
 
   void _openCreate() {
-    showDialog(context: context, builder: (context) => OnboardingMaterialFormDialog(defaultStage: _stage, defaultDayKey: _dayFilter)).then((saved) {
+    showDialog(
+      context: context,
+      builder: (context) => OnboardingMaterialFormDialog(
+        defaultStage: _stage,
+        defaultDayKey: _dayFilter,
+      ),
+    ).then((saved) {
       if (saved == true) _reload();
     });
   }
@@ -153,15 +199,37 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
   /// null). Arrastar sobre um chip de dia (so existe na fase Onboarding 15)
   /// move para aquele dia; arrastar sobre outro material reordena e, se o
   /// alvo for de outro dia, move junto.
-  Future<void> _moveMaterial(Map<String, dynamic> dragged, {String? newDayKey, Map<String, dynamic>? beforeItem}) async {
+  Future<void> _moveMaterial(
+    Map<String, dynamic> dragged, {
+    String? newDayKey,
+    Map<String, dynamic>? beforeItem,
+  }) async {
     if (beforeItem != null && beforeItem["id"] == dragged["id"]) return;
     final stage = dragged["stage"] as String;
-    final targetDayKey = newDayKey ?? (beforeItem != null ? beforeItem["onboarding_stage_key"] as String? : dragged["onboarding_stage_key"] as String?);
+    final targetDayKey =
+        newDayKey ??
+        (beforeItem != null
+            ? beforeItem["onboarding_stage_key"] as String?
+            : dragged["onboarding_stage_key"] as String?);
 
-    final siblings = _materials.where((m) => m["id"] != dragged["id"] && m["stage"] == stage && m["onboarding_stage_key"] == targetDayKey).toList()
-      ..sort((a, b) => ((a["order_index"] as num?) ?? 0).compareTo((b["order_index"] as num?) ?? 0));
+    final siblings =
+        _materials
+            .where(
+              (m) =>
+                  m["id"] != dragged["id"] &&
+                  m["stage"] == stage &&
+                  m["onboarding_stage_key"] == targetDayKey,
+            )
+            .toList()
+          ..sort(
+            (a, b) => ((a["order_index"] as num?) ?? 0).compareTo(
+              (b["order_index"] as num?) ?? 0,
+            ),
+          );
 
-    final insertIndex = beforeItem == null ? siblings.length : siblings.indexWhere((m) => m["id"] == beforeItem["id"]);
+    final insertIndex = beforeItem == null
+        ? siblings.length
+        : siblings.indexWhere((m) => m["id"] == beforeItem["id"]);
     siblings.insert(insertIndex == -1 ? siblings.length : insertIndex, dragged);
 
     setState(() {
@@ -174,25 +242,43 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
     try {
       final client = Supabase.instance.client;
       for (var i = 0; i < siblings.length; i++) {
-        await client.from("training_materials").update({"onboarding_stage_key": siblings[i]["onboarding_stage_key"], "order_index": i}).eq("id", siblings[i]["id"]);
+        await client
+            .from("training_materials")
+            .update({
+              "onboarding_stage_key": siblings[i]["onboarding_stage_key"],
+              "order_index": i,
+            })
+            .eq("id", siblings[i]["id"]);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erro ao mover: " + e.toString())));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Erro ao mover: " + e.toString())),
+        );
       _reload();
     }
   }
 
   Widget _buildTile(Map<String, dynamic> m) {
     final authorData = m["managers"];
-    final authorEmail = authorData is Map ? authorData["login_email"] as String? : null;
+    final authorEmail = authorData is Map
+        ? authorData["login_email"] as String?
+        : null;
     final authorRole = authorData is Map ? authorData["role"] as String? : null;
     final isMine = m["author_id"] == _myUserId;
-    final isOfficial = !isMine && (authorRole == "coordenador" || authorRole == "admin");
-    final createdDate = m["created_at"] != null ? DateTime.parse(m["created_at"]).toLocal().toString().substring(0, 10) : "-";
+    final isOfficial =
+        !isMine && (authorRole == "coordenador" || authorRole == "admin");
+    final createdDate = m["created_at"] != null
+        ? DateTime.parse(m["created_at"]).toLocal().toString().substring(0, 10)
+        : "-";
     final authorColor = _colorForAuthor(authorEmail);
     final niche = m["niche"] as String?;
     final dayKey = m["onboarding_stage_key"] as String?;
-    final dayLabel = dayKey != null ? onboardingDayKeys.firstWhere((d) => d.$1 == dayKey, orElse: () => (dayKey, dayKey)).$2 : null;
+    final dayLabel = dayKey != null
+        ? _allDayKeys
+              .firstWhere((d) => d.$1 == dayKey, orElse: () => (dayKey, dayKey))
+              .$2
+        : null;
 
     return InkWell(
       onTap: () => _openDetail(m),
@@ -200,51 +286,126 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: isOfficial ? authorColor.withOpacity(0.1) : Colors.white.withOpacity(0.05),
+          color: isOfficial
+              ? authorColor.withOpacity(0.1)
+              : Colors.white.withOpacity(0.05),
           borderRadius: BorderRadius.circular(12),
-          border: isOfficial ? Border.all(color: authorColor.withOpacity(0.6), width: 1.5) : (isMine ? Border.all(color: Colors.white24) : null),
+          border: isOfficial
+              ? Border.all(color: authorColor.withOpacity(0.6), width: 1.5)
+              : (isMine ? Border.all(color: Colors.white24) : null),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [
-              const Icon(Icons.drag_indicator, color: Colors.white24, size: 18),
-              const SizedBox(width: 4),
-              if (niche != null) ...[
-                Icon(categoryIcon(niche), size: 14, color: categoryColor(niche)),
-                const SizedBox(width: 6),
+            Row(
+              children: [
+                const Icon(
+                  Icons.drag_indicator,
+                  color: Colors.white24,
+                  size: 18,
+                ),
+                const SizedBox(width: 4),
+                if (niche != null) ...[
+                  Icon(
+                    categoryIcon(niche),
+                    size: 14,
+                    color: categoryColor(niche),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                Expanded(
+                  child: Text(
+                    m["title"] as String,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+                if (dayLabel != null)
+                  Container(
+                    margin: const EdgeInsets.only(left: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      dayLabel,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                if (isOfficial)
+                  Container(
+                    margin: const EdgeInsets.only(left: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text(
+                      "OFICIAL",
+                      style: TextStyle(
+                        color: Colors.redAccent,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                if (isMine)
+                  Container(
+                    margin: const EdgeInsets.only(left: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text(
+                      "MEU MATERIAL",
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
               ],
-              Expanded(child: Text(m["title"] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15))),
-              if (dayLabel != null)
-                Container(
-                  margin: const EdgeInsets.only(left: 6),
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(color: Colors.white.withOpacity(0.08), borderRadius: BorderRadius.circular(6)),
-                  child: Text(dayLabel, style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold)),
-                ),
-              if (isOfficial)
-                Container(
-                  margin: const EdgeInsets.only(left: 6),
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
-                  child: const Text("OFICIAL", style: TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold)),
-                ),
-              if (isMine)
-                Container(
-                  margin: const EdgeInsets.only(left: 6),
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(color: Colors.white.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
-                  child: const Text("MEU MATERIAL", style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold)),
-                ),
-            ]),
+            ),
             if ((m["description"] as String?)?.isNotEmpty == true) ...[
               const SizedBox(height: 4),
-              Text(m["description"], style: const TextStyle(color: Colors.white70, fontSize: 12), maxLines: 2, overflow: TextOverflow.ellipsis),
+              Text(
+                m["description"],
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
             ],
             const SizedBox(height: 6),
             Text(
-              "Criado por: " + (authorEmail ?? "sistema") + "  -  " + createdDate,
-              style: TextStyle(color: isOfficial ? authorColor : Colors.white38, fontSize: 11, fontStyle: FontStyle.italic, fontWeight: isOfficial ? FontWeight.bold : FontWeight.normal),
+              "Criado por: " +
+                  (authorEmail ?? "sistema") +
+                  "  -  " +
+                  createdDate,
+              style: TextStyle(
+                color: isOfficial ? authorColor : Colors.white38,
+                fontSize: 11,
+                fontStyle: FontStyle.italic,
+                fontWeight: isOfficial ? FontWeight.bold : FontWeight.normal,
+              ),
             ),
           ],
         ),
@@ -254,28 +415,47 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isOnboarding15 = _stage == "onboarding_15";
+    final dayKeys = _dayKeysByStage[_stage];
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            const Text("Material Acompanhamento", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
-            const SizedBox(width: 12),
-            IconButton(icon: const Icon(Icons.refresh, color: Colors.white70), onPressed: _reload),
-            const Spacer(),
-            ElevatedButton.icon(
-              onPressed: _openCreate,
-              icon: const Icon(Icons.add),
-              label: const Text("Meu Material"),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
-            ),
-          ]),
+          Row(
+            children: [
+              const Text(
+                "Material Acompanhamento",
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 12),
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.white70),
+                onPressed: _reload,
+              ),
+              const Spacer(),
+              ElevatedButton.icon(
+                onPressed: _openCreate,
+                icon: const Icon(Icons.add),
+                label: const Text("Meu Material"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF7A0BD4),
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 4),
           const Text(
             "Material automatico por etapa -- aparece sozinho pro gestor quando o streamer chega no dia/fase correspondente. Material Oficial (coordenador/admin) pode ser editado, excluido e arrastado por qualquer gestor; o seu proprio continua privado, so voce ve.",
-            style: TextStyle(color: Colors.white38, fontSize: 12, fontStyle: FontStyle.italic),
+            style: TextStyle(
+              color: Colors.white38,
+              fontSize: 12,
+              fontStyle: FontStyle.italic,
+            ),
           ),
           const SizedBox(height: 16),
           SingleChildScrollView(
@@ -286,7 +466,14 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
                 return Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: ChoiceChip(
-                    label: Text(s.$2, style: TextStyle(color: selected ? Colors.white : Colors.white70, fontSize: 13, fontWeight: FontWeight.bold)),
+                    label: Text(
+                      s.$2,
+                      style: TextStyle(
+                        color: selected ? Colors.white : Colors.white70,
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     selected: selected,
                     selectedColor: const Color(0xFF7A0BD4),
                     backgroundColor: Colors.white.withOpacity(0.05),
@@ -299,7 +486,7 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
               }).toList(),
             ),
           ),
-          if (isOnboarding15) ...[
+          if (dayKeys != null) ...[
             const SizedBox(height: 10),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -308,31 +495,58 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
                   Padding(
                     padding: const EdgeInsets.only(right: 6),
                     child: ChoiceChip(
-                      label: Text("Todos os dias", style: TextStyle(color: _dayFilter == null ? Colors.white : Colors.white70, fontSize: 12)),
+                      label: Text(
+                        "Todos os dias",
+                        style: TextStyle(
+                          color: _dayFilter == null
+                              ? Colors.white
+                              : Colors.white70,
+                          fontSize: 12,
+                        ),
+                      ),
                       selected: _dayFilter == null,
                       selectedColor: const Color(0xFF7A0BD4),
                       backgroundColor: Colors.white.withOpacity(0.05),
                       onSelected: (_) => setState(() => _dayFilter = null),
                     ),
                   ),
-                  ...onboardingDayKeys.map((d) {
+                  ...dayKeys.map((d) {
                     final selected = _dayFilter == d.$1;
                     return Padding(
                       padding: const EdgeInsets.only(right: 6),
                       child: DragTarget<Map<String, dynamic>>(
-                        onWillAcceptWithDetails: (details) => details.data["onboarding_stage_key"] != d.$1,
-                        onAcceptWithDetails: (details) => _moveMaterial(details.data, newDayKey: d.$1),
+                        onWillAcceptWithDetails: (details) =>
+                            details.data["onboarding_stage_key"] != d.$1,
+                        onAcceptWithDetails: (details) =>
+                            _moveMaterial(details.data, newDayKey: d.$1),
                         builder: (context, candidateData, rejectedData) {
                           final highlighting = candidateData.isNotEmpty;
                           return AnimatedContainer(
                             duration: const Duration(milliseconds: 150),
-                            decoration: BoxDecoration(borderRadius: BorderRadius.circular(20), border: highlighting ? Border.all(color: const Color(0xFF7A0BD4), width: 2) : null),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(20),
+                              border: highlighting
+                                  ? Border.all(
+                                      color: const Color(0xFF7A0BD4),
+                                      width: 2,
+                                    )
+                                  : null,
+                            ),
                             child: ChoiceChip(
-                              label: Text(d.$2, style: TextStyle(color: selected ? Colors.white : Colors.white70, fontSize: 12)),
+                              label: Text(
+                                d.$2,
+                                style: TextStyle(
+                                  color: selected
+                                      ? Colors.white
+                                      : Colors.white70,
+                                  fontSize: 12,
+                                ),
+                              ),
                               selected: selected,
                               selectedColor: const Color(0xFF7A0BD4),
                               backgroundColor: Colors.white.withOpacity(0.05),
-                              onSelected: (_) => setState(() => _dayFilter = d.$1),
+                              onSelected: (_) =>
+                                  setState(() => _dayFilter = d.$1),
                             ),
                           );
                         },
@@ -344,55 +558,111 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
             ),
           ],
           const SizedBox(height: 10),
-          Wrap(spacing: 8, children: _nicheFilterOptions.map((opt) {
-            final selected = _nicheFilter == opt.$1;
-            return FilterChip(
-              avatar: opt.$1 != null ? Icon(categoryIcon(opt.$1), size: 14, color: selected ? Colors.white : categoryColor(opt.$1)) : null,
-              label: Text(opt.$2, style: TextStyle(color: selected ? Colors.white : Colors.white70, fontSize: 12)),
-              selected: selected,
-              selectedColor: opt.$1 != null ? categoryColor(opt.$1) : const Color(0xFF7A0BD4),
-              backgroundColor: Colors.white.withOpacity(0.05),
-              onSelected: (_) => setState(() => _nicheFilter = opt.$1),
-            );
-          }).toList()),
+          Wrap(
+            spacing: 8,
+            children: _nicheFilterOptions.map((opt) {
+              final selected = _nicheFilter == opt.$1;
+              return FilterChip(
+                avatar: opt.$1 != null
+                    ? Icon(
+                        categoryIcon(opt.$1),
+                        size: 14,
+                        color: selected ? Colors.white : categoryColor(opt.$1),
+                      )
+                    : null,
+                label: Text(
+                  opt.$2,
+                  style: TextStyle(
+                    color: selected ? Colors.white : Colors.white70,
+                    fontSize: 12,
+                  ),
+                ),
+                selected: selected,
+                selectedColor: opt.$1 != null
+                    ? categoryColor(opt.$1)
+                    : const Color(0xFF7A0BD4),
+                backgroundColor: Colors.white.withOpacity(0.05),
+                onSelected: (_) => setState(() => _nicheFilter = opt.$1),
+              );
+            }).toList(),
+          ),
           const SizedBox(height: 16),
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
-                    ? Center(child: Padding(padding: const EdgeInsets.all(24), child: Text("Erro ao carregar: " + _error!, style: const TextStyle(color: Colors.redAccent), textAlign: TextAlign.center)))
-                    : Builder(builder: (context) {
-                        final list = _materials.where((m) {
-                          if (m["stage"] != _stage) return false;
-                          if (isOnboarding15 && _dayFilter != null && m["onboarding_stage_key"] != _dayFilter) return false;
-                          if (_nicheFilter != null && m["niche"] != null && m["niche"] != _nicheFilter) return false;
-                          return true;
-                        }).toList();
-                        if (list.isEmpty) return const Center(child: Text("Nenhum material cadastrado nesta fase ainda.", style: TextStyle(color: Colors.white54)));
-                        return ListView.builder(
-                          itemCount: list.length,
-                          itemBuilder: (context, index) {
-                            final m = list[index];
-                            final tile = _buildTile(m);
-                            return DragTarget<Map<String, dynamic>>(
-                              onWillAcceptWithDetails: (details) => details.data["id"] != m["id"],
-                              onAcceptWithDetails: (details) => _moveMaterial(details.data, beforeItem: m),
-                              builder: (context, candidateData, rejectedData) {
-                                final highlighting = candidateData.isNotEmpty;
-                                return Container(
-                                  decoration: highlighting ? BoxDecoration(border: Border.all(color: const Color(0xFF7A0BD4), width: 2), borderRadius: BorderRadius.circular(12)) : null,
-                                  child: Draggable<Map<String, dynamic>>(
-                                    data: m,
-                                    feedback: Material(color: Colors.transparent, child: SizedBox(width: 320, child: tile)),
-                                    childWhenDragging: Opacity(opacity: 0.3, child: tile),
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        "Erro ao carregar: " + _error!,
+                        style: const TextStyle(color: Colors.redAccent),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  )
+                : Builder(
+                    builder: (context) {
+                      final list = _materials.where((m) {
+                        if (m["stage"] != _stage) return false;
+                        if (dayKeys != null &&
+                            _dayFilter != null &&
+                            m["onboarding_stage_key"] != _dayFilter)
+                          return false;
+                        if (_nicheFilter != null &&
+                            m["niche"] != null &&
+                            m["niche"] != _nicheFilter)
+                          return false;
+                        return true;
+                      }).toList();
+                      if (list.isEmpty)
+                        return const Center(
+                          child: Text(
+                            "Nenhum material cadastrado nesta fase ainda.",
+                            style: TextStyle(color: Colors.white54),
+                          ),
+                        );
+                      return ListView.builder(
+                        itemCount: list.length,
+                        itemBuilder: (context, index) {
+                          final m = list[index];
+                          final tile = _buildTile(m);
+                          return DragTarget<Map<String, dynamic>>(
+                            onWillAcceptWithDetails: (details) =>
+                                details.data["id"] != m["id"],
+                            onAcceptWithDetails: (details) =>
+                                _moveMaterial(details.data, beforeItem: m),
+                            builder: (context, candidateData, rejectedData) {
+                              final highlighting = candidateData.isNotEmpty;
+                              return Container(
+                                decoration: highlighting
+                                    ? BoxDecoration(
+                                        border: Border.all(
+                                          color: const Color(0xFF7A0BD4),
+                                          width: 2,
+                                        ),
+                                        borderRadius: BorderRadius.circular(12),
+                                      )
+                                    : null,
+                                child: Draggable<Map<String, dynamic>>(
+                                  data: m,
+                                  feedback: Material(
+                                    color: Colors.transparent,
+                                    child: SizedBox(width: 320, child: tile),
+                                  ),
+                                  childWhenDragging: Opacity(
+                                    opacity: 0.3,
                                     child: tile,
                                   ),
-                                );
-                              },
-                            );
-                          },
-                        );
-                      }),
+                                  child: tile,
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -406,13 +676,19 @@ Future<void> _openLink(BuildContext context, String url) async {
   try {
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   } catch (e) {
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Nao foi possivel abrir: " + e.toString())));
+    if (context.mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Nao foi possivel abrir: " + e.toString())),
+      );
   }
 }
 
 Future<void> _copyToClipboard(BuildContext context, String text) async {
   await Clipboard.setData(ClipboardData(text: text));
-  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Link copiado.")));
+  if (context.mounted)
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text("Link copiado.")));
 }
 
 /// Mostra as informacoes do material (titulo, texto, link/arquivo) num
@@ -420,7 +696,10 @@ Future<void> _copyToClipboard(BuildContext context, String text) async {
 /// copiar, pra quem esta atendendo o streamer colar onde precisar (grupo,
 /// WhatsApp, etc). Compartilhado com o board do Onboarding 0-15 Dias
 /// (materiais mostrados automaticamente na etapa do streamer).
-Future<void> openMaterialLinkOrText(BuildContext context, Map<String, dynamic> material) async {
+Future<void> openMaterialLinkOrText(
+  BuildContext context,
+  Map<String, dynamic> material,
+) async {
   final linkUrl = material["link_url"] as String?;
   final fileUrl = material["file_url"] as String?;
   final imageUrl = material["image_url"] as String?;
@@ -428,47 +707,150 @@ Future<void> openMaterialLinkOrText(BuildContext context, Map<String, dynamic> m
     context: context,
     builder: (context) => AlertDialog(
       backgroundColor: const Color(0xFF1A1A1A),
-      title: Text(material["title"] as String? ?? "-", style: const TextStyle(color: Colors.white)),
+      title: Text(
+        material["title"] as String? ?? "-",
+        style: const TextStyle(color: Colors.white),
+      ),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if ((material["description"] as String?)?.isNotEmpty == true) ...[
-              const Text("Texto", style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold)),
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Expanded(child: SelectableText(material["description"] as String, style: const TextStyle(color: Colors.white70, fontSize: 13))),
-                IconButton(icon: const Icon(Icons.copy, size: 16, color: Colors.white54), tooltip: "Copiar texto", onPressed: () => _copyToClipboard(context, material["description"] as String)),
-              ]),
+              const Text(
+                "Texto",
+                style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: SelectableText(
+                      material["description"] as String,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.copy,
+                      size: 16,
+                      color: Colors.white54,
+                    ),
+                    tooltip: "Copiar texto",
+                    onPressed: () => _copyToClipboard(
+                      context,
+                      material["description"] as String,
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 8),
             ],
             if (linkUrl != null && linkUrl.trim().isNotEmpty) ...[
-              const Text("Link", style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold)),
-              Row(children: [
-                Expanded(child: SelectableText(linkUrl, style: const TextStyle(color: Colors.tealAccent, fontSize: 13))),
-                IconButton(icon: const Icon(Icons.copy, size: 16, color: Colors.white54), tooltip: "Copiar link", onPressed: () => _copyToClipboard(context, linkUrl)),
-              ]),
+              const Text(
+                "Link",
+                style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: SelectableText(
+                      linkUrl,
+                      style: const TextStyle(
+                        color: Colors.tealAccent,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.copy,
+                      size: 16,
+                      color: Colors.white54,
+                    ),
+                    tooltip: "Copiar link",
+                    onPressed: () => _copyToClipboard(context, linkUrl),
+                  ),
+                ],
+              ),
               const SizedBox(height: 8),
             ],
             if (fileUrl != null && fileUrl.trim().isNotEmpty) ...[
-              const Text("Arquivo", style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold)),
-              Row(children: [
-                Expanded(child: SelectableText(fileUrl, style: const TextStyle(color: Colors.orangeAccent, fontSize: 13))),
-                IconButton(icon: const Icon(Icons.copy, size: 16, color: Colors.white54), tooltip: "Copiar link", onPressed: () => _copyToClipboard(context, fileUrl)),
-              ]),
+              const Text(
+                "Arquivo",
+                style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: SelectableText(
+                      fileUrl,
+                      style: const TextStyle(
+                        color: Colors.orangeAccent,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.copy,
+                      size: 16,
+                      color: Colors.white54,
+                    ),
+                    tooltip: "Copiar link",
+                    onPressed: () => _copyToClipboard(context, fileUrl),
+                  ),
+                ],
+              ),
               const SizedBox(height: 8),
             ],
             if (imageUrl != null && imageUrl.trim().isNotEmpty) ...[
-              const Text("Imagem", style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold)),
+              const Text(
+                "Imagem",
+                style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 6),
-              ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(imageUrl, height: 140, fit: BoxFit.cover)),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(imageUrl, height: 140, fit: BoxFit.cover),
+              ),
             ],
-            if ((material["description"] as String?)?.isNotEmpty != true && linkUrl == null && fileUrl == null && imageUrl == null)
-              const Text("Sem conteudo adicional.", style: TextStyle(color: Colors.white38)),
+            if ((material["description"] as String?)?.isNotEmpty != true &&
+                linkUrl == null &&
+                fileUrl == null &&
+                imageUrl == null)
+              const Text(
+                "Sem conteudo adicional.",
+                style: TextStyle(color: Colors.white38),
+              ),
           ],
         ),
       ),
-      actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text("Fechar"))],
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text("Fechar"),
+        ),
+      ],
     ),
   );
 }
@@ -491,19 +873,37 @@ class _MaterialDetailDialogState extends State<_MaterialDetailDialog> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A1A),
-        title: Text(isOfficial ? "Excluir documento oficial?" : "Excluir material?", style: const TextStyle(color: Colors.white)),
+        title: Text(
+          isOfficial ? "Excluir documento oficial?" : "Excluir material?",
+          style: const TextStyle(color: Colors.white),
+        ),
         content: Text(
-          isOfficial ? "Voce esta excluindo um documento oficial. Deseja continuar?" : "Nao pode ser desfeito.",
+          isOfficial
+              ? "Voce esta excluindo um documento oficial. Deseja continuar?"
+              : "Nao pode ser desfeito.",
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text("Cancelar")),
-          ElevatedButton(onPressed: () => Navigator.of(context).pop(true), style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white), child: const Text("Excluir")),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text("Cancelar"),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Excluir"),
+          ),
         ],
       ),
     );
     if (confirmed == true) {
-      await Supabase.instance.client.from("training_materials").delete().eq("id", widget.material["id"]);
+      await Supabase.instance.client
+          .from("training_materials")
+          .delete()
+          .eq("id", widget.material["id"]);
       if (mounted) Navigator.of(context).pop();
     }
   }
@@ -524,16 +924,31 @@ class _MaterialDetailDialogState extends State<_MaterialDetailDialog> {
   Widget build(BuildContext context) {
     final m = widget.material;
     final authorData = m["managers"];
-    final authorEmail = authorData is Map ? authorData["login_email"] as String? : null;
+    final authorEmail = authorData is Map
+        ? authorData["login_email"] as String?
+        : null;
     final authorRole = authorData is Map ? authorData["role"] as String? : null;
     final isMine = m["author_id"] == widget.myUserId;
-    final isOfficial = !isMine && (authorRole == "coordenador" || authorRole == "admin");
-    final createdDate = m["created_at"] != null ? DateTime.parse(m["created_at"]).toLocal().toString().substring(0, 16) : "-";
+    final isOfficial =
+        !isMine && (authorRole == "coordenador" || authorRole == "admin");
+    final createdDate = m["created_at"] != null
+        ? DateTime.parse(m["created_at"]).toLocal().toString().substring(0, 16)
+        : "-";
     final authorColor = _colorForAuthor(authorEmail);
-    final stageName = stageTabs.firstWhere((s) => s.$1 == m["stage"], orElse: () => (m["stage"] as String? ?? "-", m["stage"] as String? ?? "-")).$2;
+    final stageName = stageTabs
+        .firstWhere(
+          (s) => s.$1 == m["stage"],
+          orElse: () =>
+              (m["stage"] as String? ?? "-", m["stage"] as String? ?? "-"),
+        )
+        .$2;
     final niche = m["niche"] as String?;
     final dayKey = m["onboarding_stage_key"] as String?;
-    final dayLabel = dayKey != null ? onboardingDayKeys.firstWhere((d) => d.$1 == dayKey, orElse: () => (dayKey, dayKey)).$2 : null;
+    final dayLabel = dayKey != null
+        ? _allDayKeys
+              .firstWhere((d) => d.$1 == dayKey, orElse: () => (dayKey, dayKey))
+              .$2
+        : null;
 
     return Dialog(
       backgroundColor: const Color(0xFF1A1A1A),
@@ -546,40 +961,125 @@ class _MaterialDetailDialogState extends State<_MaterialDetailDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(children: [
-                  Expanded(child: Text(m["title"] as String, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold))),
-                  if (isOfficial)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
-                      child: const Text("OFICIAL", style: TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        m["title"] as String,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                  IconButton(icon: const Icon(Icons.edit, color: Colors.white54, size: 18), onPressed: _edit),
-                  IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18), onPressed: _delete),
-                ]),
-                const SizedBox(height: 8),
-                Row(children: [
-                  Text("Fase: " + stageName + (dayLabel != null ? " - " + dayLabel : ""), style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                  if (niche != null) ...[
-                    const SizedBox(width: 10),
-                    Icon(categoryIcon(niche), size: 14, color: categoryColor(niche)),
-                    const SizedBox(width: 4),
-                    Text(_nicheFilterOptions.firstWhere((o) => o.$1 == niche, orElse: () => (niche, niche)).$2, style: TextStyle(color: categoryColor(niche), fontSize: 12, fontWeight: FontWeight.bold)),
+                    if (isOfficial)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.redAccent.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text(
+                          "OFICIAL",
+                          style: TextStyle(
+                            color: Colors.redAccent,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.edit,
+                        color: Colors.white54,
+                        size: 18,
+                      ),
+                      onPressed: _edit,
+                    ),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.redAccent,
+                        size: 18,
+                      ),
+                      onPressed: _delete,
+                    ),
                   ],
-                ]),
-                Text("Criado por: " + (authorEmail ?? "sistema") + " em " + createdDate, style: TextStyle(color: isOfficial ? authorColor : Colors.white54, fontSize: 12, fontStyle: FontStyle.italic)),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text(
+                      "Fase: " +
+                          stageName +
+                          (dayLabel != null ? " - " + dayLabel : ""),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
+                    ),
+                    if (niche != null) ...[
+                      const SizedBox(width: 10),
+                      Icon(
+                        categoryIcon(niche),
+                        size: 14,
+                        color: categoryColor(niche),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _nicheFilterOptions
+                            .firstWhere(
+                              (o) => o.$1 == niche,
+                              orElse: () => (niche, niche),
+                            )
+                            .$2,
+                        style: TextStyle(
+                          color: categoryColor(niche),
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                Text(
+                  "Criado por: " +
+                      (authorEmail ?? "sistema") +
+                      " em " +
+                      createdDate,
+                  style: TextStyle(
+                    color: isOfficial ? authorColor : Colors.white54,
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
                 const SizedBox(height: 16),
                 if ((m["description"] as String?)?.isNotEmpty == true) ...[
-                  const Text("Texto", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                  const Text(
+                    "Texto",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
                   const SizedBox(height: 4),
-                  SelectableText(m["description"], style: const TextStyle(color: Colors.white70)),
+                  SelectableText(
+                    m["description"],
+                    style: const TextStyle(color: Colors.white70),
+                  ),
                   const SizedBox(height: 12),
                 ],
                 if ((m["link_url"] as String?)?.isNotEmpty == true)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: OutlinedButton.icon(
-                      onPressed: () => _openLink(context, m["link_url"] as String),
+                      onPressed: () =>
+                          _openLink(context, m["link_url"] as String),
                       icon: const Icon(Icons.open_in_new, size: 16),
                       label: const Text("Abrir link"),
                     ),
@@ -588,19 +1088,40 @@ class _MaterialDetailDialogState extends State<_MaterialDetailDialog> {
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: OutlinedButton.icon(
-                      onPressed: () => _openLink(context, m["file_url"] as String),
+                      onPressed: () =>
+                          _openLink(context, m["file_url"] as String),
                       icon: const Icon(Icons.attach_file, size: 16),
                       label: const Text("Abrir arquivo"),
                     ),
                   ),
                 if ((m["image_url"] as String?)?.isNotEmpty == true) ...[
-                  const Text("Imagem", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                  const Text(
+                    "Imagem",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
                   const SizedBox(height: 6),
-                  ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(m["image_url"], height: 160, fit: BoxFit.cover)),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      m["image_url"],
+                      height: 160,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
                   const SizedBox(height: 12),
                 ],
                 const SizedBox(height: 12),
-                Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text("Fechar"))),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text("Fechar"),
+                  ),
+                ),
               ],
             ),
           ),
@@ -614,13 +1135,20 @@ class OnboardingMaterialFormDialog extends StatefulWidget {
   final Map<String, dynamic>? existing;
   final String defaultStage;
   final String? defaultDayKey;
-  const OnboardingMaterialFormDialog({super.key, this.existing, required this.defaultStage, this.defaultDayKey});
+  const OnboardingMaterialFormDialog({
+    super.key,
+    this.existing,
+    required this.defaultStage,
+    this.defaultDayKey,
+  });
 
   @override
-  State<OnboardingMaterialFormDialog> createState() => _OnboardingMaterialFormDialogState();
+  State<OnboardingMaterialFormDialog> createState() =>
+      _OnboardingMaterialFormDialogState();
 }
 
-class _OnboardingMaterialFormDialogState extends State<OnboardingMaterialFormDialog> {
+class _OnboardingMaterialFormDialogState
+    extends State<OnboardingMaterialFormDialog> {
   final _titleController = TextEditingController();
   final _textController = TextEditingController();
   final _linkController = TextEditingController();
@@ -656,12 +1184,23 @@ class _OnboardingMaterialFormDialogState extends State<OnboardingMaterialFormDia
 
   Future<void> _pickFile({required bool isImage}) async {
     setState(() {
-      if (isImage) { _uploadingImage = true; } else { _uploadingFile = true; }
+      if (isImage) {
+        _uploadingImage = true;
+      } else {
+        _uploadingFile = true;
+      }
     });
-    final result = await FilePicker.platform.pickFiles(type: isImage ? FileType.image : FileType.any, withData: true);
+    final result = await FilePicker.platform.pickFiles(
+      type: isImage ? FileType.image : FileType.any,
+      withData: true,
+    );
     if (result == null || result.files.isEmpty) {
       setState(() {
-        if (isImage) { _uploadingImage = false; } else { _uploadingFile = false; }
+        if (isImage) {
+          _uploadingImage = false;
+        } else {
+          _uploadingFile = false;
+        }
       });
       return;
     }
@@ -669,15 +1208,24 @@ class _OnboardingMaterialFormDialogState extends State<OnboardingMaterialFormDia
     final bytes = file.bytes;
     if (bytes == null) {
       setState(() {
-        if (isImage) { _uploadingImage = false; } else { _uploadingFile = false; }
+        if (isImage) {
+          _uploadingImage = false;
+        } else {
+          _uploadingFile = false;
+        }
       });
       return;
     }
     final client = Supabase.instance.client;
-    final path = DateTime.now().millisecondsSinceEpoch.toString() + "_" + file.name;
+    final path =
+        DateTime.now().millisecondsSinceEpoch.toString() + "_" + file.name;
     try {
-      await client.storage.from("material_attachments").uploadBinary(path, bytes);
-      final publicUrl = client.storage.from("material_attachments").getPublicUrl(path);
+      await client.storage
+          .from("material_attachments")
+          .uploadBinary(path, bytes);
+      final publicUrl = client.storage
+          .from("material_attachments")
+          .getPublicUrl(path);
       setState(() {
         if (isImage) {
           _imageUrl = publicUrl;
@@ -691,9 +1239,16 @@ class _OnboardingMaterialFormDialogState extends State<OnboardingMaterialFormDia
       });
     } catch (e) {
       setState(() {
-        if (isImage) { _uploadingImage = false; } else { _uploadingFile = false; }
+        if (isImage) {
+          _uploadingImage = false;
+        } else {
+          _uploadingFile = false;
+        }
       });
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erro ao enviar: " + e.toString())));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Erro ao enviar: " + e.toString())),
+        );
     }
   }
 
@@ -710,7 +1265,11 @@ class _OnboardingMaterialFormDialogState extends State<OnboardingMaterialFormDia
     final client = Supabase.instance.client;
     final userId = client.auth.currentUser!.id;
     try {
-      final manager = await client.from("managers").select("agency_id").eq("id", userId).single();
+      final manager = await client
+          .from("managers")
+          .select("agency_id")
+          .eq("id", userId)
+          .single();
 
       final data = {
         "agency_id": manager["agency_id"],
@@ -729,7 +1288,10 @@ class _OnboardingMaterialFormDialogState extends State<OnboardingMaterialFormDia
       };
 
       if (widget.existing != null) {
-        await client.from("training_materials").update(data).eq("id", widget.existing!["id"]);
+        await client
+            .from("training_materials")
+            .update(data)
+            .eq("id", widget.existing!["id"]);
       } else {
         await client.from("training_materials").insert(data);
       }
@@ -756,84 +1318,194 @@ class _OnboardingMaterialFormDialogState extends State<OnboardingMaterialFormDia
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(widget.existing != null ? "Editar material" : "Novo material", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                Text(
+                  widget.existing != null ? "Editar material" : "Novo material",
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 const SizedBox(height: 16),
-                const Text("Fase", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                const Text(
+                  "Fase",
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
                 const SizedBox(height: 4),
                 DropdownButton<String>(
                   value: _stage,
                   isExpanded: true,
                   dropdownColor: const Color(0xFF1A1A1A),
                   style: const TextStyle(color: Colors.white),
-                  items: stageTabs.map((s) => DropdownMenuItem(value: s.$1, child: Text(s.$2))).toList(),
+                  items: stageTabs
+                      .map(
+                        (s) => DropdownMenuItem(value: s.$1, child: Text(s.$2)),
+                      )
+                      .toList(),
                   onChanged: (v) => setState(() {
                     _stage = v ?? _stage;
-                    if (_stage != "onboarding_15") _dayKey = null;
+                    if (_dayKeysByStage[_stage] == null) _dayKey = null;
                   }),
                 ),
-                if (_stage == "onboarding_15") ...[
+                if (_dayKeysByStage[_stage] != null) ...[
                   const SizedBox(height: 12),
-                  const Text("Dia da etapa", style: TextStyle(color: Colors.white54, fontSize: 12)),
-                  const Text("O material aparece automaticamente quando o streamer estiver neste dia.", style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic)),
+                  const Text(
+                    "Dia da etapa",
+                    style: TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                  const Text(
+                    "O material aparece automaticamente quando o streamer estiver neste dia.",
+                    style: TextStyle(
+                      color: Colors.white38,
+                      fontSize: 11,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
                   const SizedBox(height: 4),
                   DropdownButton<String>(
                     value: _dayKey,
                     isExpanded: true,
-                    hint: const Text("Selecione o dia", style: TextStyle(color: Colors.white38)),
+                    hint: const Text(
+                      "Selecione o dia",
+                      style: TextStyle(color: Colors.white38),
+                    ),
                     dropdownColor: const Color(0xFF1A1A1A),
                     style: const TextStyle(color: Colors.white),
-                    items: onboardingDayKeys.map((d) => DropdownMenuItem(value: d.$1, child: Text(d.$2))).toList(),
+                    items: _dayKeysByStage[_stage]!
+                        .map(
+                          (d) =>
+                              DropdownMenuItem(value: d.$1, child: Text(d.$2)),
+                        )
+                        .toList(),
                     onChanged: (v) => setState(() => _dayKey = v),
                   ),
                 ],
                 const SizedBox(height: 12),
-                const Text("Nicho (opcional -- vazio aparece para todos)", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                const Text(
+                  "Nicho (opcional -- vazio aparece para todos)",
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
                 const SizedBox(height: 4),
                 DropdownButton<String?>(
                   value: _niche,
                   isExpanded: true,
                   dropdownColor: const Color(0xFF1A1A1A),
                   style: const TextStyle(color: Colors.white),
-                  items: _nicheFilterOptions.map((o) => DropdownMenuItem(value: o.$1, child: Text(o.$2))).toList(),
+                  items: _nicheFilterOptions
+                      .map(
+                        (o) => DropdownMenuItem(value: o.$1, child: Text(o.$2)),
+                      )
+                      .toList(),
                   onChanged: (v) => setState(() => _niche = v),
                 ),
                 const SizedBox(height: 12),
-                TextField(controller: _titleController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Titulo", labelStyle: TextStyle(color: Colors.white54))),
+                TextField(
+                  controller: _titleController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: "Titulo",
+                    labelStyle: TextStyle(color: Colors.white54),
+                  ),
+                ),
                 const SizedBox(height: 8),
-                TextField(controller: _textController, maxLines: 4, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Texto", labelStyle: TextStyle(color: Colors.white54))),
+                TextField(
+                  controller: _textController,
+                  maxLines: 4,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: "Texto",
+                    labelStyle: TextStyle(color: Colors.white54),
+                  ),
+                ),
                 const SizedBox(height: 8),
-                TextField(controller: _linkController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Link (opcional)", labelStyle: TextStyle(color: Colors.white54))),
+                TextField(
+                  controller: _linkController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: "Link (opcional)",
+                    labelStyle: TextStyle(color: Colors.white54),
+                  ),
+                ),
                 const SizedBox(height: 12),
-                Row(children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _uploadingFile ? null : () => _pickFile(isImage: false),
-                      icon: const Icon(Icons.attach_file, size: 16),
-                      label: Text(_uploadingFile ? "Enviando..." : (_fileName ?? "Anexar arquivo"), overflow: TextOverflow.ellipsis),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _uploadingFile
+                            ? null
+                            : () => _pickFile(isImage: false),
+                        icon: const Icon(Icons.attach_file, size: 16),
+                        label: Text(
+                          _uploadingFile
+                              ? "Enviando..."
+                              : (_fileName ?? "Anexar arquivo"),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _uploadingImage
+                            ? null
+                            : () => _pickFile(isImage: true),
+                        icon: const Icon(Icons.image, size: 16),
+                        label: Text(
+                          _uploadingImage
+                              ? "Enviando..."
+                              : (_imageName ?? "Anexar imagem"),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (_fileUrl != null)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 4),
+                    child: Text(
+                      "Arquivo pronto.",
+                      style: TextStyle(color: Colors.greenAccent, fontSize: 11),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _uploadingImage ? null : () => _pickFile(isImage: true),
-                      icon: const Icon(Icons.image, size: 16),
-                      label: Text(_uploadingImage ? "Enviando..." : (_imageName ?? "Anexar imagem"), overflow: TextOverflow.ellipsis),
+                if (_imageUrl != null)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 4),
+                    child: Text(
+                      "Imagem pronta.",
+                      style: TextStyle(color: Colors.greenAccent, fontSize: 11),
                     ),
                   ),
-                ]),
-                if (_fileUrl != null) const Padding(padding: EdgeInsets.only(top: 4), child: Text("Arquivo pronto.", style: TextStyle(color: Colors.greenAccent, fontSize: 11))),
-                if (_imageUrl != null) const Padding(padding: EdgeInsets.only(top: 4), child: Text("Imagem pronta.", style: TextStyle(color: Colors.greenAccent, fontSize: 11))),
-                if (_errorMessage != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_errorMessage!, style: const TextStyle(color: Colors.redAccent, fontSize: 12))),
+                if (_errorMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      _errorMessage!,
+                      style: const TextStyle(
+                        color: Colors.redAccent,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 16),
-                Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                  TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text("Cancelar")),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: _saving ? null : _save,
-                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
-                    child: Text(_saving ? "Salvando..." : "Salvar"),
-                  ),
-                ]),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      child: const Text("Cancelar"),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: _saving ? null : _save,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF7A0BD4),
+                        foregroundColor: Colors.white,
+                      ),
+                      child: Text(_saving ? "Salvando..." : "Salvar"),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),

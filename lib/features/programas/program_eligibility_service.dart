@@ -10,9 +10,15 @@ class CategoryOverride {
   final double? minHours;
   final num? minDiamonds;
   final int? minBattles;
-  const CategoryOverride({this.minDaysValidated, this.minHours, this.minDiamonds, this.minBattles});
+  const CategoryOverride({
+    this.minDaysValidated,
+    this.minHours,
+    this.minDiamonds,
+    this.minBattles,
+  });
 
-  factory CategoryOverride.fromMap(Map<String, dynamic> map) => CategoryOverride(
+  factory CategoryOverride.fromMap(Map<String, dynamic> map) =>
+      CategoryOverride(
         minDaysValidated: map["min_days_validated"] as int?,
         minHours: (map["min_hours"] as num?)?.toDouble(),
         minDiamonds: map["min_diamonds"] as num?,
@@ -20,13 +26,17 @@ class CategoryOverride {
       );
 
   Map<String, dynamic> toMap() => {
-        "min_days_validated": minDaysValidated,
-        "min_hours": minHours,
-        "min_diamonds": minDiamonds,
-        "min_battles": minBattles,
-      };
+    "min_days_validated": minDaysValidated,
+    "min_hours": minHours,
+    "min_diamonds": minDiamonds,
+    "min_battles": minBattles,
+  };
 
-  bool get isEmpty => minDaysValidated == null && minHours == null && minDiamonds == null && minBattles == null;
+  bool get isEmpty =>
+      minDaysValidated == null &&
+      minHours == null &&
+      minDiamonds == null &&
+      minBattles == null;
 }
 
 /// Criterios configuraveis de um programa (development_programs.criteria).
@@ -103,6 +113,24 @@ class ProgramCriteria {
 
   final List<String> categoryIds;
 
+  /// "criterios" (padrao, faixa min/max abaixo) ou "manual" (lista fixa de
+  /// streamers escolhidos a dedo, ignorando as faixas -- ver
+  /// manualStreamerIds).
+  final String selectionMode;
+  final List<String> manualStreamerIds;
+
+  /// "metas" (padrao, aprova/reprova por meta batida) ou "pontos" (so
+  /// ranqueia os candidatos pela metrica escolhida em pointsMetric, sem
+  /// aprovar/reprovar ninguem -- ver rankByPoints).
+  final String trackingMode;
+  final String pointsMetric;
+
+  /// Filtros de inclusao aplicados como hard gate, junto de categoria/dias-
+  /// maximo/diamantes-maximo: novato = ate 90 dias na agencia; inativo = sem
+  /// live nos ultimos 30 dias (StreamerSnapshot.isInactive).
+  final bool includeNovatos;
+  final bool includeInativos;
+
   const ProgramCriteria({
     this.minDays,
     this.maxDaysInAgency,
@@ -133,6 +161,12 @@ class ProgramCriteria {
     this.approvalRuleMode = "todas",
     this.approvalMinPercentage = 100,
     this.categoryIds = const [],
+    this.selectionMode = "criterios",
+    this.manualStreamerIds = const [],
+    this.trackingMode = "metas",
+    this.pointsMetric = "diamonds_current",
+    this.includeNovatos = true,
+    this.includeInativos = true,
   });
 
   factory ProgramCriteria.fromMap(Map<String, dynamic>? map) {
@@ -144,14 +178,21 @@ class ProgramCriteria {
     final minHeartMe = map["min_heart_me"] as num?;
     final minBattles = map["min_battles"] as int?;
 
-    final categoryOverridesMap = map["category_overrides"] as Map<String, dynamic>?;
-    final legacyBattlesByCategory = map["battles_by_category"] as Map<String, dynamic>?;
+    final categoryOverridesMap =
+        map["category_overrides"] as Map<String, dynamic>?;
+    final legacyBattlesByCategory =
+        map["battles_by_category"] as Map<String, dynamic>?;
     Map<String, CategoryOverride> categoryOverrides;
     if (categoryOverridesMap != null) {
-      categoryOverrides = categoryOverridesMap.map((k, v) => MapEntry(k, CategoryOverride.fromMap(v as Map<String, dynamic>)));
+      categoryOverrides = categoryOverridesMap.map(
+        (k, v) =>
+            MapEntry(k, CategoryOverride.fromMap(v as Map<String, dynamic>)),
+      );
     } else if (legacyBattlesByCategory != null) {
       // Dado antigo (so cobria batalhas por categoria) -- migra so esse valor.
-      categoryOverrides = legacyBattlesByCategory.map((k, v) => MapEntry(k, CategoryOverride(minBattles: v as int)));
+      categoryOverrides = legacyBattlesByCategory.map(
+        (k, v) => MapEntry(k, CategoryOverride(minBattles: v as int)),
+      );
     } else {
       categoryOverrides = const {};
     }
@@ -176,11 +217,13 @@ class ProgramCriteria {
       // dessas duas flags existirem.
       daysEnabled: map["days_enabled"] as bool? ?? (minDays != null),
       daysRequired: map["days_required"] as bool? ?? true,
-      daysValidatedEnabled: map["days_validated_enabled"] as bool? ?? (minDaysValidated != null),
+      daysValidatedEnabled:
+          map["days_validated_enabled"] as bool? ?? (minDaysValidated != null),
       daysValidatedRequired: map["days_validated_required"] as bool? ?? true,
       hoursEnabled: map["hours_enabled"] as bool? ?? (minHours != null),
       hoursRequired: map["hours_required"] as bool? ?? true,
-      diamondsEnabled: map["diamonds_enabled"] as bool? ?? (minDiamonds != null),
+      diamondsEnabled:
+          map["diamonds_enabled"] as bool? ?? (minDiamonds != null),
       diamondsRequired: map["diamonds_required"] as bool? ?? true,
       heartMeEnabled: map["heart_me_enabled"] as bool? ?? (minHeartMe != null),
       heartMeRequired: map["heart_me_required"] as bool? ?? true,
@@ -189,51 +232,68 @@ class ProgramCriteria {
       approvalRuleMode: map["approval_rule_mode"] as String? ?? "todas",
       approvalMinPercentage: map["approval_min_percentage"] as int? ?? 100,
       categoryIds: ((map["category_ids"] as List?) ?? const []).cast<String>(),
+      selectionMode: map["selection_mode"] as String? ?? "criterios",
+      manualStreamerIds: ((map["manual_streamer_ids"] as List?) ?? const [])
+          .cast<String>(),
+      trackingMode: map["tracking_mode"] as String? ?? "metas",
+      pointsMetric: map["points_metric"] as String? ?? "diamonds_current",
+      includeNovatos: map["include_novatos"] as bool? ?? true,
+      includeInativos: map["include_inativos"] as bool? ?? true,
     );
   }
 
   Map<String, dynamic> toMap() => {
-        "min_days": minDays,
-        "max_days_in_agency": maxDaysInAgency,
-        "min_days_validated": minDaysValidated,
-        "min_hours": minHours,
-        "min_diamonds": minDiamonds,
-        "max_diamonds": maxDiamonds,
-        "min_heart_me": minHeartMe,
-        "min_battles": minBattles,
-        "category_overrides": categoryOverrides.map((k, v) => MapEntry(k, v.toMap())),
-        "membership_mode": membershipMode,
-        "ticket_quantity": ticketQuantity,
-        "diamonds_period": diamondsPeriod,
-        "hours_period": hoursPeriod,
-        "days_validated_period": daysValidatedPeriod,
-        "days_enabled": daysEnabled,
-        "days_required": daysRequired,
-        "days_validated_enabled": daysValidatedEnabled,
-        "days_validated_required": daysValidatedRequired,
-        "hours_enabled": hoursEnabled,
-        "hours_required": hoursRequired,
-        "diamonds_enabled": diamondsEnabled,
-        "diamonds_required": diamondsRequired,
-        "heart_me_enabled": heartMeEnabled,
-        "heart_me_required": heartMeRequired,
-        "battles_enabled": battlesEnabled,
-        "battles_required": battlesRequired,
-        "approval_rule_mode": approvalRuleMode,
-        "approval_min_percentage": approvalMinPercentage,
-        "category_ids": categoryIds,
-      };
+    "min_days": minDays,
+    "max_days_in_agency": maxDaysInAgency,
+    "min_days_validated": minDaysValidated,
+    "min_hours": minHours,
+    "min_diamonds": minDiamonds,
+    "max_diamonds": maxDiamonds,
+    "min_heart_me": minHeartMe,
+    "min_battles": minBattles,
+    "category_overrides": categoryOverrides.map(
+      (k, v) => MapEntry(k, v.toMap()),
+    ),
+    "membership_mode": membershipMode,
+    "ticket_quantity": ticketQuantity,
+    "diamonds_period": diamondsPeriod,
+    "hours_period": hoursPeriod,
+    "days_validated_period": daysValidatedPeriod,
+    "days_enabled": daysEnabled,
+    "days_required": daysRequired,
+    "days_validated_enabled": daysValidatedEnabled,
+    "days_validated_required": daysValidatedRequired,
+    "hours_enabled": hoursEnabled,
+    "hours_required": hoursRequired,
+    "diamonds_enabled": diamondsEnabled,
+    "diamonds_required": diamondsRequired,
+    "heart_me_enabled": heartMeEnabled,
+    "heart_me_required": heartMeRequired,
+    "battles_enabled": battlesEnabled,
+    "battles_required": battlesRequired,
+    "approval_rule_mode": approvalRuleMode,
+    "approval_min_percentage": approvalMinPercentage,
+    "category_ids": categoryIds,
+    "selection_mode": selectionMode,
+    "manual_streamer_ids": manualStreamerIds,
+    "tracking_mode": trackingMode,
+    "points_metric": pointsMetric,
+    "include_novatos": includeNovatos,
+    "include_inativos": includeInativos,
+  };
 
-  bool get isEmpty =>
-      !(daysEnabled && minDays != null) &&
-      maxDaysInAgency == null &&
-      !(daysValidatedEnabled && minDaysValidated != null) &&
-      !(hoursEnabled && minHours != null) &&
-      !(diamondsEnabled && minDiamonds != null) &&
-      maxDiamonds == null &&
-      !(heartMeEnabled && minHeartMe != null) &&
-      !(battlesEnabled && minBattles != null) &&
-      categoryIds.isEmpty;
+  bool get isEmpty {
+    if (selectionMode == "manual") return manualStreamerIds.isEmpty;
+    return !(daysEnabled && minDays != null) &&
+        maxDaysInAgency == null &&
+        !(daysValidatedEnabled && minDaysValidated != null) &&
+        !(hoursEnabled && minHours != null) &&
+        !(diamondsEnabled && minDiamonds != null) &&
+        maxDiamonds == null &&
+        !(heartMeEnabled && minHeartMe != null) &&
+        !(battlesEnabled && minBattles != null) &&
+        categoryIds.isEmpty;
+  }
 }
 
 class StreamerSnapshot {
@@ -251,9 +311,11 @@ class StreamerSnapshot {
   final DateTime? lastLiveAt;
 
   /// Preenchidos so quando a tela esta calculando pra um mes especifico
-  /// (fetchMonthlyGains/resolveMonthlySnapshots, program_monthly_stats_service.dart)
-  /// -- null significa "nao calculado" (quem so usa criterio "total" nunca
-  /// preenche isso) ou "sem snapshot suficiente ainda pra aquele mes".
+  /// (resolveMonthlySnapshots, program_monthly_stats_service.dart) -- vem de
+  /// streamer_stats (mes atual) e monthly_stats (mes anterior fechado, mesma
+  /// fonte da aba Metricas Streamers). null significa "nao calculado" (quem
+  /// so usa criterio "total" nunca preenche isso) ou "sem mes anterior
+  /// fechado ainda pra esse streamer".
   final num? diamondsThisMonth;
   final num? diamondsLastMonth;
   final double? hoursThisMonth;
@@ -314,9 +376,20 @@ class StreamerSnapshot {
       daysValidatedLastMonth: daysValidatedLastMonth,
     );
   }
+
+  /// Sem live nos ultimos 30 dias (ou nunca ficou ao vivo) -- usado pelo
+  /// filtro "incluir/nao incluir criadores inativos". Usa last_live_at (ja
+  /// confiavel, populado pela importacao) em vez de tentar computar dias/
+  /// horas validadas numa janela rolante de 30 dias a partir de
+  /// streamer_stat_snapshots, que so tem dado quando alguem abre a tela do
+  /// programa sob demanda -- a mesma fragilidade ja corrigida em outros
+  /// pontos deste modulo.
+  bool get isInactive =>
+      lastLiveAt == null || DateTime.now().difference(lastLiveAt!).inDays > 30;
 }
 
-const _profileSnapshotSelect = "id, display_name, avatar_url, joined_at, last_live_at, category_id, streamer_categories(name), streamer_stats(days_live, hours_live, diamonds, battles, heart_me)";
+const _profileSnapshotSelect =
+    "id, display_name, avatar_url, joined_at, last_live_at, category_id, streamer_categories(name), streamer_stats(days_live, hours_live, diamonds, battles, heart_me)";
 
 StreamerSnapshot _snapshotFromProfileRow(Map<String, dynamic> r) {
   final statsData = r["streamer_stats"];
@@ -327,7 +400,9 @@ StreamerSnapshot _snapshotFromProfileRow(Map<String, dynamic> r) {
     stats = statsData as Map<String, dynamic>;
   }
   final catData = r["streamer_categories"];
-  final joinedAt = r["joined_at"] != null ? DateTime.parse(r["joined_at"] as String) : null;
+  final joinedAt = r["joined_at"] != null
+      ? DateTime.parse(r["joined_at"] as String)
+      : null;
 
   return StreamerSnapshot(
     id: r["id"] as String,
@@ -335,59 +410,102 @@ StreamerSnapshot _snapshotFromProfileRow(Map<String, dynamic> r) {
     avatarUrl: r["avatar_url"] as String?,
     categoryId: r["category_id"] as String?,
     categoryName: catData is Map ? catData["name"] as String? : null,
-    daysInAgency: joinedAt != null ? DateTime.now().difference(joinedAt).inDays : 0,
+    daysInAgency: joinedAt != null
+        ? DateTime.now().difference(joinedAt).inDays
+        : 0,
     daysValidated: (stats?["days_live"] as num?)?.toInt() ?? 0,
     hoursLive: (stats?["hours_live"] as num?)?.toDouble() ?? 0,
     diamonds: stats?["diamonds"] as num? ?? 0,
     heartMe: stats?["heart_me"] as num?,
     battles: (stats?["battles"] as num?)?.toInt() ?? 0,
-    lastLiveAt: r["last_live_at"] != null ? DateTime.parse(r["last_live_at"] as String) : null,
+    lastLiveAt: r["last_live_at"] != null
+        ? DateTime.parse(r["last_live_at"] as String)
+        : null,
   );
 }
 
-Future<List<StreamerSnapshot>> fetchActiveStreamerSnapshots({required String agencyId}) async {
+Future<List<StreamerSnapshot>> fetchActiveStreamerSnapshots({
+  required String agencyId,
+}) async {
   final client = Supabase.instance.client;
-  final rows = await client.from("profiles").select(_profileSnapshotSelect).eq("agency_id", agencyId).eq("is_active", true);
-  return (rows as List).map((r) => _snapshotFromProfileRow(r as Map<String, dynamic>)).toList();
+  final rows = await client
+      .from("profiles")
+      .select(_profileSnapshotSelect)
+      .eq("agency_id", agencyId)
+      .eq("is_active", true);
+  return (rows as List)
+      .map((r) => _snapshotFromProfileRow(r as Map<String, dynamic>))
+      .toList();
 }
 
 /// Igual fetchActiveStreamerSnapshots, mas por lista explicita de ids e sem
 /// filtro de is_active -- usado na aba Participantes, que precisa mostrar
 /// tambem quem ja foi desligado/concluiu (fetchActiveStreamerSnapshots so
 /// traz quem esta ativo hoje).
-Future<List<StreamerSnapshot>> fetchStreamerSnapshotsByIds({required List<String> streamerIds}) async {
+Future<List<StreamerSnapshot>> fetchStreamerSnapshotsByIds({
+  required List<String> streamerIds,
+}) async {
   if (streamerIds.isEmpty) return const [];
   final client = Supabase.instance.client;
-  final rows = await client.from("profiles").select(_profileSnapshotSelect).inFilter("id", streamerIds);
-  return (rows as List).map((r) => _snapshotFromProfileRow(r as Map<String, dynamic>)).toList();
+  final rows = await client
+      .from("profiles")
+      .select(_profileSnapshotSelect)
+      .inFilter("id", streamerIds);
+  return (rows as List)
+      .map((r) => _snapshotFromProfileRow(r as Map<String, dynamic>))
+      .toList();
 }
 
 /// Quais streamers ja concluiram (com outcome dentre okOutcomes) uma fase
 /// -- usado para saber quem ja pode ser considerado no proximo programa da
 /// cadeia.
-Future<Set<String>> fetchCompletedStreamerIds({required String phaseKey, List<String> okOutcomes = const ["aprovado", "graduado"]}) async {
+Future<Set<String>> fetchCompletedStreamerIds({
+  required String phaseKey,
+  List<String> okOutcomes = const ["aprovado", "graduado"],
+}) async {
   final client = Supabase.instance.client;
-  final rows = await client.from("streamer_phase_progress").select("streamer_id").eq("phase_key", phaseKey).inFilter("outcome", okOutcomes);
-  return (rows as List).map((r) => r["streamer_id"] as String).whereType<String>().toSet();
+  final rows = await client
+      .from("streamer_phase_progress")
+      .select("streamer_id")
+      .eq("phase_key", phaseKey)
+      .inFilter("outcome", okOutcomes);
+  return (rows as List)
+      .map((r) => r["streamer_id"] as String)
+      .whereType<String>()
+      .toSet();
 }
 
 /// Quem ja tem card (participante ativo ou ja concluido) num programa.
 Future<Set<String>> fetchEnrolledStreamerIds({required String phaseKey}) async {
   final client = Supabase.instance.client;
-  final rows = await client.from("streamer_phase_progress").select("streamer_id").eq("phase_key", phaseKey);
-  return (rows as List).map((r) => r["streamer_id"] as String).whereType<String>().toSet();
+  final rows = await client
+      .from("streamer_phase_progress")
+      .select("streamer_id")
+      .eq("phase_key", phaseKey);
+  return (rows as List)
+      .map((r) => r["streamer_id"] as String)
+      .whereType<String>()
+      .toSet();
 }
 
 /// Programa anterior na cadeia (quem tem next_program_key OU
 /// graduate_program_key apontando pra este) -- centraliza a busca que antes
 /// estava duplicada em programa_fluxo_tab.dart e programa_visao_geral_tab.dart.
-Future<String?> findPreviousProgramKey({required String agencyId, required String phaseKey}) async {
+Future<String?> findPreviousProgramKey({
+  required String agencyId,
+  required String phaseKey,
+}) async {
   final client = Supabase.instance.client;
   final previous = await client
       .from("development_programs")
       .select("program_key")
       .eq("agency_id", agencyId)
-      .or("next_program_key.eq." + phaseKey + ",graduate_program_key.eq." + phaseKey)
+      .or(
+        "next_program_key.eq." +
+            phaseKey +
+            ",graduate_program_key.eq." +
+            phaseKey,
+      )
       .maybeSingle();
   return previous?["program_key"] as String?;
 }
@@ -410,7 +528,12 @@ class _GoalCheck {
 /// calculou pra um mes -- ver StreamerSnapshot.copyWithMonthly). null = sem
 /// dado ainda pro periodo pedido (nao vira 0 -- so nao passa, sem gerar
 /// alerta especifico).
-T? _resolveMetric<T extends num>(String period, T total, T? thisMonth, T? lastMonth) {
+T? _resolveMetric<T extends num>(
+  String period,
+  T total,
+  T? thisMonth,
+  T? lastMonth,
+) {
   switch (period) {
     case "mes_atual":
       return thisMonth;
@@ -420,12 +543,24 @@ T? _resolveMetric<T extends num>(String period, T total, T? thisMonth, T? lastMo
       if (thisMonth == null) return lastMonth;
       if (lastMonth == null) return thisMonth;
       return thisMonth >= lastMonth ? thisMonth : lastMonth;
+    case "mes_anterior_prioritario":
+      // Prioriza o mes fechado (mais estavel que um mes ainda em andamento);
+      // so cai pro mes atual quando o streamer ainda nao tem mes anterior
+      // fechado (agenciado a pouco tempo). Usado em tetos (max_diamonds) onde
+      // um numero parcial do mes atual nao deve empurrar o streamer pra fora
+      // da faixa antes da hora.
+      if (lastMonth != null) return lastMonth;
+      return thisMonth;
     default:
       return total;
   }
 }
 
-T? _categoryOverrideValue<T>(ProgramCriteria c, String? categoryId, T? Function(CategoryOverride) pick) {
+T? _categoryOverrideValue<T>(
+  ProgramCriteria c,
+  String? categoryId,
+  T? Function(CategoryOverride) pick,
+) {
   if (categoryId == null) return null;
   final o = c.categoryOverrides[categoryId];
   if (o == null) return null;
@@ -441,60 +576,115 @@ T? _categoryOverrideValue<T>(ProgramCriteria c, String? categoryId, T? Function(
 /// decide, entre as metas ativas, o que conta pra elegibilidade final:
 /// todas / so as obrigatorias / um percentual minimo.
 EligibilityResult evaluateEligibility(StreamerSnapshot s, ProgramCriteria c) {
+  final novatoOk = c.includeNovatos || s.daysInAgency > 90;
+  final inativoOk = c.includeInativos || !s.isInactive;
+
+  // Selecao manual: elegibilidade e so "esta na lista escolhida a dedo",
+  // ignorando os checks de meta abaixo -- mas ainda passa pelos hard gates
+  // de categoria/novato/inativo (um streamer manualmente escolhido pode
+  // deixar de contar se ficar inativo, por exemplo).
+  if (c.selectionMode == "manual") {
+    final categoryOk =
+        c.categoryIds.isEmpty ||
+        (s.categoryId != null && c.categoryIds.contains(s.categoryId));
+    final onList = c.manualStreamerIds.contains(s.id);
+    return EligibilityResult(
+      eligible: onList && categoryOk && novatoOk && inativoOk,
+    );
+  }
+
   final gaps = <String>[];
   final checks = <_GoalCheck>[];
 
   if (c.daysEnabled && c.minDays != null) {
     final missing = c.minDays! - s.daysInAgency;
     final passed = missing <= 0;
-    if (!passed && missing <= 2) gaps.add(missing == 1 ? "Falta 1 dia" : "Faltam " + missing.toString() + " dias");
+    if (!passed && missing <= 2)
+      gaps.add(
+        missing == 1 ? "Falta 1 dia" : "Faltam " + missing.toString() + " dias",
+      );
     checks.add(_GoalCheck(passed: passed, required: c.daysRequired));
   }
 
-  final daysValidatedThreshold = _categoryOverrideValue<int>(c, s.categoryId, (o) => o.minDaysValidated) ?? c.minDaysValidated;
+  final daysValidatedThreshold =
+      _categoryOverrideValue<int>(c, s.categoryId, (o) => o.minDaysValidated) ??
+      c.minDaysValidated;
   if (c.daysValidatedEnabled && daysValidatedThreshold != null) {
-    final value = _resolveMetric(c.daysValidatedPeriod, s.daysValidated, s.daysValidatedThisMonth, s.daysValidatedLastMonth);
+    final value = _resolveMetric(
+      c.daysValidatedPeriod,
+      s.daysValidated,
+      s.daysValidatedThisMonth,
+      s.daysValidatedLastMonth,
+    );
     if (value == null) {
       checks.add(_GoalCheck(passed: false, required: c.daysValidatedRequired));
     } else {
       final missing = daysValidatedThreshold - value;
       final passed = missing <= 0;
-      if (!passed && missing <= 2) gaps.add(missing == 1 ? "Falta 1 dia validado" : "Faltam " + missing.toString() + " dias validados");
+      if (!passed && missing <= 2)
+        gaps.add(
+          missing == 1
+              ? "Falta 1 dia validado"
+              : "Faltam " + missing.toString() + " dias validados",
+        );
       checks.add(_GoalCheck(passed: passed, required: c.daysValidatedRequired));
     }
   }
 
-  final hoursThreshold = _categoryOverrideValue<double>(c, s.categoryId, (o) => o.minHours) ?? c.minHours;
+  final hoursThreshold =
+      _categoryOverrideValue<double>(c, s.categoryId, (o) => o.minHours) ??
+      c.minHours;
   if (c.hoursEnabled && hoursThreshold != null) {
-    final value = _resolveMetric(c.hoursPeriod, s.hoursLive, s.hoursThisMonth, s.hoursLastMonth);
+    final value = _resolveMetric(
+      c.hoursPeriod,
+      s.hoursLive,
+      s.hoursThisMonth,
+      s.hoursLastMonth,
+    );
     if (value == null) {
       checks.add(_GoalCheck(passed: false, required: c.hoursRequired));
     } else {
       final missing = hoursThreshold - value;
       final passed = missing <= 0;
-      if (!passed && missing <= 5) gaps.add("Faltam " + missing.toStringAsFixed(0) + " horas");
+      if (!passed && missing <= 5)
+        gaps.add("Faltam " + missing.toStringAsFixed(0) + " horas");
       checks.add(_GoalCheck(passed: passed, required: c.hoursRequired));
     }
   }
 
-  final diamondsThreshold = _categoryOverrideValue<num>(c, s.categoryId, (o) => o.minDiamonds) ?? c.minDiamonds;
-  final diamondsValue = _resolveMetric(c.diamondsPeriod, s.diamonds, s.diamondsThisMonth, s.diamondsLastMonth);
+  final diamondsThreshold =
+      _categoryOverrideValue<num>(c, s.categoryId, (o) => o.minDiamonds) ??
+      c.minDiamonds;
+  final diamondsValue = _resolveMetric(
+    c.diamondsPeriod,
+    s.diamonds,
+    s.diamondsThisMonth,
+    s.diamondsLastMonth,
+  );
   if (c.diamondsEnabled && diamondsThreshold != null) {
     if (diamondsValue == null) {
       checks.add(_GoalCheck(passed: false, required: c.diamondsRequired));
     } else {
       final missing = diamondsThreshold - diamondsValue;
       final passed = missing <= 0;
-      if (!passed && missing <= 1000) gaps.add("Faltam " + missing.toStringAsFixed(0) + " diamantes");
+      if (!passed && missing <= 1000)
+        gaps.add("Faltam " + missing.toStringAsFixed(0) + " diamantes");
       checks.add(_GoalCheck(passed: passed, required: c.diamondsRequired));
     }
   }
 
-  final battlesThreshold = _categoryOverrideValue<int>(c, s.categoryId, (o) => o.minBattles) ?? c.minBattles;
+  final battlesThreshold =
+      _categoryOverrideValue<int>(c, s.categoryId, (o) => o.minBattles) ??
+      c.minBattles;
   if (c.battlesEnabled && battlesThreshold != null) {
     final missing = battlesThreshold - s.battles;
     final passed = missing <= 0;
-    if (!passed && missing <= 2) gaps.add(missing == 1 ? "Falta 1 batalha" : "Faltam " + missing.toString() + " batalhas");
+    if (!passed && missing <= 2)
+      gaps.add(
+        missing == 1
+            ? "Falta 1 batalha"
+            : "Faltam " + missing.toString() + " batalhas",
+      );
     checks.add(_GoalCheck(passed: passed, required: c.battlesRequired));
   }
 
@@ -505,10 +695,16 @@ EligibilityResult evaluateEligibility(StreamerSnapshot s, ProgramCriteria c) {
     checks.add(_GoalCheck(passed: passed, required: c.heartMeRequired));
   }
 
-  final categoryOk = c.categoryIds.isEmpty || (s.categoryId != null && c.categoryIds.contains(s.categoryId));
-  final maxDaysOk = c.maxDaysInAgency == null || s.daysInAgency <= c.maxDaysInAgency!;
-  final maxDiamondsOk = c.maxDiamonds == null || (diamondsValue != null && diamondsValue <= c.maxDiamonds!);
-  final hardGatesOk = categoryOk && maxDaysOk && maxDiamondsOk;
+  final categoryOk =
+      c.categoryIds.isEmpty ||
+      (s.categoryId != null && c.categoryIds.contains(s.categoryId));
+  final maxDaysOk =
+      c.maxDaysInAgency == null || s.daysInAgency <= c.maxDaysInAgency!;
+  final maxDiamondsOk =
+      c.maxDiamonds == null ||
+      (diamondsValue != null && diamondsValue <= c.maxDiamonds!);
+  final hardGatesOk =
+      categoryOk && maxDaysOk && maxDiamondsOk && novatoOk && inativoOk;
 
   bool eligible;
   if (checks.isEmpty) {
@@ -521,7 +717,9 @@ EligibilityResult evaluateEligibility(StreamerSnapshot s, ProgramCriteria c) {
         break;
       case "percentual":
         final passedCount = checks.where((g) => g.passed).length;
-        eligible = hardGatesOk && (passedCount / checks.length * 100) >= c.approvalMinPercentage;
+        eligible =
+            hardGatesOk &&
+            (passedCount / checks.length * 100) >= c.approvalMinPercentage;
         break;
       default:
         eligible = hardGatesOk && checks.every((g) => g.passed);
@@ -538,31 +736,105 @@ EligibilityResult evaluateEligibility(StreamerSnapshot s, ProgramCriteria c) {
 /// da regra de aprovacao (que so decide o corte de elegibilidade).
 double progressFraction(StreamerSnapshot s, ProgramCriteria c) {
   final ratios = <double>[];
-  if (c.daysEnabled && c.minDays != null && c.minDays! > 0) ratios.add((s.daysInAgency / c.minDays!).clamp(0.0, 1.0));
+  if (c.daysEnabled && c.minDays != null && c.minDays! > 0)
+    ratios.add((s.daysInAgency / c.minDays!).clamp(0.0, 1.0));
 
-  final daysValidatedThreshold = _categoryOverrideValue<int>(c, s.categoryId, (o) => o.minDaysValidated) ?? c.minDaysValidated;
-  if (c.daysValidatedEnabled && daysValidatedThreshold != null && daysValidatedThreshold > 0) {
-    final value = _resolveMetric(c.daysValidatedPeriod, s.daysValidated, s.daysValidatedThisMonth, s.daysValidatedLastMonth);
-    if (value != null) ratios.add((value / daysValidatedThreshold).clamp(0.0, 1.0));
+  final daysValidatedThreshold =
+      _categoryOverrideValue<int>(c, s.categoryId, (o) => o.minDaysValidated) ??
+      c.minDaysValidated;
+  if (c.daysValidatedEnabled &&
+      daysValidatedThreshold != null &&
+      daysValidatedThreshold > 0) {
+    final value = _resolveMetric(
+      c.daysValidatedPeriod,
+      s.daysValidated,
+      s.daysValidatedThisMonth,
+      s.daysValidatedLastMonth,
+    );
+    if (value != null)
+      ratios.add((value / daysValidatedThreshold).clamp(0.0, 1.0));
   }
 
-  final hoursThreshold = _categoryOverrideValue<double>(c, s.categoryId, (o) => o.minHours) ?? c.minHours;
+  final hoursThreshold =
+      _categoryOverrideValue<double>(c, s.categoryId, (o) => o.minHours) ??
+      c.minHours;
   if (c.hoursEnabled && hoursThreshold != null && hoursThreshold > 0) {
-    final value = _resolveMetric(c.hoursPeriod, s.hoursLive, s.hoursThisMonth, s.hoursLastMonth);
+    final value = _resolveMetric(
+      c.hoursPeriod,
+      s.hoursLive,
+      s.hoursThisMonth,
+      s.hoursLastMonth,
+    );
     if (value != null) ratios.add((value / hoursThreshold).clamp(0.0, 1.0));
   }
 
-  final diamondsThreshold = _categoryOverrideValue<num>(c, s.categoryId, (o) => o.minDiamonds) ?? c.minDiamonds;
-  if (c.diamondsEnabled && diamondsThreshold != null && diamondsThreshold.toDouble() > 0) {
-    final value = _resolveMetric(c.diamondsPeriod, s.diamonds, s.diamondsThisMonth, s.diamondsLastMonth);
-    if (value != null) ratios.add((value.toDouble() / diamondsThreshold.toDouble()).clamp(0.0, 1.0));
+  final diamondsThreshold =
+      _categoryOverrideValue<num>(c, s.categoryId, (o) => o.minDiamonds) ??
+      c.minDiamonds;
+  if (c.diamondsEnabled &&
+      diamondsThreshold != null &&
+      diamondsThreshold.toDouble() > 0) {
+    final value = _resolveMetric(
+      c.diamondsPeriod,
+      s.diamonds,
+      s.diamondsThisMonth,
+      s.diamondsLastMonth,
+    );
+    if (value != null)
+      ratios.add(
+        (value.toDouble() / diamondsThreshold.toDouble()).clamp(0.0, 1.0),
+      );
   }
 
-  final battlesThreshold = _categoryOverrideValue<int>(c, s.categoryId, (o) => o.minBattles) ?? c.minBattles;
-  if (c.battlesEnabled && battlesThreshold != null && battlesThreshold > 0) ratios.add((s.battles / battlesThreshold).clamp(0.0, 1.0));
-  if (c.heartMeEnabled && c.minHeartMe != null && c.minHeartMe!.toDouble() > 0) ratios.add(((s.heartMe ?? 0).toDouble() / c.minHeartMe!.toDouble()).clamp(0.0, 1.0));
+  final battlesThreshold =
+      _categoryOverrideValue<int>(c, s.categoryId, (o) => o.minBattles) ??
+      c.minBattles;
+  if (c.battlesEnabled && battlesThreshold != null && battlesThreshold > 0)
+    ratios.add((s.battles / battlesThreshold).clamp(0.0, 1.0));
+  if (c.heartMeEnabled && c.minHeartMe != null && c.minHeartMe!.toDouble() > 0)
+    ratios.add(
+      ((s.heartMe ?? 0).toDouble() / c.minHeartMe!.toDouble()).clamp(0.0, 1.0),
+    );
   if (ratios.isEmpty) return 1.0;
   return ratios.reduce((a, b) => a + b) / ratios.length;
+}
+
+/// Faixas de progresso usadas em Participantes e Fluxo pra classificar quem
+/// esta indo mal/bem/perto de bater a meta -- fatorado aqui pra nao duplicar
+/// o numero magico em cada aba.
+const double criticoThreshold = 0.4;
+const double proximoMetaThreshold = 0.7;
+
+/// Valor usado pra ranquear um streamer no modo "pontos" (trackingMode ==
+/// "pontos"), conforme a metrica escolhida em pointsMetric. Sem dado ainda
+/// pro periodo pedido (ex: sem mes anterior fechado), retorna 0 -- entra no
+/// ranking, so fica no fim.
+num pointsValueFor(StreamerSnapshot s, ProgramCriteria c) {
+  switch (c.pointsMetric) {
+    case "diamonds_last_month":
+      return s.diamondsLastMonth ?? 0;
+    case "days_validated":
+      return s.daysValidatedThisMonth ?? s.daysValidated;
+    case "battles":
+      return s.battles;
+    case "heart_me":
+      return s.heartMe ?? 0;
+    default:
+      return s.diamondsThisMonth ?? s.diamonds;
+  }
+}
+
+/// Ranqueia o grupo (do maior pro menor) pela metrica escolhida em
+/// pointsMetric -- so exibicao (Visao Geral/Fluxo), nunca decide
+/// entrada/saida automatica (isso continua sendo so trackingMode == "metas",
+/// via syncEligibleStreamers/syncFaixaMembership).
+List<StreamerSnapshot> rankByPoints(
+  List<StreamerSnapshot> pool,
+  ProgramCriteria c,
+) {
+  final sorted = [...pool];
+  sorted.sort((a, b) => pointsValueFor(b, c).compareTo(pointsValueFor(a, c)));
+  return sorted;
 }
 
 /// Roda sob demanda (ao abrir a tela, sem depender de tarefa agendada):
@@ -579,14 +851,21 @@ Future<int> syncEligibleStreamers({
   required Set<String> enrolledStreamerIds,
   Set<String>? previousProgramCompletedStreamerIds,
 }) async {
-  if (criteria.isEmpty) return 0;
+  if (criteria.isEmpty || criteria.trackingMode == "pontos") return 0;
   var created = 0;
   for (final s in snapshots) {
     if (enrolledStreamerIds.contains(s.id)) continue;
-    if (previousProgramCompletedStreamerIds != null && !previousProgramCompletedStreamerIds.contains(s.id)) continue;
+    if (previousProgramCompletedStreamerIds != null &&
+        !previousProgramCompletedStreamerIds.contains(s.id))
+      continue;
     if (evaluateEligibility(s, criteria).eligible) {
-      await createProgramCardIfNeeded(phaseKey: phaseKey, streamerId: s.id);
-      created++;
+      try {
+        await createProgramCardIfNeeded(phaseKey: phaseKey, streamerId: s.id);
+        created++;
+      } catch (_) {
+        // Um streamer com dado inconsistente nao pode travar a sincronizacao
+        // dos demais -- segue pro proximo.
+      }
     }
   }
   return created;
@@ -599,7 +878,10 @@ Future<int> syncEligibleStreamers({
 /// faixa (que precisa reaproveitar a mesma linha, nao criar uma duplicada).
 /// Respeita manual_override: nao reativa um card que o gestor marcou como
 /// removido manualmente.
-Future<void> reactivateOrCreateCard({required String phaseKey, required String streamerId}) async {
+Future<void> reactivateOrCreateCard({
+  required String phaseKey,
+  required String streamerId,
+}) async {
   final client = Supabase.instance.client;
   final existing = await client
       .from("streamer_phase_progress")
@@ -614,8 +896,23 @@ Future<void> reactivateOrCreateCard({required String phaseKey, required String s
   if (existing["manual_override"] != null) return;
   if (existing["completed_at"] == null) return;
 
-  final profile = await client.from("profiles").select("agency_id").eq("id", streamerId).single();
-  final agencyId = profile["agency_id"] as String;
+  // Mesma ressalva de createProgramCardIfNeeded: perfil pode nao ter
+  // agency_id preenchido -- cai pro agency_id do programa nesse caso.
+  final profile = await client
+      .from("profiles")
+      .select("agency_id")
+      .eq("id", streamerId)
+      .single();
+  var agencyId = profile["agency_id"] as String?;
+  if (agencyId == null) {
+    final program = await client
+        .from("development_programs")
+        .select("agency_id")
+        .eq("program_key", phaseKey)
+        .maybeSingle();
+    agencyId = program?["agency_id"] as String?;
+  }
+  if (agencyId == null) return;
   final firstStage = await client
       .from("streamer_phase_stages")
       .select("stage_key")
@@ -627,16 +924,19 @@ Future<void> reactivateOrCreateCard({required String phaseKey, required String s
       .maybeSingle();
   if (firstStage == null) return;
 
-  await client.from("streamer_phase_progress").update({
-    "completed_at": null,
-    "archived_at": null,
-    "archived_by": null,
-    "outcome": null,
-    "outcome_reason": null,
-    "outcome_note": null,
-    "stage_key": firstStage["stage_key"],
-    "stage_changed_at": DateTime.now().toIso8601String(),
-  }).eq("id", existing["id"]);
+  await client
+      .from("streamer_phase_progress")
+      .update({
+        "completed_at": null,
+        "archived_at": null,
+        "archived_by": null,
+        "outcome": null,
+        "outcome_reason": null,
+        "outcome_note": null,
+        "stage_key": firstStage["stage_key"],
+        "stage_changed_at": DateTime.now().toIso8601String(),
+      })
+      .eq("id", existing["id"]);
 }
 
 Future<void> _grantTicketIfNeeded({
@@ -658,7 +958,8 @@ Future<void> _grantTicketIfNeeded({
       .maybeSingle();
   if (existing != null) return;
 
-  final reason = "Ticket automatico -- meta batida em " +
+  final reason =
+      "Ticket automatico -- meta batida em " +
       monthLabel(year, month) +
       ". Dias na agencia: " +
       snapshot.daysInAgency.toString() +
@@ -673,7 +974,7 @@ Future<void> _grantTicketIfNeeded({
     "streamer_id": streamerId,
     "title": quantity.toString() + "x Ticket sorteio",
     "items": [
-      {"name": "Ticket sorteio", "quantity": quantity, "value": null}
+      {"name": "Ticket sorteio", "quantity": quantity, "value": null},
     ],
     "status": "pendente",
     "ticket_period_key": periodKey,
@@ -697,14 +998,31 @@ Future<void> runProgramSync({
 }) async {
   if (criteria.isEmpty) return;
   final client = Supabase.instance.client;
-  final activeAgencySnapshots = await fetchActiveStreamerSnapshots(agencyId: agencyId);
+  final activeAgencySnapshots = await fetchActiveStreamerSnapshots(
+    agencyId: agencyId,
+  );
   final enrolledIds = await fetchEnrolledStreamerIds(phaseKey: phaseKey);
 
   if (criteria.membershipMode == "faixa") {
-    final candidateIds = {...activeAgencySnapshots.map((s) => s.id), ...enrolledIds}.toList();
-    final candidateSnapshotsRaw = await fetchStreamerSnapshotsByIds(streamerIds: candidateIds);
-    final candidateSnapshots = await resolveMonthlySnapshots(snapshots: candidateSnapshotsRaw, criteria: criteria, agencyId: agencyId, year: year, month: month);
-    final activeRows = await client.from("streamer_phase_progress").select("id, streamer_id, manual_override").eq("phase_key", phaseKey).filter("completed_at", "is", null);
+    final candidateIds = {
+      ...activeAgencySnapshots.map((s) => s.id),
+      ...enrolledIds,
+    }.toList();
+    final candidateSnapshotsRaw = await fetchStreamerSnapshotsByIds(
+      streamerIds: candidateIds,
+    );
+    final candidateSnapshots = await resolveMonthlySnapshots(
+      snapshots: candidateSnapshotsRaw,
+      criteria: criteria,
+      agencyId: agencyId,
+      year: year,
+      month: month,
+    );
+    final activeRows = await client
+        .from("streamer_phase_progress")
+        .select("id, streamer_id, manual_override")
+        .eq("phase_key", phaseKey)
+        .filter("completed_at", "is", null);
     await syncFaixaMembership(
       programId: programId,
       phaseKey: phaseKey,
@@ -715,8 +1033,13 @@ Future<void> runProgramSync({
       month: month,
     );
   } else {
-    final previousKey = await findPreviousProgramKey(agencyId: agencyId, phaseKey: phaseKey);
-    final completedPrev = previousKey != null ? await fetchCompletedStreamerIds(phaseKey: previousKey) : null;
+    final previousKey = await findPreviousProgramKey(
+      agencyId: agencyId,
+      phaseKey: phaseKey,
+    );
+    final completedPrev = previousKey != null
+        ? await fetchCompletedStreamerIds(phaseKey: previousKey)
+        : null;
     await syncEligibleStreamers(
       phaseKey: phaseKey,
       criteria: criteria,
@@ -743,25 +1066,44 @@ Future<void> syncFaixaMembership({
   required int year,
   required int month,
 }) async {
-  if (criteria.isEmpty) return;
-  final activeByStreamer = <String, Map<String, dynamic>>{for (final r in activeProgressRows) r["streamer_id"] as String: r};
+  if (criteria.isEmpty || criteria.trackingMode == "pontos") return;
+  final activeByStreamer = <String, Map<String, dynamic>>{
+    for (final r in activeProgressRows) r["streamer_id"] as String: r,
+  };
 
   for (final s in snapshots) {
     final eligible = evaluateEligibility(s, criteria).eligible;
     final activeRow = activeByStreamer[s.id];
 
-    if (eligible && activeRow == null) {
-      await reactivateOrCreateCard(phaseKey: phaseKey, streamerId: s.id);
-    } else if (!eligible && activeRow != null && activeRow["manual_override"] == null) {
-      await Supabase.instance.client.from("streamer_phase_progress").update({
-        "completed_at": DateTime.now().toIso8601String(),
-        "archived_at": DateTime.now().toIso8601String(),
-        "outcome": "saiu_criterio",
-      }).eq("id", activeRow["id"]);
+    try {
+      if (eligible && activeRow == null) {
+        await reactivateOrCreateCard(phaseKey: phaseKey, streamerId: s.id);
+      } else if (!eligible &&
+          activeRow != null &&
+          activeRow["manual_override"] == null) {
+        await Supabase.instance.client
+            .from("streamer_phase_progress")
+            .update({
+              "completed_at": DateTime.now().toIso8601String(),
+              "archived_at": DateTime.now().toIso8601String(),
+              "outcome": "saiu_criterio",
+            })
+            .eq("id", activeRow["id"]);
+      }
+    } catch (_) {
+      // Um streamer com dado inconsistente nao pode travar a sincronizacao
+      // dos demais -- segue pro proximo.
     }
 
     if (eligible && criteria.ticketQuantity > 0) {
-      await _grantTicketIfNeeded(programId: programId, streamerId: s.id, quantity: criteria.ticketQuantity, snapshot: s, year: year, month: month);
+      await _grantTicketIfNeeded(
+        programId: programId,
+        streamerId: s.id,
+        quantity: criteria.ticketQuantity,
+        snapshot: s,
+        year: year,
+        month: month,
+      );
     }
   }
 }

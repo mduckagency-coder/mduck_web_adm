@@ -65,7 +65,44 @@ String? _nextActionFor(
 }
 
 class OnboardingPhaseKanbanPage extends StatefulWidget {
-  const OnboardingPhaseKanbanPage({super.key});
+  /// Fase que este board mostra (Onboarding 0-15 Dias por padrao). Passar
+  /// onboardingSecondPhaseKey (onboarding_phase_service.dart) reusa esta
+  /// mesma pagina inteira pro Onboarding 16-31 Dias, sem duplicar nenhum
+  /// componente -- so os dados mudam.
+  final String phaseKey;
+  final String title;
+  final String description;
+
+  /// Filtro de training_materials.stage usado pela aba de materiais desta
+  /// fase (taxonomia independente de phaseKey -- ver onboarding_materials_page.dart).
+  final String materialsStage;
+
+  /// Se preenchida, aprovar um card desta fase cria automaticamente o card
+  /// na primeira coluna dessa proxima fase (ver evaluateOnboardingCard).
+  /// Nulo = nao promove pra lugar nenhum (fim da jornada, ou fase ainda sem
+  /// continuacao).
+  final String? promoteToPhaseKey;
+
+  /// Esconde o botao "Novo Agenciado" -- faz sentido no Onboarding 0-15
+  /// (onde streamers entram pela primeira vez), nao no 16-31 (que so recebe
+  /// por promocao automatica).
+  final bool showManualCreateButton;
+
+  final int deadlineDaysThreshold;
+  final int deadlineWarnDays;
+
+  const OnboardingPhaseKanbanPage({
+    super.key,
+    this.phaseKey = onboardingPhaseKey,
+    this.title = "Onboarding 0-15 Dias",
+    this.description =
+        "Acompanhamento automatico dos primeiros 15 dias — os cards entram sozinhos quando o recrutador conclui o onboarding.",
+    this.materialsStage = "onboarding_15",
+    this.promoteToPhaseKey,
+    this.showManualCreateButton = true,
+    this.deadlineDaysThreshold = 15,
+    this.deadlineWarnDays = 11,
+  });
 
   @override
   State<OnboardingPhaseKanbanPage> createState() =>
@@ -125,13 +162,16 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
 
       if (_selectedManagerIds.isEmpty) _selectedManagerIds = {userId};
 
-      await seedOnboardingPhaseStages(agencyId: agencyId);
+      await seedOnboardingPhaseStages(
+        agencyId: agencyId,
+        phaseKey: widget.phaseKey,
+      );
 
       final stageRows = await client
           .from("streamer_phase_stages")
           .select()
           .eq("agency_id", agencyId)
-          .eq("phase_key", onboardingPhaseKey)
+          .eq("phase_key", widget.phaseKey)
           .eq("is_active", true)
           .order("order_index", ascending: true);
       final stages = (stageRows as List).cast<Map<String, dynamic>>();
@@ -140,7 +180,7 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
           .from("streamer_phase_checklist_items")
           .select()
           .eq("agency_id", agencyId)
-          .eq("phase_key", onboardingPhaseKey)
+          .eq("phase_key", widget.phaseKey)
           .eq("is_active", true)
           .order("order_index", ascending: true);
       final itemsByStage = <String, List<Map<String, dynamic>>>{};
@@ -172,7 +212,7 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
             .from("streamer_phase_progress")
             .select()
             .inFilter("id", progressIds)
-            .eq("phase_key", onboardingPhaseKey)
+            .eq("phase_key", widget.phaseKey)
             .filter("completed_at", "is", null)
             .filter("archived_at", _showArchived ? "not.is" : "is", null)
             // Ordem deterministica -- sem isso, o Postgres pode devolver as
@@ -236,7 +276,7 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
               : await client
                     .from("streamer_phase_checklist_progress")
                     .select("streamer_id, stage_key, item_key, done")
-                    .eq("phase_key", onboardingPhaseKey)
+                    .eq("phase_key", widget.phaseKey)
                     .inFilter("streamer_id", streamerIds);
           for (final r in (progressRowsChecklist as List)) {
             final key =
@@ -453,7 +493,7 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
     try {
       await client.from("streamer_phase_history").insert({
         "streamer_id": streamerId,
-        "phase_key": onboardingPhaseKey,
+        "phase_key": widget.phaseKey,
         "action": "mudanca_etapa",
         "detail": _stageName(oldStageKey) + " → " + _stageName(newStageKey),
         "performed_by": userId,
@@ -524,10 +564,14 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
 
   static const _outcomeLabels = {
     "aprovado": "Aprovado",
-    "revisao": "Revisao",
     "desligado": "Desligado",
   };
 
+  /// Decisao final (aprovado/desligado) -- chamada tanto pelos botoes
+  /// rapidos no rosto do card quanto pela reavaliacao de um card que estava
+  /// em Plano de Recuperacao. Se promoteToPhaseKey estiver configurado
+  /// (widget.promoteToPhaseKey), aprovar aqui ja cria automaticamente o
+  /// card na proxima fase.
   Future<void> _evaluateCard(Map<String, dynamic> card, String outcome) async {
     final label = _outcomeLabels[outcome] ?? outcome;
     final confirmed = await showDialog<bool>(
@@ -542,11 +586,10 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
           outcome == "desligado"
               ? (card["displayName"] as String) +
                     " sera marcado como desligado e o streamer sera desativado da agencia. Confirma?"
-              : outcome == "aprovado"
-              ? (card["displayName"] as String) +
-                    " sera aprovado e o Onboarding 0-15 Dias sera concluido. Confirma?"
               : (card["displayName"] as String) +
-                    " ficara em revisao, com acompanhamento estendido. Confirma?",
+                    " sera aprovado e o " +
+                    widget.title +
+                    " sera concluido. Confirma?",
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [
@@ -571,8 +614,114 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
       streamerId: card["streamerId"] as String,
       outcome: outcome,
       performedBy: _userId,
+      promoteToPhaseKey: widget.promoteToPhaseKey,
     );
     _load();
+  }
+
+  /// Envia o card pra coluna "Plano de Recuperacao" -- pede uma observacao
+  /// (outcome_note) antes de confirmar, ja que e exatamente o que essa
+  /// decisao precisa registrar pro gestor que for reavaliar depois.
+  Future<void> _sendToRecovery(Map<String, dynamic> card) async {
+    final noteController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        title: const Text(
+          "Plano de Recuperação",
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              (card["displayName"] as String) +
+                  " vai pra coluna \"Plano de Recuperação\" e continua ativo neste modulo ate uma reavaliacao.",
+              style: const TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: noteController,
+              maxLines: 3,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: "Observações",
+                labelStyle: TextStyle(color: Colors.white54),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text("Cancelar"),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF7A0BD4),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Confirmar"),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await sendOnboardingCardToRecovery(
+      progressId: card["progressId"] as String,
+      streamerId: card["streamerId"] as String,
+      agencyId: _agencyId,
+      phaseKey: widget.phaseKey,
+      note: noteController.text.trim(),
+      performedBy: _userId,
+    );
+    _load();
+  }
+
+  /// "Reavaliar Streamer" -- so oferece Aprovar/Desligar (sem loop de volta
+  /// pro Plano de Recuperacao), depois reusa o mesmo _evaluateCard (mesmo
+  /// confirm + mesma logica de conclusao/promocao).
+  Future<void> _reevaluateFromRecovery(Map<String, dynamic> card) async {
+    final outcome = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        title: const Text(
+          "Reavaliar Streamer",
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          "Nova decisao para " + (card["displayName"] as String) + ":",
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text("Cancelar"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop("desligado"),
+            child: const Text(
+              "Desligar streamer",
+              style: TextStyle(color: Colors.redAccent),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop("aprovado"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF7A0BD4),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Aprovar streamer"),
+          ),
+        ],
+      ),
+    );
+    if (outcome == null) return;
+    await _evaluateCard(card, outcome);
   }
 
   /// Reconfere se o lead ja foi oficialmente vinculado a um streamer
@@ -647,6 +796,7 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
         streamerName: card["displayName"] as String,
         stages: _stages,
         agencyId: _agencyId,
+        phaseKey: widget.phaseKey,
       ),
     );
   }
@@ -676,6 +826,10 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
         stages: _stages,
         itemsByStage: _itemsByStage,
         progressId: card["progressId"] as String,
+        phaseKey: widget.phaseKey,
+        agencyId: _agencyId,
+        materialsStage: widget.materialsStage,
+        promoteToPhaseKey: widget.promoteToPhaseKey,
       ),
     ).then((changed) {
       if (changed == true) _load();
@@ -767,7 +921,9 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
         content: Text(
           "Isso remove " +
               (card["displayName"] as String) +
-              " do Onboarding 0-15 Dias. O cadastro do streamer/lead nao e apagado, so o acompanhamento deste card. Confirma?",
+              " do " +
+              widget.title +
+              ". O cadastro do streamer/lead nao e apagado, so o acompanhamento deste card. Confirma?",
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [
@@ -803,7 +959,10 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
   void _openStageConfig() {
     showDialog(
       context: context,
-      builder: (context) => OnboardingStageConfigDialog(agencyId: _agencyId),
+      builder: (context) => OnboardingStageConfigDialog(
+        agencyId: _agencyId,
+        phaseKey: widget.phaseKey,
+      ),
     ).then((changed) {
       if (changed == true) _load();
     });
@@ -1002,9 +1161,9 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
         children: [
           Row(
             children: [
-              const Text(
-                "Onboarding 0-15 Dias",
-                style: TextStyle(
+              Text(
+                widget.title,
+                style: const TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
@@ -1016,15 +1175,16 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
                 onPressed: _load,
               ),
               const Spacer(),
-              ElevatedButton.icon(
-                onPressed: _openNewAgenciado,
-                icon: const Icon(Icons.person_add_alt_1, size: 16),
-                label: const Text("Novo Agenciado"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF7A0BD4),
-                  foregroundColor: Colors.white,
+              if (widget.showManualCreateButton)
+                ElevatedButton.icon(
+                  onPressed: _openNewAgenciado,
+                  icon: const Icon(Icons.person_add_alt_1, size: 16),
+                  label: const Text("Novo Agenciado"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF7A0BD4),
+                    foregroundColor: Colors.white,
+                  ),
                 ),
-              ),
               if (_canManage) ...[
                 const SizedBox(width: 8),
                 IconButton(
@@ -1036,9 +1196,9 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
             ],
           ),
           const SizedBox(height: 4),
-          const Text(
-            "Acompanhamento automatico dos primeiros 15 dias — os cards entram sozinhos quando o recrutador conclui o onboarding.",
-            style: TextStyle(
+          Text(
+            widget.description,
+            style: const TextStyle(
               color: Colors.white38,
               fontSize: 11,
               fontStyle: FontStyle.italic,
@@ -1233,7 +1393,9 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
                                         _cardManagers[card["progressId"]] ??
                                         const [];
                                     final isEvaluationStage =
-                                        stageKey == "avaliacao";
+                                        stage["is_evaluation_stage"] == true;
+                                    final isRecoveryStage =
+                                        stage["is_recovery_stage"] == true;
 
                                     if (isLeadOnly) {
                                       return GestureDetector(
@@ -1272,6 +1434,10 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
                                             stageColor: stageColor,
                                             stageComplete: complete,
                                             managers: cardManagerList,
+                                            deadlineDaysThreshold:
+                                                widget.deadlineDaysThreshold,
+                                            deadlineWarnDays:
+                                                widget.deadlineWarnDays,
                                           ),
                                         ),
                                       ),
@@ -1282,6 +1448,10 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
                                           stageColor: stageColor,
                                           stageComplete: complete,
                                           managers: cardManagerList,
+                                          deadlineDaysThreshold:
+                                              widget.deadlineDaysThreshold,
+                                          deadlineWarnDays:
+                                              widget.deadlineWarnDays,
                                         ),
                                       ),
                                       child: GestureDetector(
@@ -1292,9 +1462,18 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
                                           stageComplete: complete,
                                           managers: cardManagerList,
                                           isEvaluationStage: isEvaluationStage,
+                                          isRecoveryStage: isRecoveryStage,
                                           onEvaluate: isEvaluationStage
                                               ? (outcome) =>
                                                     _evaluateCard(card, outcome)
+                                              : null,
+                                          onSendToRecovery: isEvaluationStage
+                                              ? () => _sendToRecovery(card)
+                                              : null,
+                                          onReevaluate: isRecoveryStage
+                                              ? () => _reevaluateFromRecovery(
+                                                  card,
+                                                )
                                               : null,
                                           onEdit: () => _openEditCard(card),
                                           onDelete: () =>
@@ -1305,6 +1484,10 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
                                               _openDetail(card),
                                           onManageManagers: () =>
                                               _openManagerPickerForCard(card),
+                                          deadlineDaysThreshold:
+                                              widget.deadlineDaysThreshold,
+                                          deadlineWarnDays:
+                                              widget.deadlineWarnDays,
                                         ),
                                       ),
                                     );
@@ -1332,47 +1515,69 @@ class _OnboardingCard extends StatelessWidget {
   final bool stageComplete;
   final List<Map<String, dynamic>> managers;
   final bool isEvaluationStage;
+  final bool isRecoveryStage;
   final bool isLeadOnly;
   final void Function(String outcome)? onEvaluate;
+  final VoidCallback? onSendToRecovery;
+  final VoidCallback? onReevaluate;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
   final VoidCallback? onOpenFicha;
   final VoidCallback? onCheckLink;
   final VoidCallback? onOpenMaterial;
   final VoidCallback? onManageManagers;
+  final int deadlineDaysThreshold;
+  final int deadlineWarnDays;
   const _OnboardingCard({
     required this.card,
     required this.stageColor,
     required this.stageComplete,
     this.managers = const [],
     this.isEvaluationStage = false,
+    this.isRecoveryStage = false,
     this.isLeadOnly = false,
     this.onEvaluate,
+    this.onSendToRecovery,
+    this.onReevaluate,
     this.onEdit,
     this.onDelete,
     this.onOpenFicha,
     this.onOpenMaterial,
     this.onManageManagers,
     this.onCheckLink,
+    this.deadlineDaysThreshold = 15,
+    this.deadlineWarnDays = 11,
   });
 
-  /// Barra de "saude do prazo": verde enquanto sobra bastante tempo dos
-  /// 15 dias de onboarding, amarela perto do limite, vermelha se ja
-  /// passou dos 15 dias sem concluir.
+  /// Barra de "saude do prazo": verde enquanto sobra bastante tempo do
+  /// prazo desta fase, amarela perto do limite, vermelha se ja passou sem
+  /// concluir.
   (Color, String) _deadlineHealth(int daysInAgency) {
-    if (daysInAgency > 15)
+    if (daysInAgency > deadlineDaysThreshold)
       return (
         Colors.redAccent,
-        "Passou dos 15 dias (" + daysInAgency.toString() + ")",
+        "Passou dos " +
+            deadlineDaysThreshold.toString() +
+            " dias (" +
+            daysInAgency.toString() +
+            ")",
       );
-    if (daysInAgency >= 11)
+    if (daysInAgency >= deadlineWarnDays)
       return (
         Colors.amber,
-        "Perto do limite de 15 dias (dia " + daysInAgency.toString() + ")",
+        "Perto do limite de " +
+            deadlineDaysThreshold.toString() +
+            " dias (dia " +
+            daysInAgency.toString() +
+            ")",
       );
     return (
       Colors.greenAccent,
-      "Dentro do prazo (dia " + daysInAgency.toString() + " de 15)",
+      "Dentro do prazo (dia " +
+          daysInAgency.toString() +
+          " de " +
+          deadlineDaysThreshold.toString() +
+          ")",
     );
   }
 
@@ -1866,6 +2071,8 @@ class _OnboardingCard extends StatelessWidget {
                                     ? "Aprovado"
                                     : outcome == "desligado"
                                     ? "Desligado"
+                                    : outcome == "plano_recuperacao"
+                                    ? "Plano de Recuperação"
                                     : "Em revisao"),
                             textAlign: TextAlign.center,
                             style: const TextStyle(
@@ -1891,8 +2098,8 @@ class _OnboardingCard extends StatelessWidget {
                               child: _evaluateButton(
                                 icon: Icons.hourglass_bottom,
                                 color: Colors.amber,
-                                tooltip: "Revisao",
-                                onTap: () => onEvaluate?.call("revisao"),
+                                tooltip: "Plano de Recuperação",
+                                onTap: () => onSendToRecovery?.call(),
                               ),
                             ),
                             const SizedBox(width: 4),
@@ -1906,6 +2113,25 @@ class _OnboardingCard extends StatelessWidget {
                             ),
                           ],
                         ),
+                    ],
+                    if (isRecoveryStage) ...[
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: onReevaluate,
+                          icon: const Icon(Icons.replay, size: 14),
+                          label: const Text(
+                            "Reavaliar Streamer",
+                            style: TextStyle(fontSize: 11),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.amber,
+                            side: const BorderSide(color: Colors.amber),
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                          ),
+                        ),
+                      ),
                     ],
                   ],
                 ),
@@ -1950,6 +2176,10 @@ class _OnboardingCardDetailDialog extends StatefulWidget {
   final List<Map<String, dynamic>> stages;
   final Map<String, List<Map<String, dynamic>>> itemsByStage;
   final String progressId;
+  final String phaseKey;
+  final String agencyId;
+  final String materialsStage;
+  final String? promoteToPhaseKey;
   const _OnboardingCardDetailDialog({
     required this.streamerId,
     required this.streamerName,
@@ -1958,6 +2188,10 @@ class _OnboardingCardDetailDialog extends StatefulWidget {
     required this.stages,
     required this.itemsByStage,
     required this.progressId,
+    required this.phaseKey,
+    required this.agencyId,
+    required this.materialsStage,
+    this.promoteToPhaseKey,
   });
 
   @override
@@ -1972,6 +2206,12 @@ class _OnboardingCardDetailDialogState
   bool _savingObs = false;
   bool _changed = false;
 
+  // "Resultado do Onboarding" -- radio + observacoes, mostrado so na etapa
+  // de conclusao enquanto ainda nao ha decisao registrada.
+  String? _selectedOutcome;
+  final _resultNoteController = TextEditingController();
+  bool _submittingResult = false;
+
   @override
   void initState() {
     super.initState();
@@ -1985,7 +2225,7 @@ class _OnboardingCardDetailDialogState
         .from("streamer_phase_progress")
         .select()
         .eq("streamer_id", widget.streamerId)
-        .eq("phase_key", onboardingPhaseKey)
+        .eq("phase_key", widget.phaseKey)
         .single();
     final stageKey = progress["stage_key"] as String;
 
@@ -1993,7 +2233,7 @@ class _OnboardingCardDetailDialogState
         .from("streamer_phase_checklist_progress")
         .select()
         .eq("streamer_id", widget.streamerId)
-        .eq("phase_key", onboardingPhaseKey)
+        .eq("phase_key", widget.phaseKey)
         .eq("stage_key", stageKey);
     final checklistProgress = {
       for (final r in (checklistRows as List))
@@ -2012,7 +2252,7 @@ class _OnboardingCardDetailDialogState
           "id, title, description, link_url, file_url, image_url, author_id, managers(login_email, role)",
         )
         .eq("scope", "acompanhamento")
-        .eq("stage", "onboarding_15")
+        .eq("stage", widget.materialsStage)
         .eq("onboarding_stage_key", stageKey)
         .or(nicheFilter)
         .eq("is_archived", false)
@@ -2026,7 +2266,7 @@ class _OnboardingCardDetailDialogState
         .from("streamer_phase_history")
         .select()
         .eq("streamer_id", widget.streamerId)
-        .eq("phase_key", onboardingPhaseKey)
+        .eq("phase_key", widget.phaseKey)
         .order("created_at", ascending: false);
 
     return {
@@ -2072,7 +2312,7 @@ class _OnboardingCardDetailDialogState
     try {
       await client.from("streamer_phase_checklist_progress").upsert({
         "streamer_id": widget.streamerId,
-        "phase_key": onboardingPhaseKey,
+        "phase_key": widget.phaseKey,
         "stage_key": stageKey,
         "item_key": itemKey,
         "done": newValue,
@@ -2108,7 +2348,7 @@ class _OnboardingCardDetailDialogState
       try {
         await client.from("streamer_phase_history").insert({
           "streamer_id": widget.streamerId,
-          "phase_key": onboardingPhaseKey,
+          "phase_key": widget.phaseKey,
           "action": "checklist_item",
           "detail": label,
           "performed_by": userId,
@@ -2132,7 +2372,7 @@ class _OnboardingCardDetailDialogState
     final detail = _obsController.text.trim();
     await client.from("streamer_phase_history").insert({
       "streamer_id": widget.streamerId,
-      "phase_key": onboardingPhaseKey,
+      "phase_key": widget.phaseKey,
       "action": "observacao",
       "detail": detail,
       "performed_by": client.auth.currentUser!.id,
@@ -2149,6 +2389,173 @@ class _OnboardingCardDetailDialogState
       });
       _savingObs = false;
     });
+  }
+
+  /// Aplica a decisao escolhida no radio "Resultado do Onboarding" --
+  /// aprovado/desligado vao por evaluateOnboardingCard (conclui a fase,
+  /// promove se widget.promoteToPhaseKey estiver configurado), plano de
+  /// recuperacao vai por sendOnboardingCardToRecovery (move de coluna, card
+  /// continua ativo). Mesmo par de funcoes usado pelos botoes rapidos no
+  /// board -- so muda de onde a chamada parte.
+  Future<void> _submitResult() async {
+    if (_selectedOutcome == null) return;
+    setState(() => _submittingResult = true);
+    final client = Supabase.instance.client;
+    final userId = client.auth.currentUser!.id;
+    final note = _resultNoteController.text.trim();
+    try {
+      if (_selectedOutcome == "plano_recuperacao") {
+        await sendOnboardingCardToRecovery(
+          progressId: widget.progressId,
+          streamerId: widget.streamerId,
+          agencyId: widget.agencyId,
+          phaseKey: widget.phaseKey,
+          note: note,
+          performedBy: userId,
+        );
+      } else {
+        await evaluateOnboardingCard(
+          progressId: widget.progressId,
+          streamerId: widget.streamerId,
+          outcome: _selectedOutcome!,
+          performedBy: userId,
+          note: note.isEmpty ? null : note,
+          promoteToPhaseKey: widget.promoteToPhaseKey,
+        );
+      }
+      _changed = true;
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _submittingResult = false);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Erro: " + e.toString())));
+      }
+    }
+  }
+
+  Widget _resultadoOnboardingSection(String? outcome) {
+    if (outcome != null) {
+      const labels = {
+        "aprovado": "Aprovado",
+        "desligado": "Desligado",
+        "plano_recuperacao": "Plano de Recuperação",
+      };
+      return Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          "Decisão já registrada: " + (labels[outcome] ?? outcome),
+          style: const TextStyle(color: Colors.white70, fontSize: 13),
+        ),
+      );
+    }
+
+    Widget option(String value, String label) => RadioListTile<String>(
+      value: value,
+      groupValue: _selectedOutcome,
+      dense: true,
+      contentPadding: EdgeInsets.zero,
+      activeColor: const Color(0xFF7A0BD4),
+      title: Text(
+        label,
+        style: const TextStyle(color: Colors.white, fontSize: 13),
+      ),
+      onChanged: (v) => setState(() => _selectedOutcome = v),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          "Resultado do Onboarding",
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 4),
+        option("aprovado", "Aprovar streamer"),
+        option("plano_recuperacao", "Plano de Recuperação"),
+        option("desligado", "Desligar streamer"),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _resultNoteController,
+          maxLines: 3,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            labelText: "Observações",
+            labelStyle: TextStyle(color: Colors.white54),
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: (_selectedOutcome == null || _submittingResult)
+                ? null
+                : _submitResult,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF7A0BD4),
+              foregroundColor: Colors.white,
+            ),
+            child: Text(_submittingResult ? "Salvando..." : "Confirmar"),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// "Reavaliar Streamer" a partir do dialog de detalhe -- so oferece
+  /// Aprovar/Desligar, mesma regra do botao equivalente no rosto do card.
+  Future<void> _reevaluateFromDialog() async {
+    final outcome = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        title: const Text(
+          "Reavaliar Streamer",
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          "Nova decisao para " + widget.streamerName + ":",
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text("Cancelar"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop("desligado"),
+            child: const Text(
+              "Desligar streamer",
+              style: TextStyle(color: Colors.redAccent),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop("aprovado"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF7A0BD4),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Aprovar streamer"),
+          ),
+        ],
+      ),
+    );
+    if (outcome == null) return;
+    final client = Supabase.instance.client;
+    await evaluateOnboardingCard(
+      progressId: widget.progressId,
+      streamerId: widget.streamerId,
+      outcome: outcome,
+      performedBy: client.auth.currentUser!.id,
+      promoteToPhaseKey: widget.promoteToPhaseKey,
+    );
+    _changed = true;
+    if (mounted) Navigator.of(context).pop(true);
   }
 
   @override
@@ -2190,12 +2597,15 @@ class _OnboardingCardDetailDialogState
               final nextAction = data["nextAction"] as String?;
               final history = data["history"] as List<Map<String, dynamic>>;
               final items = widget.itemsByStage[stageKey] ?? [];
-              final stageName =
-                  widget.stages.firstWhere(
-                        (s) => s["stage_key"] == stageKey,
-                        orElse: () => {"name": stageKey},
-                      )["name"]
-                      as String;
+              final stage = widget.stages.firstWhere(
+                (s) => s["stage_key"] == stageKey,
+                orElse: () => {"name": stageKey},
+              );
+              final stageName = stage["name"] as String;
+              final isEvaluationStage = stage["is_evaluation_stage"] == true;
+              final isRecoveryStage = stage["is_recovery_stage"] == true;
+              final progress = data["progress"] as Map<String, dynamic>;
+              final outcome = progress["outcome"] as String?;
               final myUserId = Supabase.instance.client.auth.currentUser!.id;
               final officialMaterials = materials.where((m) {
                 final authorData = m["managers"];
@@ -2380,18 +2790,25 @@ class _OnboardingCardDetailDialogState
                           ),
                         );
                       }),
-                    if (stageKey == "avaliacao")
-                      const Padding(
-                        padding: EdgeInsets.only(top: 4),
-                        child: Text(
-                          "A decisao final (Aprovado / Revisao / Desligado) e feita direto no card, no board.",
-                          style: TextStyle(
-                            color: Colors.white38,
-                            fontSize: 11,
-                            fontStyle: FontStyle.italic,
+                    if (isEvaluationStage) ...[
+                      const SizedBox(height: 16),
+                      _resultadoOnboardingSection(outcome),
+                    ],
+                    if (isRecoveryStage) ...[
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _reevaluateFromDialog,
+                          icon: const Icon(Icons.replay, size: 16),
+                          label: const Text("Reavaliar Streamer"),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.amber,
+                            side: const BorderSide(color: Colors.amber),
                           ),
                         ),
                       ),
+                    ],
                     const SizedBox(height: 16),
                     Row(
                       children: [
@@ -2876,11 +3293,13 @@ class _StreamerQuickInfoDialog extends StatelessWidget {
   final String streamerName;
   final List<Map<String, dynamic>> stages;
   final String agencyId;
+  final String phaseKey;
   const _StreamerQuickInfoDialog({
     required this.streamerId,
     required this.streamerName,
     required this.stages,
     required this.agencyId,
+    required this.phaseKey,
   });
 
   Widget _actionButton(
@@ -2993,6 +3412,7 @@ class _StreamerQuickInfoDialog extends StatelessWidget {
                       streamerName: streamerName,
                       stages: stages,
                       agencyId: agencyId,
+                      phaseKey: phaseKey,
                     ),
                   );
                 },
@@ -3026,11 +3446,13 @@ class _MaterialCheckDialog extends StatefulWidget {
   final String streamerName;
   final List<Map<String, dynamic>> stages;
   final String agencyId;
+  final String phaseKey;
   const _MaterialCheckDialog({
     required this.streamerId,
     required this.streamerName,
     required this.stages,
     required this.agencyId,
+    required this.phaseKey,
   });
 
   @override
@@ -3065,7 +3487,7 @@ class _MaterialCheckDialogState extends State<_MaterialCheckDialog> {
         .from("onboarding_material_check_items")
         .select()
         .eq("agency_id", widget.agencyId)
-        .eq("phase_key", onboardingPhaseKey)
+        .eq("phase_key", widget.phaseKey)
         .order("order_index", ascending: true);
     final progress = await client
         .from("onboarding_material_check_progress")
@@ -3073,7 +3495,7 @@ class _MaterialCheckDialogState extends State<_MaterialCheckDialog> {
           "stage_key, item_key, done, done_at, done_by, managers(login_email)",
         )
         .eq("streamer_id", widget.streamerId)
-        .eq("phase_key", onboardingPhaseKey);
+        .eq("phase_key", widget.phaseKey);
     _checked.clear();
     _confirmedInfo.clear();
     for (final r in (progress as List)) {
@@ -3108,7 +3530,7 @@ class _MaterialCheckDialogState extends State<_MaterialCheckDialog> {
         final isChecked = _checked[key] ?? false;
         await client.from("onboarding_material_check_progress").upsert({
           "streamer_id": widget.streamerId,
-          "phase_key": onboardingPhaseKey,
+          "phase_key": widget.phaseKey,
           "stage_key": item["stage_key"],
           "item_key": item["item_key"],
           "done": isChecked,

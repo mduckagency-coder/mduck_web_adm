@@ -36,15 +36,24 @@ class OnboardingCardEditDialog extends StatefulWidget {
   });
 
   @override
-  State<OnboardingCardEditDialog> createState() => _OnboardingCardEditDialogState();
+  State<OnboardingCardEditDialog> createState() =>
+      _OnboardingCardEditDialogState();
 }
 
 class _OnboardingCardEditDialogState extends State<OnboardingCardEditDialog> {
   late final _nameController = TextEditingController(text: widget.initialName);
-  late final _tiktokController = TextEditingController(text: widget.initialTiktok ?? "");
-  late final _phoneController = TextEditingController(text: widget.initialPhone ?? "");
-  late final _emailController = TextEditingController(text: widget.initialEmail ?? "");
-  late final _categoryInterestController = TextEditingController(text: widget.initialCategoryInterest ?? "");
+  late final _tiktokController = TextEditingController(
+    text: widget.initialTiktok ?? "",
+  );
+  late final _phoneController = TextEditingController(
+    text: widget.initialPhone ?? "",
+  );
+  late final _emailController = TextEditingController(
+    text: widget.initialEmail ?? "",
+  );
+  late final _categoryInterestController = TextEditingController(
+    text: widget.initialCategoryInterest ?? "",
+  );
   String? _categoryId;
   List<Map<String, dynamic>> _categories = [];
   bool _saving = false;
@@ -59,8 +68,12 @@ class _OnboardingCardEditDialogState extends State<OnboardingCardEditDialog> {
   }
 
   Future<void> _loadCategories() async {
-    final rows = await Supabase.instance.client.from("streamer_categories").select("id, name").order("name", ascending: true);
-    if (mounted) setState(() => _categories = (rows as List).cast<Map<String, dynamic>>());
+    final rows = await Supabase.instance.client
+        .from("streamer_categories")
+        .select("id, name")
+        .order("name", ascending: true);
+    if (mounted)
+      setState(() => _categories = (rows as List).cast<Map<String, dynamic>>());
   }
 
   Future<void> _save() async {
@@ -78,24 +91,39 @@ class _OnboardingCardEditDialogState extends State<OnboardingCardEditDialog> {
         await updateOnboardingLeadInfo(
           leadId: widget.leadId!,
           name: _nameController.text.trim(),
-          tiktokUsername: _tiktokController.text.trim().isEmpty ? null : _tiktokController.text.trim(),
-          phone: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
-          categoryInterest: _categoryInterestController.text.trim().isEmpty ? null : _categoryInterestController.text.trim(),
+          tiktokUsername: _tiktokController.text.trim().isEmpty
+              ? null
+              : _tiktokController.text.trim(),
+          phone: _phoneController.text.trim().isEmpty
+              ? null
+              : _phoneController.text.trim(),
+          categoryInterest: _categoryInterestController.text.trim().isEmpty
+              ? null
+              : _categoryInterestController.text.trim(),
           performedBy: userId,
         );
       } else {
         await updateOnboardingStreamerProfile(
           streamerId: widget.streamerId!,
           displayName: _nameController.text.trim(),
-          tiktokId: _tiktokController.text.trim().isEmpty ? null : _tiktokController.text.trim(),
-          phone: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
-          email: _emailController.text.trim().isEmpty ? null : _emailController.text.trim(),
+          tiktokId: _tiktokController.text.trim().isEmpty
+              ? null
+              : _tiktokController.text.trim(),
+          phone: _phoneController.text.trim().isEmpty
+              ? null
+              : _phoneController.text.trim(),
+          email: _emailController.text.trim().isEmpty
+              ? null
+              : _emailController.text.trim(),
           categoryId: _categoryId,
           performedBy: userId,
         );
       }
       if (_isPotential != widget.initialIsPotential) {
-        await updateOnboardingCardPotential(progressId: widget.progressId, isPotential: _isPotential);
+        await updateOnboardingCardPotential(
+          progressId: widget.progressId,
+          isPotential: _isPotential,
+        );
       }
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
@@ -112,7 +140,10 @@ class _OnboardingCardEditDialogState extends State<OnboardingCardEditDialog> {
       child: TextField(
         controller: controller,
         style: const TextStyle(color: Colors.white, fontSize: 13),
-        decoration: InputDecoration(labelText: label, labelStyle: const TextStyle(color: Colors.white54, fontSize: 12)),
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: const TextStyle(color: Colors.white54, fontSize: 12),
+        ),
       ),
     );
   }
@@ -129,13 +160,24 @@ class _OnboardingCardEditDialogState extends State<OnboardingCardEditDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text("Editar card", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text(
+                "Editar card",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               if (widget.isLeadOnly)
                 const Padding(
                   padding: EdgeInsets.only(top: 4),
                   child: Text(
                     "Streamer ainda nao vinculado oficialmente -- estes campos editam o lead, nao o cadastro oficial.",
-                    style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic),
+                    style: TextStyle(
+                      color: Colors.white38,
+                      fontSize: 11,
+                      fontStyle: FontStyle.italic,
+                    ),
                   ),
                 ),
               const SizedBox(height: 16),
@@ -149,47 +191,95 @@ class _OnboardingCardEditDialogState extends State<OnboardingCardEditDialog> {
                       _field(_phoneController, "WhatsApp"),
                       if (!widget.isLeadOnly) ...[
                         _field(_emailController, "E-mail"),
-                        const Text("Categoria", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                        const Text(
+                          "Categoria",
+                          style: TextStyle(color: Colors.white54, fontSize: 12),
+                        ),
                         const SizedBox(height: 4),
                         DropdownButtonFormField<String>(
                           value: _categoryId,
                           dropdownColor: const Color(0xFF1A1A1A),
-                          style: const TextStyle(color: Colors.white, fontSize: 13),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                          ),
                           decoration: const InputDecoration(isDense: true),
-                          items: _categories.map((c) => DropdownMenuItem(value: c["id"] as String, child: Text(c["name"] as String))).toList(),
+                          items: _categories
+                              .map(
+                                (c) => DropdownMenuItem(
+                                  value: c["id"] as String,
+                                  child: Text(c["name"] as String),
+                                ),
+                              )
+                              .toList(),
                           onChanged: (v) => setState(() => _categoryId = v),
                         ),
                       ] else
-                        _field(_categoryInterestController, "Categoria de interesse"),
+                        _field(
+                          _categoryInterestController,
+                          "Categoria de interesse",
+                        ),
                       const SizedBox(height: 4),
                       CheckboxListTile(
                         value: _isPotential,
-                        onChanged: (v) => setState(() => _isPotential = v ?? false),
+                        onChanged: (v) =>
+                            setState(() => _isPotential = v ?? false),
                         controlAffinity: ListTileControlAffinity.leading,
                         contentPadding: EdgeInsets.zero,
                         activeColor: Colors.amber,
-                        title: const Row(mainAxisSize: MainAxisSize.min, children: [
-                          Icon(Icons.star, color: Colors.amber, size: 16),
-                          SizedBox(width: 6),
-                          Text("Streamer em potencial", style: TextStyle(color: Colors.white, fontSize: 13)),
-                        ]),
-                        subtitle: const Text("Mostra uma estrela ao lado da categoria no card do board.", style: TextStyle(color: Colors.white38, fontSize: 11)),
+                        title: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.star, color: Colors.amber, size: 16),
+                            SizedBox(width: 6),
+                            Text(
+                              "Streamer em potencial",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                        subtitle: const Text(
+                          "Mostra uma estrela ao lado da categoria no card do board.",
+                          style: TextStyle(color: Colors.white38, fontSize: 11),
+                        ),
                       ),
                     ],
                   ),
                 ),
               ),
-              if (_errorMessage != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text(_errorMessage!, style: const TextStyle(color: Colors.redAccent, fontSize: 12))),
-              const SizedBox(height: 12),
-              Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text("Cancelar")),
-                const SizedBox(width: 8),
-                ElevatedButton(
-                  onPressed: _saving ? null : _save,
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
-                  child: Text(_saving ? "Salvando..." : "Salvar"),
+              if (_errorMessage != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    _errorMessage!,
+                    style: const TextStyle(
+                      color: Colors.redAccent,
+                      fontSize: 12,
+                    ),
+                  ),
                 ),
-              ]),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text("Cancelar"),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: _saving ? null : _save,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF7A0BD4),
+                      foregroundColor: Colors.white,
+                    ),
+                    child: Text(_saving ? "Salvando..." : "Salvar"),
+                  ),
+                ],
+              ),
             ],
           ),
         ),

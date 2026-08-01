@@ -11,9 +11,16 @@ const onboardingPhaseKey = "onboarding_0_15";
 /// pode ser arrastado dali pra frente livremente.
 const _stagingStageKey = "dia_0";
 
-/// Chave da etapa final de decisao (aprovado / revisao / desligado),
-/// depois do dia_15. Sem checklist obrigatorio, mesmo padrao do dia_0.
+/// Chave da etapa final de decisao (aprovado / plano de recuperacao /
+/// desligado), depois do dia_15. Sem checklist obrigatorio, mesmo padrao do
+/// dia_0. Exibida hoje como "Conclusao do Onboarding" (o nome mudou, a
+/// stage_key continua "avaliacao" pra nao mexer em dado ja gravado).
 const _evaluationStageKey = "avaliacao";
+
+/// Etapa pra onde o card vai quando o gestor escolhe "Plano de Recuperacao"
+/// na conclusao -- fica parado ali (card continua ativo, sem completed_at)
+/// ate uma reavaliacao (ver sendOnboardingCardToRecovery/evaluateOnboardingCard).
+const _recoveryStageKey = "plano_recuperacao";
 
 const _defaultStages = [
   (_stagingStageKey, "0 - Proximos Agenciados"),
@@ -32,14 +39,17 @@ const _defaultStages = [
   ("dia_13", "Dia 13 - Preparacao"),
   ("dia_14", "Dia 14 - Pre-avaliacao"),
   ("dia_15", "Dia 15 - Ultimo Dia"),
-  (_evaluationStageKey, "Avaliacao Final"),
+  (_evaluationStageKey, "Conclusão do Onboarding"),
+  (_recoveryStageKey, "Plano de Recuperação"),
 ];
 
 /// Cor padrao de cada coluna por faixa de dias: dia 0 sozinho, dias 1-3,
-/// dias 4-7, dias 8-15, e a etapa de decisao final com cor propria.
+/// dias 4-7, dias 8-15, a etapa de decisao final e a de recuperacao com cor
+/// propria.
 String _defaultStageColor(String stageKey) {
   if (stageKey == _stagingStageKey) return "#F2994A";
   if (stageKey == _evaluationStageKey) return "#EB5757";
+  if (stageKey == _recoveryStageKey) return "#F2C94C";
   const faixa1a3 = {"dia_1", "dia_2", "dia_3"};
   const faixa4a7 = {"dia_4", "dia_5", "dia_6", "dia_7"};
   if (faixa1a3.contains(stageKey)) return "#2D9CDB";
@@ -113,63 +123,181 @@ const _defaultChecklistItemsByStage = {
   ],
 };
 
-/// Garante que a agencia tenha as colunas/checklist padrao do Onboarding
-/// 0-15 Dias. Idempotente (so insere o que ainda nao existe), mesmo padrao
-/// de CalendarService.seedDefaultCategories. Util como fallback para
-/// agencias criadas depois da migration 0007 ja ter rodado.
-Future<void> seedOnboardingPhaseStages({String? agencyId}) async {
-  final client = Supabase.instance.client;
-  agencyId ??= (await client.from("managers").select("agency_id").eq("id", client.auth.currentUser!.id).single())["agency_id"] as String;
+/// Chave da 2a fase do acompanhamento por fases -- continuacao do
+/// Onboarding 0-15 Dias, dias 16 a 31. Usa uma chave nova (nao "onboarding_30")
+/// porque essa string ja e usada por um program_key totalmente diferente no
+/// modulo Programas de Desenvolvimento (auto-inscricao por criterio de
+/// diamantes) -- reusar causaria duas logicas de seed/etapa disputando as
+/// mesmas linhas de streamer_phase_stages/streamer_phase_progress.
+const onboardingSecondPhaseKey = "onboarding_16_31";
 
-  final existing = await client.from("streamer_phase_stages").select("stage_key").eq("agency_id", agencyId).eq("phase_key", onboardingPhaseKey);
-  final existingKeys = (existing as List).map((r) => r["stage_key"] as String).toSet();
-  final missing = _defaultStages.where((s) => !existingKeys.contains(s.$1)).toList();
+const _secondStagingStageKey = "recebidos";
+const _secondEvaluationStageKey = "conclusao";
+
+const _defaultStagesModule2 = [
+  (_secondStagingStageKey, "Recebidos"),
+  ("dia_16", "Dia 16"),
+  ("dia_17", "Dia 17"),
+  ("dia_18", "Dia 18"),
+  ("dia_19", "Dia 19"),
+  ("dia_20", "Dia 20"),
+  ("dia_21", "Dia 21"),
+  ("dia_22", "Dia 22"),
+  ("dia_23", "Dia 23"),
+  ("dia_24", "Dia 24"),
+  ("dia_25", "Dia 25"),
+  ("dia_26", "Dia 26"),
+  ("dia_27", "Dia 27"),
+  ("dia_28", "Dia 28"),
+  ("dia_29", "Dia 29"),
+  ("dia_30", "Dia 30"),
+  ("dia_31", "Dia 31"),
+  (_secondEvaluationStageKey, "Conclusão"),
+];
+
+/// Mesma paleta do modulo 1 (dia 0/staging em laranja, faixas de dias em
+/// azul/roxo/verde, conclusao em vermelho) -- sem inventar cor nova, pra
+/// manter a mesma identidade visual entre os dois modulos.
+String _defaultStageColorModule2(String stageKey) {
+  if (stageKey == _secondStagingStageKey) return "#F2994A";
+  if (stageKey == _secondEvaluationStageKey) return "#EB5757";
+  const faixa1 = {"dia_16", "dia_17", "dia_18", "dia_19"};
+  const faixa2 = {"dia_20", "dia_21", "dia_22", "dia_23"};
+  if (faixa1.contains(stageKey)) return "#2D9CDB";
+  if (faixa2.contains(stageKey)) return "#7A0BD4";
+  return "#27AE60"; // dia_24..dia_31
+}
+
+/// Sem checklist padrao pro modulo 2 ainda -- o gestor configura pela
+/// mesma tela "Configurar colunas" (onboarding_stage_config_dialog.dart, ja
+/// generica por phase_key) conforme for definindo o processo dessa fase.
+const _defaultChecklistItemsByStageModule2 = <String, List<(String, String)>>{};
+
+bool _isEvaluationStage(String phaseKey, String stageKey) =>
+    phaseKey == onboardingSecondPhaseKey
+    ? stageKey == _secondEvaluationStageKey
+    : stageKey == _evaluationStageKey;
+
+bool _isRecoveryStage(String phaseKey, String stageKey) =>
+    phaseKey == onboardingPhaseKey && stageKey == _recoveryStageKey;
+
+/// Garante que a agencia tenha as colunas/checklist padrao da fase
+/// informada (Onboarding 0-15 Dias por padrao, ou Onboarding 16-31 Dias).
+/// Idempotente (so insere o que ainda nao existe), mesmo padrao de
+/// CalendarService.seedDefaultCategories. Util como fallback para agencias
+/// criadas depois da migration 0007 ja ter rodado.
+Future<void> seedOnboardingPhaseStages({
+  String? agencyId,
+  String phaseKey = onboardingPhaseKey,
+}) async {
+  final client = Supabase.instance.client;
+  agencyId ??=
+      (await client
+              .from("managers")
+              .select("agency_id")
+              .eq("id", client.auth.currentUser!.id)
+              .single())["agency_id"]
+          as String;
+
+  final isModule2 = phaseKey == onboardingSecondPhaseKey;
+  final defaultStages = isModule2 ? _defaultStagesModule2 : _defaultStages;
+  final colorFn = isModule2 ? _defaultStageColorModule2 : _defaultStageColor;
+  final checklistMap = isModule2
+      ? _defaultChecklistItemsByStageModule2
+      : _defaultChecklistItemsByStage;
+
+  final existing = await client
+      .from("streamer_phase_stages")
+      .select("stage_key")
+      .eq("agency_id", agencyId)
+      .eq("phase_key", phaseKey);
+  final existingKeys = (existing as List)
+      .map((r) => r["stage_key"] as String)
+      .toSet();
+  final missing = defaultStages
+      .where((s) => !existingKeys.contains(s.$1))
+      .toList();
   if (missing.isEmpty) return;
 
-  final stageRows = missing.map((s) => {
-        "agency_id": agencyId,
-        "phase_key": onboardingPhaseKey,
-        "stage_key": s.$1,
-        "name": s.$2,
-        "order_index": _defaultStages.indexOf(s),
-        "color": _defaultStageColor(s.$1),
-      }).toList();
+  final stageRows = missing
+      .map(
+        (s) => {
+          "agency_id": agencyId,
+          "phase_key": phaseKey,
+          "stage_key": s.$1,
+          "name": s.$2,
+          "order_index": defaultStages.indexOf(s),
+          "color": colorFn(s.$1),
+          "is_evaluation_stage": _isEvaluationStage(phaseKey, s.$1),
+          "is_recovery_stage": _isRecoveryStage(phaseKey, s.$1),
+        },
+      )
+      .toList();
   await client.from("streamer_phase_stages").insert(stageRows);
 
   for (final stage in missing) {
-    final items = _defaultChecklistItemsByStage[stage.$1];
+    final items = checklistMap[stage.$1];
     if (items == null) continue;
-    final itemRows = items.asMap().entries.map((entry) => {
-          "agency_id": agencyId,
-          "phase_key": onboardingPhaseKey,
-          "stage_key": stage.$1,
-          "item_key": entry.value.$1,
-          "label": entry.value.$2,
-          "order_index": entry.key + 1,
-        }).toList();
+    final itemRows = items
+        .asMap()
+        .entries
+        .map(
+          (entry) => {
+            "agency_id": agencyId,
+            "phase_key": phaseKey,
+            "stage_key": stage.$1,
+            "item_key": entry.value.$1,
+            "label": entry.value.$2,
+            "order_index": entry.key + 1,
+          },
+        )
+        .toList();
     await client.from("streamer_phase_checklist_items").insert(itemRows);
   }
 }
 
-/// Cria (ou promove) o card do streamer na primeira coluna do Onboarding
-/// 0-15 Dias, chamada sempre que o recrutador conclui o checklist de
-/// onboarding (se o streamer ja estiver vinculado) ou quando o streamer e
-/// vinculado depois (se o checklist ja estava concluido). Se ja existir um
-/// card "pre-vinculo" criado a partir do lead (ver
-/// createOnboardingLeadCardIfNeeded), promove essa mesma linha em vez de
-/// duplicar -- preserva etapa/historico. Idempotente: nao duplica card se
-/// ja existir para esse streamer+fase.
-Future<void> createOnboardingPhaseCardIfNeeded({required String streamerId}) async {
+String _phaseLabel(String phaseKey) => phaseKey == onboardingSecondPhaseKey
+    ? "Onboarding 16-31 Dias"
+    : "Onboarding 0-15 Dias";
+
+/// Cria (ou promove) o card do streamer na primeira coluna da fase
+/// informada (Onboarding 0-15 Dias por padrao). Chamada sempre que o
+/// recrutador conclui o checklist de onboarding (se o streamer ja estiver
+/// vinculado), quando o streamer e vinculado depois (se o checklist ja
+/// estava concluido), ou pela promocao automatica pro Onboarding 16-31 Dias
+/// quando o gestor aprova o card no modulo anterior (ver
+/// evaluateOnboardingCard). Se ja existir um card "pre-vinculo" criado a
+/// partir do lead (ver createOnboardingLeadCardIfNeeded -- so acontece pra
+/// onboardingPhaseKey, leads nunca entram direto na 2a fase), promove essa
+/// mesma linha em vez de duplicar -- preserva etapa/historico. Idempotente:
+/// nao duplica card se ja existir para esse streamer+fase.
+Future<void> createOnboardingPhaseCardIfNeeded({
+  required String streamerId,
+  String phaseKey = onboardingPhaseKey,
+}) async {
   final client = Supabase.instance.client;
   final userId = client.auth.currentUser!.id;
 
-  final existing = await client.from("streamer_phase_progress").select("id").eq("streamer_id", streamerId).eq("phase_key", onboardingPhaseKey).maybeSingle();
+  final existing = await client
+      .from("streamer_phase_progress")
+      .select("id")
+      .eq("streamer_id", streamerId)
+      .eq("phase_key", phaseKey)
+      .maybeSingle();
   if (existing != null) return;
 
-  final me = await client.from("managers").select("agency_id").eq("id", userId).single();
+  final me = await client
+      .from("managers")
+      .select("agency_id")
+      .eq("id", userId)
+      .single();
   final agencyId = me["agency_id"] as String;
 
-  final profile = await client.from("profiles").select("assigned_manager_id").eq("id", streamerId).maybeSingle();
+  final profile = await client
+      .from("profiles")
+      .select("assigned_manager_id")
+      .eq("id", streamerId)
+      .maybeSingle();
   final assignedManagerId = profile?["assigned_manager_id"] as String?;
 
   // Resolve todos os gestores ja definidos para este streamer: prioriza os
@@ -178,77 +306,103 @@ Future<void> createOnboardingPhaseCardIfNeeded({required String streamerId}) asy
   // profiles.assigned_manager_id (streamers sem lead, ex. criados
   // manualmente via "Novo Agenciado" direto no Kanban do Gestor).
   final managerIds = <String>{};
-  final lead = await client.from("leads").select("id").eq("converted_streamer_id", streamerId).maybeSingle();
+  final lead = await client
+      .from("leads")
+      .select("id")
+      .eq("converted_streamer_id", streamerId)
+      .maybeSingle();
   if (lead != null) {
-    final gestores = await client.from("lead_onboarding_gestores").select("manager_id").eq("lead_id", lead["id"]);
+    final gestores = await client
+        .from("lead_onboarding_gestores")
+        .select("manager_id")
+        .eq("lead_id", lead["id"]);
     managerIds.addAll((gestores as List).map((g) => g["manager_id"] as String));
   }
   if (assignedManagerId != null) managerIds.add(assignedManagerId);
 
   String progressId;
   final leadCard = lead != null
-      ? await client.from("streamer_phase_progress").select("id").eq("lead_id", lead["id"]).eq("phase_key", onboardingPhaseKey).maybeSingle()
+      ? await client
+            .from("streamer_phase_progress")
+            .select("id")
+            .eq("lead_id", lead["id"])
+            .eq("phase_key", phaseKey)
+            .maybeSingle()
       : null;
 
   if (leadCard != null) {
     progressId = leadCard["id"] as String;
-    await client.from("streamer_phase_progress").update({
-      "streamer_id": streamerId,
-      "lead_id": null,
-      "manager_id": assignedManagerId,
-    }).eq("id", progressId);
+    await client
+        .from("streamer_phase_progress")
+        .update({
+          "streamer_id": streamerId,
+          "lead_id": null,
+          "manager_id": assignedManagerId,
+        })
+        .eq("id", progressId);
     try {
       await client.from("streamer_phase_history").insert({
         "streamer_id": streamerId,
-        "phase_key": onboardingPhaseKey,
+        "phase_key": phaseKey,
         "action": "vinculado_streamer",
         "detail": "Streamer oficial vinculado ao card de onboarding",
         "performed_by": userId,
       });
     } catch (_) {}
   } else {
-    await seedOnboardingPhaseStages(agencyId: agencyId);
+    await seedOnboardingPhaseStages(agencyId: agencyId, phaseKey: phaseKey);
 
     final firstStage = await client
         .from("streamer_phase_stages")
         .select("stage_key")
         .eq("agency_id", agencyId)
-        .eq("phase_key", onboardingPhaseKey)
+        .eq("phase_key", phaseKey)
         .eq("is_active", true)
         .order("order_index", ascending: true)
         .limit(1)
         .maybeSingle();
     if (firstStage == null) return;
 
-    final inserted = await client.from("streamer_phase_progress").insert({
-      "streamer_id": streamerId,
-      "phase_key": onboardingPhaseKey,
-      "stage_key": firstStage["stage_key"],
-      "manager_id": assignedManagerId,
-      "agency_id": agencyId,
-      "created_by": userId,
-    }).select("id").single();
+    final inserted = await client
+        .from("streamer_phase_progress")
+        .insert({
+          "streamer_id": streamerId,
+          "phase_key": phaseKey,
+          "stage_key": firstStage["stage_key"],
+          "manager_id": assignedManagerId,
+          "agency_id": agencyId,
+          "created_by": userId,
+        })
+        .select("id")
+        .single();
     progressId = inserted["id"] as String;
 
     try {
       await client.from("streamer_phase_history").insert({
         "streamer_id": streamerId,
-        "phase_key": onboardingPhaseKey,
+        "phase_key": phaseKey,
         "action": "entrada_onboarding",
-        "detail": "Entrou no Onboarding 0-15 Dias",
+        "detail": "Entrou no " + _phaseLabel(phaseKey),
         "performed_by": userId,
       });
     } catch (_) {}
   }
 
   if (managerIds.isNotEmpty) {
-    await addManagersToCard(progressId: progressId, managerIds: managerIds.toList(), addedBy: userId);
+    await addManagersToCard(
+      progressId: progressId,
+      managerIds: managerIds.toList(),
+      addedBy: userId,
+    );
     for (final managerId in managerIds) {
       try {
         await client.from("manager_notifications").insert({
           "manager_id": managerId,
-          "subject": "Novo streamer no Onboarding 0-15 Dias",
-          "message": "Um streamer sob sua gestao entrou no Onboarding 0-15 Dias.",
+          "subject": "Novo streamer no " + _phaseLabel(phaseKey),
+          "message":
+              "Um streamer sob sua gestao entrou no " +
+              _phaseLabel(phaseKey) +
+              ".",
           "streamer_id": streamerId,
         });
       } catch (_) {}
@@ -269,13 +423,26 @@ Future<void> createOnboardingLeadCardIfNeeded({required String leadId}) async {
   final client = Supabase.instance.client;
   final userId = client.auth.currentUser!.id;
 
-  final lead = await client.from("leads").select("id, converted_streamer_id").eq("id", leadId).maybeSingle();
+  final lead = await client
+      .from("leads")
+      .select("id, converted_streamer_id")
+      .eq("id", leadId)
+      .maybeSingle();
   if (lead == null || lead["converted_streamer_id"] != null) return;
 
-  final existing = await client.from("streamer_phase_progress").select("id").eq("lead_id", leadId).eq("phase_key", onboardingPhaseKey).maybeSingle();
+  final existing = await client
+      .from("streamer_phase_progress")
+      .select("id")
+      .eq("lead_id", leadId)
+      .eq("phase_key", onboardingPhaseKey)
+      .maybeSingle();
   if (existing != null) return;
 
-  final me = await client.from("managers").select("agency_id").eq("id", userId).single();
+  final me = await client
+      .from("managers")
+      .select("agency_id")
+      .eq("id", userId)
+      .single();
   final agencyId = me["agency_id"] as String;
 
   await seedOnboardingPhaseStages(agencyId: agencyId);
@@ -291,17 +458,26 @@ Future<void> createOnboardingLeadCardIfNeeded({required String leadId}) async {
       .maybeSingle();
   if (firstStage == null) return;
 
-  final gestoresRows = await client.from("lead_onboarding_gestores").select("manager_id").eq("lead_id", leadId);
-  final managerIds = (gestoresRows as List).map((g) => g["manager_id"] as String).toSet();
+  final gestoresRows = await client
+      .from("lead_onboarding_gestores")
+      .select("manager_id")
+      .eq("lead_id", leadId);
+  final managerIds = (gestoresRows as List)
+      .map((g) => g["manager_id"] as String)
+      .toSet();
 
-  final inserted = await client.from("streamer_phase_progress").insert({
-    "lead_id": leadId,
-    "phase_key": onboardingPhaseKey,
-    "stage_key": firstStage["stage_key"],
-    "manager_id": managerIds.isEmpty ? null : managerIds.first,
-    "agency_id": agencyId,
-    "created_by": userId,
-  }).select("id").single();
+  final inserted = await client
+      .from("streamer_phase_progress")
+      .insert({
+        "lead_id": leadId,
+        "phase_key": onboardingPhaseKey,
+        "stage_key": firstStage["stage_key"],
+        "manager_id": managerIds.isEmpty ? null : managerIds.first,
+        "agency_id": agencyId,
+        "created_by": userId,
+      })
+      .select("id")
+      .single();
   final progressId = inserted["id"] as String;
 
   try {
@@ -315,13 +491,18 @@ Future<void> createOnboardingLeadCardIfNeeded({required String leadId}) async {
   } catch (_) {}
 
   if (managerIds.isNotEmpty) {
-    await addManagersToCard(progressId: progressId, managerIds: managerIds.toList(), addedBy: userId);
+    await addManagersToCard(
+      progressId: progressId,
+      managerIds: managerIds.toList(),
+      addedBy: userId,
+    );
     for (final managerId in managerIds) {
       try {
         await client.from("manager_notifications").insert({
           "manager_id": managerId,
           "subject": "Novo streamer a caminho",
-          "message": "Convite enviado -- um streamer a caminho da agencia ja aparece no seu Onboarding 0-15 Dias.",
+          "message":
+              "Convite enviado -- um streamer a caminho da agencia ja aparece no seu Onboarding 0-15 Dias.",
         });
       } catch (_) {}
     }
@@ -330,20 +511,32 @@ Future<void> createOnboardingLeadCardIfNeeded({required String leadId}) async {
 
 /// Vincula um ou mais gestores a um card ja existente (tabela N:N
 /// streamer_phase_progress_managers). Idempotente via upsert.
-Future<void> addManagersToCard({required String progressId, required List<String> managerIds, required String addedBy}) async {
+Future<void> addManagersToCard({
+  required String progressId,
+  required List<String> managerIds,
+  required String addedBy,
+}) async {
   final client = Supabase.instance.client;
   for (final managerId in managerIds) {
-    await client.from("streamer_phase_progress_managers").upsert(
-      {"progress_id": progressId, "manager_id": managerId, "added_by": addedBy},
-      onConflict: "progress_id,manager_id",
-    );
+    await client.from("streamer_phase_progress_managers").upsert({
+      "progress_id": progressId,
+      "manager_id": managerId,
+      "added_by": addedBy,
+    }, onConflict: "progress_id,manager_id");
   }
 }
 
 /// Remove um gestor de um card. Nao apaga o card em si -- so o vinculo.
-Future<void> removeManagerFromCard({required String progressId, required String managerId}) async {
+Future<void> removeManagerFromCard({
+  required String progressId,
+  required String managerId,
+}) async {
   final client = Supabase.instance.client;
-  await client.from("streamer_phase_progress_managers").delete().eq("progress_id", progressId).eq("manager_id", managerId);
+  await client
+      .from("streamer_phase_progress_managers")
+      .delete()
+      .eq("progress_id", progressId)
+      .eq("manager_id", managerId);
 }
 
 /// Cria manualmente um card de Onboarding 0-15, chamado pelo dialog "Novo
@@ -361,24 +554,32 @@ Future<String> createManualOnboardingCard({
 }) async {
   final client = Supabase.instance.client;
   final userId = client.auth.currentUser!.id;
-  final me = await client.from("managers").select("agency_id").eq("id", userId).single();
+  final me = await client
+      .from("managers")
+      .select("agency_id")
+      .eq("id", userId)
+      .single();
   final agencyId = me["agency_id"] as String;
 
   String streamerId;
   if (existingStreamerId != null) {
     streamerId = existingStreamerId;
   } else {
-    final inserted = await client.from("profiles").insert({
-      "display_name": displayName,
-      "tiktok_creator_id": tiktokId,
-      "phone": phone,
-      "email": email,
-      "category_id": categoryId,
-      "agency_id": agencyId,
-      "assigned_manager_id": userId,
-      "is_active": true,
-      "joined_at": DateTime.now().toIso8601String(),
-    }).select("id").single();
+    final inserted = await client
+        .from("profiles")
+        .insert({
+          "display_name": displayName,
+          "tiktok_creator_id": tiktokId,
+          "phone": phone,
+          "email": email,
+          "category_id": categoryId,
+          "agency_id": agencyId,
+          "assigned_manager_id": userId,
+          "is_active": true,
+          "joined_at": DateTime.now().toIso8601String(),
+        })
+        .select("id")
+        .single();
     streamerId = inserted["id"] as String;
   }
 
@@ -404,14 +605,18 @@ Future<String> createManualOnboardingCard({
         .limit(1)
         .single();
 
-    final inserted = await client.from("streamer_phase_progress").insert({
-      "streamer_id": streamerId,
-      "phase_key": onboardingPhaseKey,
-      "stage_key": firstStage["stage_key"],
-      "manager_id": userId,
-      "agency_id": agencyId,
-      "created_by": userId,
-    }).select("id").single();
+    final inserted = await client
+        .from("streamer_phase_progress")
+        .insert({
+          "streamer_id": streamerId,
+          "phase_key": onboardingPhaseKey,
+          "stage_key": firstStage["stage_key"],
+          "manager_id": userId,
+          "agency_id": agencyId,
+          "created_by": userId,
+        })
+        .select("id")
+        .single();
     progressId = inserted["id"] as String;
 
     try {
@@ -425,7 +630,11 @@ Future<String> createManualOnboardingCard({
     } catch (_) {}
   }
 
-  await addManagersToCard(progressId: progressId, managerIds: [userId], addedBy: userId);
+  await addManagersToCard(
+    progressId: progressId,
+    managerIds: [userId],
+    addedBy: userId,
+  );
 
   if (notes != null && notes.trim().isNotEmpty) {
     await client.from("streamer_phase_history").insert({
@@ -442,19 +651,31 @@ Future<String> createManualOnboardingCard({
 
 /// Arquiva cards (oculta do board principal, mantem consultavel na aba
 /// "Arquivados"). Usado pelo filtro de periodo.
-Future<void> archiveOnboardingCards({required List<String> progressIds, required String performedBy}) async {
+Future<void> archiveOnboardingCards({
+  required List<String> progressIds,
+  required String performedBy,
+}) async {
   final client = Supabase.instance.client;
   final now = DateTime.now().toIso8601String();
   for (final progressId in progressIds) {
-    await client.from("streamer_phase_progress").update({"archived_at": now, "archived_by": performedBy}).eq("id", progressId);
+    await client
+        .from("streamer_phase_progress")
+        .update({"archived_at": now, "archived_by": performedBy})
+        .eq("id", progressId);
   }
 }
 
 /// Reativa um card arquivado (volta a aparecer no board, na mesma coluna
 /// em que estava).
-Future<void> unarchiveOnboardingCard({required String progressId, required String performedBy}) async {
+Future<void> unarchiveOnboardingCard({
+  required String progressId,
+  required String performedBy,
+}) async {
   final client = Supabase.instance.client;
-  await client.from("streamer_phase_progress").update({"archived_at": null, "archived_by": null}).eq("id", progressId);
+  await client
+      .from("streamer_phase_progress")
+      .update({"archived_at": null, "archived_by": null})
+      .eq("id", progressId);
 }
 
 /// Remove definitivamente um card do Onboarding 0-15 Dias -- diferente de
@@ -483,13 +704,16 @@ Future<void> updateOnboardingStreamerProfile({
   required String performedBy,
 }) async {
   final client = Supabase.instance.client;
-  await client.from("profiles").update({
-    "display_name": displayName,
-    "tiktok_creator_id": tiktokId,
-    "phone": phone,
-    "email": email,
-    "category_id": categoryId,
-  }).eq("id", streamerId);
+  await client
+      .from("profiles")
+      .update({
+        "display_name": displayName,
+        "tiktok_creator_id": tiktokId,
+        "phone": phone,
+        "email": email,
+        "category_id": categoryId,
+      })
+      .eq("id", streamerId);
   // Registro de historico -- best effort: os dados ja foram salvos acima,
   // nao pode aparecer como erro pro gestor so porque o log falhou.
   try {
@@ -515,12 +739,15 @@ Future<void> updateOnboardingLeadInfo({
   required String performedBy,
 }) async {
   final client = Supabase.instance.client;
-  await client.from("leads").update({
-    "name": name,
-    "tiktok_username": tiktokUsername,
-    "phone": phone,
-    "category_interest": categoryInterest,
-  }).eq("id", leadId);
+  await client
+      .from("leads")
+      .update({
+        "name": name,
+        "tiktok_username": tiktokUsername,
+        "phone": phone,
+        "category_interest": categoryInterest,
+      })
+      .eq("id", leadId);
   // Registro de historico -- best effort: os dados ja foram salvos acima,
   // nao pode aparecer como erro pro gestor so porque o log falhou.
   try {
@@ -537,43 +764,123 @@ Future<void> updateOnboardingLeadInfo({
 /// Marca/desmarca um card como "streamer em potencial" -- avaliacao do
 /// gestor durante o acompanhamento desta fase, mostrada como uma estrela ao
 /// lado do icone de categoria na foto do card.
-Future<void> updateOnboardingCardPotential({required String progressId, required bool isPotential}) async {
-  await Supabase.instance.client.from("streamer_phase_progress").update({"is_potential": isPotential}).eq("id", progressId);
+Future<void> updateOnboardingCardPotential({
+  required String progressId,
+  required bool isPotential,
+}) async {
+  await Supabase.instance.client
+      .from("streamer_phase_progress")
+      .update({"is_potential": isPotential})
+      .eq("id", progressId);
 }
 
-/// Decisao da etapa "Avaliacao Final": aprovado (streamer segue ativo,
-/// conclui o onboarding), revisao (fica mais tempo em acompanhamento,
-/// card continua na coluna) ou desligado (encerra o streamer na agencia).
+/// Decisao final da fase (etapa de conclusao): aprovado (streamer segue
+/// ativo, conclui esta fase -- se promoteToPhaseKey for informado, entra
+/// automaticamente na primeira coluna da proxima fase) ou desligado (encerra
+/// o streamer na agencia). "Plano de Recuperacao" NAO passa por aqui -- ver
+/// sendOnboardingCardToRecovery, que move o card sem completar a fase.
+/// Chamada tanto pelos botoes rapidos no rosto do card quanto pelo
+/// formulario "Resultado do Onboarding" no dialog de detalhe, e pela
+/// reavaliacao de um card que estava em Plano de Recuperacao -- um so
+/// caminho de decisao, sem regra de negocio duplicada entre as telas.
 Future<void> evaluateOnboardingCard({
   required String progressId,
   required String streamerId,
   required String outcome,
   required String performedBy,
+  String? note,
+  String? promoteToPhaseKey,
 }) async {
   final client = Supabase.instance.client;
-  final data = <String, dynamic>{"outcome": outcome};
+  final data = <String, dynamic>{
+    "outcome": outcome,
+    "outcome_note": note,
+    "completed_at": DateTime.now().toIso8601String(),
+  };
   String detail;
   if (outcome == "aprovado") {
-    data["completed_at"] = DateTime.now().toIso8601String();
-    detail = "Avaliacao final: aprovado, streamer segue ativo na agencia";
-  } else if (outcome == "desligado") {
-    data["completed_at"] = DateTime.now().toIso8601String();
-    detail = "Avaliacao final: desligado da agencia";
-    await client.from("profiles").update({"is_active": false}).eq("id", streamerId);
+    detail = "Conclusao: aprovado, streamer segue ativo na agencia";
   } else {
-    detail = "Avaliacao final: colocado em revisao, acompanhamento estendido";
+    detail = "Conclusao: desligado da agencia";
+    await client
+        .from("profiles")
+        .update({"is_active": false})
+        .eq("id", streamerId);
   }
 
-  await client.from("streamer_phase_progress").update(data).eq("id", progressId);
-  // Registro de historico -- best effort: a decisao (aprovado/desligado/
-  // revisao) ja foi salva acima, nao pode aparecer como "erro" pro gestor
-  // so porque o log falhou.
+  await client
+      .from("streamer_phase_progress")
+      .update(data)
+      .eq("id", progressId);
+  // Registro de historico -- best effort: a decisao (aprovado/desligado)
+  // ja foi salva acima, nao pode aparecer como "erro" pro gestor so porque
+  // o log falhou.
   try {
     await client.from("streamer_phase_history").insert({
       "streamer_id": streamerId,
       "phase_key": onboardingPhaseKey,
       "action": "avaliacao_final",
       "detail": detail,
+      "performed_by": performedBy,
+    });
+  } catch (_) {}
+
+  // Promocao automatica pra proxima fase -- best effort, igual ao log
+  // acima: a aprovacao em si ja foi salva, um erro aqui nao pode fazer
+  // parecer que a aprovacao falhou pro gestor. createOnboardingPhaseCardIfNeeded
+  // ja e idempotente (nao duplica se o streamer ja tiver card na fase seguinte).
+  if (outcome == "aprovado" && promoteToPhaseKey != null) {
+    try {
+      await createOnboardingPhaseCardIfNeeded(
+        streamerId: streamerId,
+        phaseKey: promoteToPhaseKey,
+      );
+    } catch (_) {}
+  }
+}
+
+/// Envia o card pra coluna "Plano de Recuperacao" da fase informada --
+/// diferente de evaluateOnboardingCard, NAO completa a fase (sem
+/// completed_at, card continua ativo no board, so muda de coluna). Usado
+/// quando o gestor escolhe essa opcao na conclusao do onboarding, tanto
+/// pelo botao rapido no rosto do card quanto pelo formulario "Resultado do
+/// Onboarding" no dialog de detalhe.
+Future<void> sendOnboardingCardToRecovery({
+  required String progressId,
+  required String streamerId,
+  required String agencyId,
+  required String phaseKey,
+  required String note,
+  required String performedBy,
+}) async {
+  final client = Supabase.instance.client;
+  final recoveryStage = await client
+      .from("streamer_phase_stages")
+      .select("stage_key")
+      .eq("agency_id", agencyId)
+      .eq("phase_key", phaseKey)
+      .eq("is_recovery_stage", true)
+      .maybeSingle();
+  if (recoveryStage == null) return;
+
+  await client
+      .from("streamer_phase_progress")
+      .update({
+        "stage_key": recoveryStage["stage_key"],
+        "stage_changed_at": DateTime.now().toIso8601String(),
+        "outcome": "plano_recuperacao",
+        "outcome_note": note,
+      })
+      .eq("id", progressId);
+
+  try {
+    await client.from("streamer_phase_history").insert({
+      "streamer_id": streamerId,
+      "phase_key": phaseKey,
+      "action": "enviado_plano_recuperacao",
+      "detail":
+          "Enviado para Plano de Recuperacao" +
+          (note.trim().isEmpty ? "" : ": " + note.trim()),
       "performed_by": performedBy,
     });
   } catch (_) {}

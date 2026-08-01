@@ -9,6 +9,8 @@ import "gestor_dashboard_page.dart";
 import "gestor_my_streamers_page.dart";
 import "gestor_proximos_agenciados_page.dart";
 import "onboarding_phase_kanban_page.dart";
+import "onboarding_phase_service.dart"
+    show onboardingPhaseKey, onboardingSecondPhaseKey;
 import "onboarding_materials_page.dart";
 
 const _menuItems = [
@@ -16,7 +18,8 @@ const _menuItems = [
   (Icons.assignment_outlined, "Demandas"),
   (Icons.groups, "Meus Streamers"),
   (Icons.hourglass_bottom, "Proximos Agenciados"),
-  (Icons.timelapse, "Onboarding 0-15 Dias"),
+  (Icons.timelapse, "Onboard 0-15 Dias"),
+  (Icons.timelapse, "Acompanhamento 16-31 Dias"),
   (Icons.menu_book, "Material Acompanhamento"),
   (Icons.calendar_month, "Calendario"),
   (Icons.badge, "CRM"),
@@ -54,16 +57,38 @@ class _GestorShellState extends State<GestorShell> {
         return const GestorMyStreamersPage();
       case "Proximos Agenciados":
         return const GestorProximosAgenciadosPage();
-      case "Onboarding 0-15 Dias":
-        return const OnboardingPhaseKanbanPage();
+      case "Onboard 0-15 Dias":
+        return const OnboardingPhaseKanbanPage(
+          key: ValueKey(onboardingPhaseKey),
+          promoteToPhaseKey: onboardingSecondPhaseKey,
+        );
+      case "Acompanhamento 16-31 Dias":
+        return const OnboardingPhaseKanbanPage(
+          key: ValueKey(onboardingSecondPhaseKey),
+          phaseKey: onboardingSecondPhaseKey,
+          title: "Acompanhamento 16-31 Dias",
+          description:
+              "Continuacao do Onboard 0-15 Dias -- streamers aprovados entram automaticamente na coluna \"Recebidos\".",
+          materialsStage: "onboarding_30",
+          showManualCreateButton: false,
+          deadlineDaysThreshold: 31,
+          deadlineWarnDays: 27,
+        );
       case "Material Acompanhamento":
         return const OnboardingMaterialsPage();
       case "Calendario":
         return const CalendarBoardPage(mode: CalendarBoardMode.mine);
       case "CRM":
-        return CrmPage(managerId: Supabase.instance.client.auth.currentUser!.id);
+        return CrmPage(
+          managerId: Supabase.instance.client.auth.currentUser!.id,
+        );
       default:
-        return Center(child: Text(_selected + " - em construcao", style: const TextStyle(fontSize: 18, color: Colors.white70)));
+        return Center(
+          child: Text(
+            _selected + " - em construcao",
+            style: const TextStyle(fontSize: 18, color: Colors.white70),
+          ),
+        );
     }
   }
 
@@ -85,9 +110,23 @@ class _GestorShellState extends State<GestorShell> {
                       html.window.localStorage.remove("mduck_area");
                       Navigator.of(context).pop();
                     },
-                    child: Image.asset("assets/logo/LogoMduck.png", height: 90, errorBuilder: (context, error, stack) => const Text("MDuck", style: TextStyle(color: Color(0xFF7A0BD4), fontSize: 20, fontWeight: FontWeight.bold))),
+                    child: Image.asset(
+                      "assets/logo/LogoMduck.png",
+                      height: 90,
+                      errorBuilder: (context, error, stack) => const Text(
+                        "MDuck",
+                        style: TextStyle(
+                          color: Color(0xFF7A0BD4),
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
                   ),
-                  const Text("Área do Gestor", style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  const Text(
+                    "Área do Gestor",
+                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
                   const SizedBox(height: 16),
                   Expanded(
                     child: ListView(
@@ -96,8 +135,23 @@ class _GestorShellState extends State<GestorShell> {
                         ..._menuItems.map((item) {
                           final selected = _selected == item.$2;
                           return ListTile(
-                            leading: Icon(item.$1, color: selected ? const Color(0xFF7A0BD4) : Colors.white70, size: 20),
-                            title: Text(item.$2, style: TextStyle(color: selected ? const Color(0xFF7A0BD4) : Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                            leading: Icon(
+                              item.$1,
+                              color: selected
+                                  ? const Color(0xFF7A0BD4)
+                                  : Colors.white70,
+                              size: 20,
+                            ),
+                            title: Text(
+                              item.$2,
+                              style: TextStyle(
+                                color: selected
+                                    ? const Color(0xFF7A0BD4)
+                                    : Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
                             onTap: () => _select(item.$2),
                           );
                         }),

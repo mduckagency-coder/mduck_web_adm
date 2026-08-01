@@ -7,7 +7,12 @@ class ImportRowResult {
   final String status; // "aplicado" | "criado" | "nao_encontrado" | "erro"
   final String? detail;
 
-  ImportRowResult({required this.tiktokId, required this.nick, required this.status, this.detail});
+  ImportRowResult({
+    required this.tiktokId,
+    required this.nick,
+    required this.status,
+    this.detail,
+  });
 }
 
 class ImportSummary {
@@ -15,7 +20,8 @@ class ImportSummary {
   final int totalRowsRead;
   ImportSummary(this.rows, this.totalRowsRead);
 
-  int get applied => rows.where((r) => r.status == "aplicado" || r.status == "criado").length;
+  int get applied =>
+      rows.where((r) => r.status == "aplicado" || r.status == "criado").length;
   int get created => rows.where((r) => r.status == "criado").length;
   int get notFound => rows.where((r) => r.status == "nao_encontrado").length;
   int get errors => rows.where((r) => r.status == "erro").length;
@@ -56,7 +62,9 @@ class TikTokImportRepository {
   }
 
   DateTime? _parseJoinDate(String value) {
-    final match = RegExp(r"(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})").firstMatch(value);
+    final match = RegExp(
+      r"(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})",
+    ).firstMatch(value);
     if (match == null) return null;
     return DateTime.utc(
       int.parse(match.group(1)!),
@@ -75,11 +83,15 @@ class TikTokImportRepository {
     final currentKey = year.toString() + "-" + month.toString().padLeft(2, "0");
     final prevMonth = month == 1 ? 12 : month - 1;
     final prevYear = month == 1 ? year - 1 : year;
-    final previousKey = prevYear.toString() + "-" + prevMonth.toString().padLeft(2, "0");
+    final previousKey =
+        prevYear.toString() + "-" + prevMonth.toString().padLeft(2, "0");
     return (currentKey, previousKey);
   }
 
-  Future<ImportSummary> processFile(List<int> bytes, {required String agencyId}) async {
+  Future<ImportSummary> processFile(
+    List<int> bytes, {
+    required String agencyId,
+  }) async {
     final excel = Excel.decodeBytes(bytes);
     final sheet = excel.tables.values.first;
     final rowsData = sheet.rows;
@@ -105,7 +117,9 @@ class TikTokImportRepository {
 
     for (var i = 1; i < rowsData.length; i++) {
       final row = rowsData[i];
-      String cell(int idx) => idx >= 0 && idx < row.length ? (row[idx]?.value?.toString() ?? "") : "";
+      String cell(int idx) => idx >= 0 && idx < row.length
+          ? (row[idx]?.value?.toString() ?? "")
+          : "";
 
       final periodoTexto = cell(_colPeriodo).trim();
       if (periodoTexto.isEmpty) continue;
@@ -134,13 +148,31 @@ class TikTokImportRepository {
             .select("id")
             .eq("tiktok_username", nick)
             .maybeSingle();
+        // Streamers cadastrados manualmente (dialog "Novo Agenciado") tem o @
+        // digitado a mao guardado em tiktok_creator_id (campo pensado pro ID
+        // numerico do TikTok, nao pro @) -- sem esse fallback, a planilha
+        // nunca encontra esse cadastro e acaba criando um duplicado com o ID
+        // numerico certo, deixando o original parado em zero pra sempre.
+        if (nick.isNotEmpty) {
+          profile ??= await _client
+              .from("profiles")
+              .select("id")
+              .eq("tiktok_creator_id", nick)
+              .maybeSingle();
+        }
 
         var wasCreated = false;
 
         if (profile == null) {
           if (!isNumericId) {
             // sem ID valido e sem cadastro previo: nao da pra criar com seguranca
-            results.add(ImportRowResult(tiktokId: tiktokId, nick: nick, status: "nao_encontrado"));
+            results.add(
+              ImportRowResult(
+                tiktokId: tiktokId,
+                nick: nick,
+                status: "nao_encontrado",
+              ),
+            );
             await _client.from("tiktok_import_rows").insert({
               "import_id": importId,
               "streamer_identifier": nick,
@@ -171,15 +203,23 @@ class TikTokImportRepository {
         final streamerId = profile["id"];
 
         if (saiu) {
-          await _client.from("profiles").update({"is_active": false}).eq("id", streamerId);
+          await _client
+              .from("profiles")
+              .update({"is_active": false})
+              .eq("id", streamerId);
         } else {
           final joinDateUpdate = _parseJoinDate(cell(_colHorarioIngresso));
           final profileUpdate = <String, dynamic>{};
-          if (isNumericId && !wasCreated) profileUpdate["tiktok_creator_id"] = tiktokId;
-          if (joinDateUpdate != null) profileUpdate["joined_at"] = joinDateUpdate.toIso8601String();
+          if (isNumericId && !wasCreated)
+            profileUpdate["tiktok_creator_id"] = tiktokId;
+          if (joinDateUpdate != null)
+            profileUpdate["joined_at"] = joinDateUpdate.toIso8601String();
           profileUpdate["tiktok_group_name"] = cell(_colGrupo).trim();
           if (profileUpdate.isNotEmpty) {
-            await _client.from("profiles").update(profileUpdate).eq("id", streamerId);
+            await _client
+                .from("profiles")
+                .update(profileUpdate)
+                .eq("id", streamerId);
           }
 
           final diamonds = _parseInt(cell(_colDiamantes));
@@ -210,7 +250,13 @@ class TikTokImportRepository {
           }, onConflict: "streamer_id,period_key");
         }
 
-        results.add(ImportRowResult(tiktokId: tiktokId, nick: nick, status: wasCreated ? "criado" : "aplicado"));
+        results.add(
+          ImportRowResult(
+            tiktokId: tiktokId,
+            nick: nick,
+            status: wasCreated ? "criado" : "aplicado",
+          ),
+        );
         await _client.from("tiktok_import_rows").insert({
           "import_id": importId,
           "streamer_identifier": nick,
@@ -219,21 +265,26 @@ class TikTokImportRepository {
           "status": "aplicado",
         });
       } catch (e) {
-        results.add(ImportRowResult(tiktokId: tiktokId, nick: nick, status: "erro", detail: e.toString()));
+        results.add(
+          ImportRowResult(
+            tiktokId: tiktokId,
+            nick: nick,
+            status: "erro",
+            detail: e.toString(),
+          ),
+        );
       }
     }
 
-    await _client.from("tiktok_imports").update({
-      "status": "concluido",
-      "rows_processed": results.length,
-      "processed_at": DateTime.now().toIso8601String(),
-    }).eq("id", importId);
+    await _client
+        .from("tiktok_imports")
+        .update({
+          "status": "concluido",
+          "rows_processed": results.length,
+          "processed_at": DateTime.now().toIso8601String(),
+        })
+        .eq("id", importId);
 
     return ImportSummary(results, rowsData.length);
   }
 }
-
-
-
-
-
