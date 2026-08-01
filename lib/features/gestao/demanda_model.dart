@@ -97,6 +97,7 @@ class Demanda {
   final String criadoPorLabel;
   final String responsavelId;
   final String responsavelLabel;
+  final String? responsavelPhotoUrl;
   final DateTime criadoEm;
   final DateTime atualizadoEm;
 
@@ -113,6 +114,7 @@ class Demanda {
     required this.criadoPorLabel,
     required this.responsavelId,
     required this.responsavelLabel,
+    required this.responsavelPhotoUrl,
     required this.criadoEm,
     required this.atualizadoEm,
   });
@@ -124,6 +126,8 @@ class Demanda {
       if (fullName != null && fullName.isNotEmpty) return fullName;
       return (managerRow["login_email"] as String?) ?? "-";
     }
+
+    final responsavelManager = row["responsavel_manager"];
 
     return Demanda(
       id: row["id"] as String,
@@ -139,7 +143,10 @@ class Demanda {
       criadoPorId: row["criado_por"] as String,
       criadoPorLabel: managerLabel(row["criado_por_manager"]),
       responsavelId: row["responsavel_id"] as String,
-      responsavelLabel: managerLabel(row["responsavel_manager"]),
+      responsavelLabel: managerLabel(responsavelManager),
+      responsavelPhotoUrl: responsavelManager is Map
+          ? responsavelManager["photo_url"] as String?
+          : null,
       criadoEm: DateTime.parse(row["created_at"] as String),
       atualizadoEm: DateTime.parse(row["updated_at"] as String),
     );
@@ -158,6 +165,7 @@ class Demanda {
     criadoPorLabel: criadoPorLabel,
     responsavelId: responsavelId,
     responsavelLabel: responsavelLabel,
+    responsavelPhotoUrl: responsavelPhotoUrl,
     criadoEm: criadoEm,
     atualizadoEm: DateTime.now(),
   );

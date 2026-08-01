@@ -16,7 +16,12 @@ import "view_selector.dart";
 class _DemandasData {
   final List<Demanda> demandas;
   final List<AtividadeAgendaItem> atividades;
-  const _DemandasData({required this.demandas, required this.atividades});
+  final List<Map<String, dynamic>> managers;
+  const _DemandasData({
+    required this.demandas,
+    required this.atividades,
+    required this.managers,
+  });
 }
 
 /// Central de demandas: tarefas que qualquer gestor pode enviar para
@@ -57,7 +62,7 @@ class _DemandasPageState extends State<DemandasPage> {
 
   final _repository = DemandaRepository();
   late Future<_DemandasData> _future;
-  DemandasViewMode _viewMode = DemandasViewMode.mes;
+  DemandasViewMode _viewMode = DemandasViewMode.lista;
   DateTime _focusedMonth = DateTime(
     DateTime.now().year,
     DateTime.now().month,
@@ -79,10 +84,12 @@ class _DemandasPageState extends State<DemandasPage> {
     final results = await Future.wait([
       _repository.loadMinhasDemandas(),
       _repository.loadAtividadesDaAgencia(),
+      _repository.loadManagersDaAgencia(),
     ]);
     return _DemandasData(
       demandas: results[0] as List<Demanda>,
       atividades: results[1] as List<AtividadeAgendaItem>,
+      managers: results[2] as List<Map<String, dynamic>>,
     );
   }
 
@@ -192,6 +199,11 @@ class _DemandasPageState extends State<DemandasPage> {
 
   void _closeDetail() => setState(() => _selectedDemanda = null);
 
+  void _onTapDay(DateTime day) => setState(() {
+    _focusedDay = day;
+    _viewMode = DemandasViewMode.dia;
+  });
+
   Future<void> _onStatusChanged(Demanda d, DemandaStatus status) async {
     await _repository.atualizarStatus(d.id, status);
     setState(() => _selectedDemanda = d.copyWith(status: status));
@@ -235,6 +247,7 @@ class _DemandasPageState extends State<DemandasPage> {
           atividades: atividades,
           onTapDemand: _onTapDemand,
           onTapAtividade: _onTapAtividade,
+          onTapDay: _onTapDay,
         );
       case DemandasViewMode.semana:
         return DemandWeekView(
@@ -243,6 +256,7 @@ class _DemandasPageState extends State<DemandasPage> {
           atividades: atividades,
           onTapDemand: _onTapDemand,
           onTapAtividade: _onTapAtividade,
+          onTapDay: _onTapDay,
         );
       case DemandasViewMode.dia:
         return DemandDayView(
@@ -285,6 +299,7 @@ class _DemandasPageState extends State<DemandasPage> {
 
         final all = snapshot.data!.demandas;
         final atividades = snapshot.data!.atividades;
+        final managers = snapshot.data!.managers;
         final filtered = all.where(_filters.matches).toList();
         final categorias = {for (final d in all) d.categoria}.toList()..sort();
 
@@ -407,6 +422,7 @@ class _DemandasPageState extends State<DemandasPage> {
                 onChanged: (f) => setState(() => _filters = f),
                 onClose: _toggleFilters,
                 categorias: categorias,
+                managers: managers,
               ),
             ),
             if (_selectedDemanda != null)

@@ -5,8 +5,8 @@ import "demanda_notifications.dart";
 
 const _demandaSelect =
     "*, "
-    "criado_por_manager:managers!demandas_criado_por_fkey(login_email, full_name), "
-    "responsavel_manager:managers!demandas_responsavel_id_fkey(login_email, full_name)";
+    "criado_por_manager:managers!demandas_criado_por_fkey(login_email, full_name, photo_url), "
+    "responsavel_manager:managers!demandas_responsavel_id_fkey(login_email, full_name, photo_url)";
 
 const _observacaoSelect =
     "id, texto, created_at, autor:managers!demanda_observacoes_autor_id_fkey(login_email, full_name)";

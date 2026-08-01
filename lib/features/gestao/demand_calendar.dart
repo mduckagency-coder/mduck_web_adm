@@ -13,6 +13,7 @@ class DemandCalendar extends StatelessWidget {
   final List<AtividadeAgendaItem> atividades;
   final void Function(Demanda)? onTapDemand;
   final void Function(AtividadeAgendaItem)? onTapAtividade;
+  final void Function(DateTime)? onTapDay;
 
   const DemandCalendar({
     super.key,
@@ -21,6 +22,7 @@ class DemandCalendar extends StatelessWidget {
     this.atividades = const [],
     this.onTapDemand,
     this.onTapAtividade,
+    this.onTapDay,
   });
 
   static const _weekDays = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SAB"];
@@ -138,28 +140,65 @@ class DemandCalendar extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
-                          width: 22,
-                          height: 22,
-                          alignment: Alignment.center,
-                          decoration: isToday
-                              ? const BoxDecoration(
-                                  color: Color(0xFF7A0BD4),
-                                  shape: BoxShape.circle,
-                                )
+                        InkWell(
+                          borderRadius: BorderRadius.circular(6),
+                          onTap: isCurrentMonth
+                              ? () => onTapDay?.call(cellDate)
                               : null,
-                          child: Text(
-                            displayDay.toString(),
-                            style: TextStyle(
-                              color: isToday
-                                  ? Colors.white
-                                  : (isCurrentMonth
-                                        ? Colors.white70
-                                        : Colors.white24),
-                              fontWeight: isToday
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                              fontSize: 12,
+                          child: Tooltip(
+                            message: isCurrentMonth ? "Ver o dia" : "",
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 22,
+                                  height: 22,
+                                  alignment: Alignment.center,
+                                  decoration: isToday
+                                      ? const BoxDecoration(
+                                          color: Color(0xFF7A0BD4),
+                                          shape: BoxShape.circle,
+                                        )
+                                      : null,
+                                  child: Text(
+                                    displayDay.toString(),
+                                    style: TextStyle(
+                                      color: isToday
+                                          ? Colors.white
+                                          : (isCurrentMonth
+                                                ? Colors.white70
+                                                : Colors.white24),
+                                      fontWeight: isToday
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                                if (isCurrentMonth && totalItems > 1) ...[
+                                  const SizedBox(width: 4),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 5,
+                                      vertical: 1,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(
+                                        0xFF7A0BD4,
+                                      ).withOpacity(0.3),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      totalItems.toString(),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                           ),
                         ),

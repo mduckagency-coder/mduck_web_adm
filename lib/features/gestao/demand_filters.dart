@@ -23,12 +23,14 @@ class DemandFilterState {
   final Set<DemandaPrioridade> prioridades;
   final DemandaFiltroPrazo prazo;
   final Set<String> categorias;
+  final Set<String> responsavelIds;
 
   const DemandFilterState({
     this.status = DemandaFiltroStatus.todas,
     this.prioridades = const {},
     this.prazo = DemandaFiltroPrazo.todos,
     this.categorias = const {},
+    this.responsavelIds = const {},
   });
 
   DemandFilterState copyWith({
@@ -36,11 +38,13 @@ class DemandFilterState {
     Set<DemandaPrioridade>? prioridades,
     DemandaFiltroPrazo? prazo,
     Set<String>? categorias,
+    Set<String>? responsavelIds,
   }) => DemandFilterState(
     status: status ?? this.status,
     prioridades: prioridades ?? this.prioridades,
     prazo: prazo ?? this.prazo,
     categorias: categorias ?? this.categorias,
+    responsavelIds: responsavelIds ?? this.responsavelIds,
   );
 
   int get activeCount {
@@ -49,6 +53,7 @@ class DemandFilterState {
     if (prioridades.isNotEmpty) count++;
     if (prazo != DemandaFiltroPrazo.todos) count++;
     if (categorias.isNotEmpty) count++;
+    if (responsavelIds.isNotEmpty) count++;
     return count;
   }
 
@@ -70,6 +75,8 @@ class DemandFilterState {
     if (prioridades.isNotEmpty && !prioridades.contains(d.prioridade))
       return false;
     if (categorias.isNotEmpty && !categorias.contains(d.categoria))
+      return false;
+    if (responsavelIds.isNotEmpty && !responsavelIds.contains(d.responsavelId))
       return false;
 
     if (prazo != DemandaFiltroPrazo.todos) {
@@ -123,6 +130,7 @@ class DemandFilters extends StatelessWidget {
   final ValueChanged<DemandFilterState> onChanged;
   final VoidCallback onClose;
   final List<String> categorias;
+  final List<Map<String, dynamic>> managers;
 
   const DemandFilters({
     super.key,
@@ -130,7 +138,14 @@ class DemandFilters extends StatelessWidget {
     required this.onChanged,
     required this.onClose,
     required this.categorias,
+    required this.managers,
   });
+
+  String _managerLabel(Map<String, dynamic> m) {
+    final fullName = m["full_name"] as String?;
+    if (fullName != null && fullName.isNotEmpty) return fullName;
+    return (m["login_email"] as String?) ?? "-";
+  }
 
   Widget _sectionTitle(String text) => Padding(
     padding: const EdgeInsets.only(bottom: 10, top: 4),
@@ -347,6 +362,71 @@ class DemandFilters extends StatelessWidget {
                                   }
                                   onChanged(filters.copyWith(categorias: next));
                                 });
+                              }).toList(),
+                            ),
+                      const SizedBox(height: 20),
+                      _sectionTitle("Responsavel"),
+                      managers.isEmpty
+                          ? const Text(
+                              "Nenhum gestor encontrado.",
+                              style: TextStyle(
+                                color: Colors.white38,
+                                fontSize: 12,
+                              ),
+                            )
+                          : Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: managers.map((m) {
+                                final id = m["id"] as String;
+                                final selected = filters.responsavelIds
+                                    .contains(id);
+                                final photoUrl = m["photo_url"] as String?;
+                                final email = m["login_email"] as String?;
+                                return ChoiceChip(
+                                  avatar: CircleAvatar(
+                                    radius: 10,
+                                    backgroundColor: Colors.white24,
+                                    backgroundImage: photoUrl != null
+                                        ? NetworkImage(photoUrl)
+                                        : null,
+                                    child: photoUrl == null
+                                        ? const Icon(
+                                            Icons.person,
+                                            size: 11,
+                                            color: Colors.white54,
+                                          )
+                                        : null,
+                                  ),
+                                  label: Text(email ?? _managerLabel(m)),
+                                  selected: selected,
+                                  selectedColor: const Color(0xFF7A0BD4),
+                                  backgroundColor: Colors.white.withOpacity(
+                                    0.05,
+                                  ),
+                                  labelStyle: TextStyle(
+                                    color: selected
+                                        ? Colors.white
+                                        : Colors.white70,
+                                    fontSize: 12,
+                                  ),
+                                  side: BorderSide(
+                                    color: selected
+                                        ? const Color(0xFF7A0BD4)
+                                        : Colors.white12,
+                                  ),
+                                  onSelected: (_) {
+                                    final next = {...filters.responsavelIds};
+                                    if (selected) {
+                                      next.remove(id);
+                                    } else {
+                                      next.add(id);
+                                    }
+                                    onChanged(
+                                      filters.copyWith(responsavelIds: next),
+                                    );
+                                  },
+                                );
                               }).toList(),
                             ),
                     ],

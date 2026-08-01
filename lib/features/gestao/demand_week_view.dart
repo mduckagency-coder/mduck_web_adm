@@ -12,6 +12,7 @@ class DemandWeekView extends StatelessWidget {
   final List<AtividadeAgendaItem> atividades;
   final void Function(Demanda)? onTapDemand;
   final void Function(AtividadeAgendaItem)? onTapAtividade;
+  final void Function(DateTime)? onTapDay;
 
   const DemandWeekView({
     super.key,
@@ -20,6 +21,7 @@ class DemandWeekView extends StatelessWidget {
     this.atividades = const [],
     this.onTapDemand,
     this.onTapAtividade,
+    this.onTapDay,
   });
 
   static const _weekDays = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SAB"];
@@ -62,43 +64,61 @@ class DemandWeekView extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  decoration: const BoxDecoration(
-                    border: Border(bottom: BorderSide(color: Colors.white12)),
-                  ),
-                  child: Column(
-                    children: [
-                      Text(
-                        _weekDays[index],
-                        style: const TextStyle(
-                          color: Colors.white38,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                        ),
+                InkWell(
+                  onTap: () => onTapDay?.call(date),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: const BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: Colors.white12),
                       ),
-                      const SizedBox(height: 4),
-                      Container(
-                        width: 26,
-                        height: 26,
-                        alignment: Alignment.center,
-                        decoration: isToday
-                            ? const BoxDecoration(
-                                color: Color(0xFF7A0BD4),
-                                shape: BoxShape.circle,
-                              )
-                            : null,
-                        child: Text(
-                          date.day.toString(),
-                          style: TextStyle(
-                            color: isToday ? Colors.white : Colors.white70,
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          _weekDays[index],
+                          style: const TextStyle(
+                            color: Colors.white38,
+                            fontSize: 11,
                             fontWeight: FontWeight.bold,
-                            fontSize: 13,
                           ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 4),
+                        Container(
+                          width: 26,
+                          height: 26,
+                          alignment: Alignment.center,
+                          decoration: isToday
+                              ? const BoxDecoration(
+                                  color: Color(0xFF7A0BD4),
+                                  shape: BoxShape.circle,
+                                )
+                              : null,
+                          child: Text(
+                            date.day.toString(),
+                            style: TextStyle(
+                              color: isToday ? Colors.white : Colors.white70,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                        if (dayDemandas.length + dayAtividades.length > 1)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              (dayDemandas.length + dayAtividades.length)
+                                      .toString() +
+                                  " itens",
+                              style: const TextStyle(
+                                color: Colors.white38,
+                                fontSize: 9,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
                 Expanded(

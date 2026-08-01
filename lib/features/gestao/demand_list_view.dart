@@ -212,6 +212,41 @@ class DemandListView extends StatelessWidget {
                             ),
                             const SizedBox(width: 12),
                             SizedBox(
+                              width: 130,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CircleAvatar(
+                                    radius: 11,
+                                    backgroundColor: Colors.white24,
+                                    backgroundImage:
+                                        d.responsavelPhotoUrl != null
+                                        ? NetworkImage(d.responsavelPhotoUrl!)
+                                        : null,
+                                    child: d.responsavelPhotoUrl == null
+                                        ? const Icon(
+                                            Icons.person,
+                                            size: 12,
+                                            color: Colors.white54,
+                                          )
+                                        : null,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Flexible(
+                                    child: Text(
+                                      d.responsavelLabel,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            SizedBox(
                               width: 90,
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
