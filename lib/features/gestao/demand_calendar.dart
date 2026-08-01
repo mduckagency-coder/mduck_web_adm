@@ -1,19 +1,26 @@
 import "package:flutter/material.dart";
+import "atividade_agenda_item.dart";
+import "atividade_card.dart";
 import "demanda_model.dart";
 import "demand_card.dart";
 
 /// Visualizacao Mes: grade de calendario ocupando a largura da tela, com as
-/// demandas de cada dia empilhadas dentro da celula correspondente.
+/// demandas (por prazo) e as atividades de cronograma (por data) de cada
+/// dia empilhadas dentro da celula correspondente.
 class DemandCalendar extends StatelessWidget {
   final DateTime month;
   final List<Demanda> demandas;
+  final List<AtividadeAgendaItem> atividades;
   final void Function(Demanda)? onTapDemand;
+  final void Function(AtividadeAgendaItem)? onTapAtividade;
 
   const DemandCalendar({
     super.key,
     required this.month,
     required this.demandas,
+    this.atividades = const [],
     this.onTapDemand,
+    this.onTapAtividade,
   });
 
   static const _weekDays = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SAB"];
@@ -37,6 +44,12 @@ class DemandCalendar extends StatelessWidget {
           prazo.month != month.month)
         continue;
       byDay.putIfAbsent(prazo.day, () => []).add(d);
+    }
+
+    final atividadesByDay = <int, List<AtividadeAgendaItem>>{};
+    for (final a in atividades) {
+      if (a.data.year != month.year || a.data.month != month.month) continue;
+      atividadesByDay.putIfAbsent(a.data.day, () => []).add(a);
     }
 
     return Column(
@@ -98,7 +111,17 @@ class DemandCalendar extends StatelessWidget {
                 final dayDemandas = isCurrentMonth
                     ? (byDay[displayDay] ?? const <Demanda>[])
                     : const <Demanda>[];
-                final overflowCount = dayDemandas.length - _maxCardsPerDay;
+                final dayAtividades = isCurrentMonth
+                    ? (atividadesByDay[displayDay] ??
+                          const <AtividadeAgendaItem>[])
+                    : const <AtividadeAgendaItem>[];
+                final totalItems = dayDemandas.length + dayAtividades.length;
+                final shownDemandas = dayDemandas.take(_maxCardsPerDay).toList();
+                final shownAtividades = dayAtividades
+                    .take(_maxCardsPerDay - shownDemandas.length)
+                    .toList();
+                final overflowCount =
+                    totalItems - shownDemandas.length - shownAtividades.length;
 
                 return Expanded(
                   child: Container(
@@ -145,14 +168,18 @@ class DemandCalendar extends StatelessWidget {
                           child: SingleChildScrollView(
                             child: Column(
                               children: [
-                                ...dayDemandas
-                                    .take(_maxCardsPerDay)
-                                    .map(
-                                      (d) => DemandCard(
-                                        demanda: d,
-                                        onTap: () => onTapDemand?.call(d),
-                                      ),
-                                    ),
+                                ...shownDemandas.map(
+                                  (d) => DemandCard(
+                                    demanda: d,
+                                    onTap: () => onTapDemand?.call(d),
+                                  ),
+                                ),
+                                ...shownAtividades.map(
+                                  (a) => AtividadeCard(
+                                    atividade: a,
+                                    onTap: () => onTapAtividade?.call(a),
+                                  ),
+                                ),
                                 if (overflowCount > 0)
                                   Padding(
                                     padding: const EdgeInsets.only(top: 2),

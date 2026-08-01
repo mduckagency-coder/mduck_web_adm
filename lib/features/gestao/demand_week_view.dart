@@ -1,19 +1,25 @@
 import "package:flutter/material.dart";
+import "atividade_agenda_item.dart";
+import "atividade_card.dart";
 import "demanda_model.dart";
 import "demand_card.dart";
 
-/// Visualizacao Semana: uma coluna por dia, com as demandas distribuidas
-/// dentro de cada coluna.
+/// Visualizacao Semana: uma coluna por dia, com as demandas e as atividades
+/// de cronograma distribuidas dentro de cada coluna.
 class DemandWeekView extends StatelessWidget {
   final DateTime weekStart;
   final List<Demanda> demandas;
+  final List<AtividadeAgendaItem> atividades;
   final void Function(Demanda)? onTapDemand;
+  final void Function(AtividadeAgendaItem)? onTapAtividade;
 
   const DemandWeekView({
     super.key,
     required this.weekStart,
     required this.demandas,
+    this.atividades = const [],
     this.onTapDemand,
+    this.onTapAtividade,
   });
 
   static const _weekDays = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SAB"];
@@ -36,6 +42,11 @@ class DemandWeekView extends StatelessWidget {
               prazo.year == date.year &&
               prazo.month == date.month &&
               prazo.day == date.day;
+        }).toList();
+        final dayAtividades = atividades.where((a) {
+          return a.data.year == date.year &&
+              a.data.month == date.month &&
+              a.data.day == date.day;
         }).toList();
 
         return Expanded(
@@ -94,14 +105,20 @@ class DemandWeekView extends StatelessWidget {
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.all(6),
                     child: Column(
-                      children: dayDemandas
-                          .map(
-                            (d) => DemandCard(
-                              demanda: d,
-                              onTap: () => onTapDemand?.call(d),
-                            ),
-                          )
-                          .toList(),
+                      children: [
+                        ...dayDemandas.map(
+                          (d) => DemandCard(
+                            demanda: d,
+                            onTap: () => onTapDemand?.call(d),
+                          ),
+                        ),
+                        ...dayAtividades.map(
+                          (a) => AtividadeCard(
+                            atividade: a,
+                            onTap: () => onTapAtividade?.call(a),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),

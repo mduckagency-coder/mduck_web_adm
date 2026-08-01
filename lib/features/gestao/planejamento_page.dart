@@ -2,17 +2,6 @@ import "package:flutter/material.dart";
 import "demanda_model.dart";
 import "demanda_repository.dart";
 
-Color _prioridadeColor(DemandaPrioridade p) {
-  switch (p) {
-    case DemandaPrioridade.alta:
-      return const Color(0xFFE5484D);
-    case DemandaPrioridade.media:
-      return const Color(0xFFF5A623);
-    case DemandaPrioridade.baixa:
-      return const Color(0xFF3DD68C);
-  }
-}
-
 class _PlanejamentoData {
   final Map<String, dynamic> planejamento;
   final List<Map<String, dynamic>> atividades;
@@ -157,6 +146,10 @@ class _PlanejamentoPageState extends State<PlanejamentoPage> {
               final concluida = a["concluida"] as bool;
               final data = _parseData(a);
               final hora = _formatHora(a);
+              final prioridade = DemandaPrioridadeX.fromValue(
+                a["prioridade"] as String,
+              );
+              final prioridadeCor = prioridadeColor(prioridade);
               return Container(
                 margin: const EdgeInsets.only(bottom: 8),
                 padding: const EdgeInsets.symmetric(
@@ -195,7 +188,25 @@ class _PlanejamentoPageState extends State<PlanejamentoPage> {
                             const SizedBox(height: 4),
                             Row(
                               children: [
+                                Container(
+                                  width: 7,
+                                  height: 7,
+                                  decoration: BoxDecoration(
+                                    color: prioridadeCor,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  prioridade.label,
+                                  style: TextStyle(
+                                    color: prioridadeCor,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                                 if (data != null) ...[
+                                  const SizedBox(width: 10),
                                   const Icon(
                                     Icons.event,
                                     size: 12,
@@ -524,7 +535,7 @@ class _PlanejamentoPageState extends State<PlanejamentoPage> {
                     final prioridade = DemandaPrioridadeX.fromValue(
                       planejamento["prioridade"] as String,
                     );
-                    final color = _prioridadeColor(prioridade);
+                    final color = prioridadeColor(prioridade);
                     return Wrap(
                       spacing: 16,
                       runSpacing: 8,
@@ -618,6 +629,7 @@ class _NovaAtividadeDialogState extends State<_NovaAtividadeDialog> {
   final _descricaoController = TextEditingController();
   DateTime _data = DateTime.now();
   TimeOfDay? _hora;
+  DemandaPrioridade _prioridade = DemandaPrioridade.media;
   bool _saving = false;
 
   @override
@@ -659,6 +671,7 @@ class _NovaAtividadeDialogState extends State<_NovaAtividadeDialog> {
       descricao: descricao,
       data: _data,
       horaHHmm: horaHHmm,
+      prioridade: _prioridade,
     );
     if (mounted) Navigator.of(context).pop(true);
   }
@@ -725,6 +738,25 @@ class _NovaAtividadeDialogState extends State<_NovaAtividadeDialog> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                children: DemandaPrioridade.values.map((p) {
+                  final selected = _prioridade == p;
+                  final color = prioridadeColor(p);
+                  return ChoiceChip(
+                    label: Text(p.label),
+                    selected: selected,
+                    selectedColor: color.withOpacity(0.3),
+                    backgroundColor: Colors.white.withOpacity(0.05),
+                    labelStyle: TextStyle(
+                      color: selected ? color : Colors.white70,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    onSelected: (_) => setState(() => _prioridade = p),
+                  );
+                }).toList(),
               ),
               const SizedBox(height: 16),
               Row(

@@ -1,4 +1,5 @@
 import "package:supabase_flutter/supabase_flutter.dart";
+import "atividade_agenda_item.dart";
 import "demanda_model.dart";
 import "demanda_notifications.dart";
 
@@ -85,6 +86,37 @@ class DemandaRepository {
     }
   }
 
+  Future<void> atualizarDemanda({
+    required String demandaId,
+    required String titulo,
+    required String descricao,
+    required DemandaPrioridade prioridade,
+    required String categoria,
+    required String icone,
+    required DateTime? prazo,
+    required String responsavelId,
+  }) async {
+    await _client
+        .from("demandas")
+        .update({
+          "titulo": titulo,
+          "descricao": descricao,
+          "prioridade": prioridade.value,
+          "categoria": categoria,
+          "icone": icone,
+          "prazo": prazo?.toIso8601String(),
+          "responsavel_id": responsavelId,
+          "updated_at": DateTime.now().toIso8601String(),
+        })
+        .eq("id", demandaId);
+  }
+
+  /// Apaga a demanda e, em cascata (FKs on delete cascade), seu planejamento,
+  /// atividades e observacoes.
+  Future<void> excluirDemanda(String demandaId) async {
+    await _client.from("demandas").delete().eq("id", demandaId);
+  }
+
   Future<void> atualizarStatus(String demandaId, DemandaStatus status) async {
     await _client
         .from("demandas")
@@ -164,14 +196,32 @@ class DemandaRepository {
     required String descricao,
     required DateTime data,
     String? horaHHmm,
+    required DemandaPrioridade prioridade,
   }) async {
     await _client.from("planejamento_atividades").insert({
       "planejamento_id": planejamentoId,
       "descricao": descricao,
       "data": data.toIso8601String().substring(0, 10),
       "hora": horaHHmm,
+      "prioridade": prioridade.value,
       "created_by": _userId,
     });
+  }
+
+  /// Todas as atividades de cronograma da agencia (de qualquer planejamento),
+  /// com o titulo/id da demanda de origem -- usado para plotar as atividades
+  /// junto com as demandas na visao Mes/Semana/Dia da pagina de Demandas.
+  Future<List<AtividadeAgendaItem>> loadAtividadesDaAgencia() async {
+    final rows = await _client
+        .from("planejamento_atividades")
+        .select(
+          "*, planejamento:planejamentos(id, demanda_id, demanda:demandas(id, titulo))",
+        )
+        .order("data");
+    return (rows as List)
+        .cast<Map<String, dynamic>>()
+        .map(AtividadeAgendaItem.fromRow)
+        .toList();
   }
 
   Future<void> alternarConcluida(String atividadeId, bool concluida) async {

@@ -179,3 +179,16 @@ Color demandaCor(Demanda d) {
 
 String demandaCorLabel(Demanda d) =>
     d.prazo == null ? "Sem prazo" : d.prioridade.label;
+
+/// Cor associada a uma prioridade isolada (usada, por exemplo, nas
+/// atividades do cronograma do planejamento, que tem prioridade propria).
+Color prioridadeColor(DemandaPrioridade p) {
+  switch (p) {
+    case DemandaPrioridade.alta:
+      return const Color(0xFFE5484D);
+    case DemandaPrioridade.media:
+      return const Color(0xFFF5A623);
+    case DemandaPrioridade.baixa:
+      return const Color(0xFF3DD68C);
+  }
+}

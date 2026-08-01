@@ -3,11 +3,15 @@ import "package:supabase_flutter/supabase_flutter.dart";
 import "demanda_model.dart";
 import "demanda_repository.dart";
 
-/// Formulario de criacao de demanda. Qualquer gestor pode enviar para
+/// Formulario de criacao/edicao de demanda. Qualquer gestor pode enviar para
 /// qualquer outro gestor da agencia (inclusive para si mesmo). Retorna
-/// `true` via Navigator.pop quando a demanda e criada com sucesso.
+/// `true` via Navigator.pop quando a demanda e criada/atualizada com sucesso.
 class DemandaFormDialog extends StatefulWidget {
-  const DemandaFormDialog({super.key});
+  /// Quando informada, o dialogo abre em modo edicao (campos pre-preenchidos,
+  /// atualiza em vez de criar uma nova demanda).
+  final Demanda? existing;
+
+  const DemandaFormDialog({super.key, this.existing});
 
   @override
   State<DemandaFormDialog> createState() => _DemandaFormDialogState();
@@ -15,16 +19,25 @@ class DemandaFormDialog extends StatefulWidget {
 
 class _DemandaFormDialogState extends State<DemandaFormDialog> {
   final _repository = DemandaRepository();
-  final _tituloController = TextEditingController();
-  final _descricaoController = TextEditingController();
-  final _categoriaController = TextEditingController(text: "Geral");
+  late final _tituloController = TextEditingController(
+    text: widget.existing?.titulo ?? "",
+  );
+  late final _descricaoController = TextEditingController(
+    text: widget.existing?.descricao ?? "",
+  );
+  late final _categoriaController = TextEditingController(
+    text: widget.existing?.categoria ?? "Geral",
+  );
 
-  DemandaPrioridade _prioridade = DemandaPrioridade.media;
-  String _icone = "flag";
-  DateTime? _prazo;
-  String? _responsavelId;
+  late DemandaPrioridade _prioridade =
+      widget.existing?.prioridade ?? DemandaPrioridade.media;
+  late String _icone = widget.existing?.icone ?? "flag";
+  late DateTime? _prazo = widget.existing?.prazo;
+  late String? _responsavelId = widget.existing?.responsavelId;
   bool _saving = false;
   String? _error;
+
+  bool get _isEditing => widget.existing != null;
 
   late Future<List<Map<String, dynamic>>> _managersFuture;
 
@@ -85,34 +98,50 @@ class _DemandaFormDialogState extends State<DemandaFormDialog> {
     });
 
     try {
-      final client = Supabase.instance.client;
-      final userId = client.auth.currentUser!.id;
-      final me = await client
-          .from("managers")
-          .select("full_name, login_email")
-          .eq("id", userId)
-          .single();
-      final criadoPorLabel = (me["full_name"] as String?)?.isNotEmpty == true
-          ? me["full_name"] as String
-          : (me["login_email"] as String);
+      final categoria = _categoriaController.text.trim().isEmpty
+          ? "Geral"
+          : _categoriaController.text.trim();
 
-      await _repository.criarDemanda(
-        titulo: titulo,
-        descricao: _descricaoController.text.trim(),
-        prioridade: _prioridade,
-        categoria: _categoriaController.text.trim().isEmpty
-            ? "Geral"
-            : _categoriaController.text.trim(),
-        icone: _icone,
-        prazo: _prazo,
-        responsavelId: _responsavelId!,
-        criadoPorLabel: criadoPorLabel,
-      );
+      if (_isEditing) {
+        await _repository.atualizarDemanda(
+          demandaId: widget.existing!.id,
+          titulo: titulo,
+          descricao: _descricaoController.text.trim(),
+          prioridade: _prioridade,
+          categoria: categoria,
+          icone: _icone,
+          prazo: _prazo,
+          responsavelId: _responsavelId!,
+        );
+      } else {
+        final client = Supabase.instance.client;
+        final userId = client.auth.currentUser!.id;
+        final me = await client
+            .from("managers")
+            .select("full_name, login_email")
+            .eq("id", userId)
+            .single();
+        final criadoPorLabel =
+            (me["full_name"] as String?)?.isNotEmpty == true
+            ? me["full_name"] as String
+            : (me["login_email"] as String);
+
+        await _repository.criarDemanda(
+          titulo: titulo,
+          descricao: _descricaoController.text.trim(),
+          prioridade: _prioridade,
+          categoria: categoria,
+          icone: _icone,
+          prazo: _prazo,
+          responsavelId: _responsavelId!,
+          criadoPorLabel: criadoPorLabel,
+        );
+      }
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       setState(() {
         _saving = false;
-        _error = "Erro ao criar demanda: $e";
+        _error = "Erro ao salvar demanda: $e";
       });
     }
   }
@@ -141,18 +170,20 @@ class _DemandaFormDialogState extends State<DemandaFormDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                "Nova Demanda",
-                style: TextStyle(
+              Text(
+                _isEditing ? "Editar Demanda" : "Nova Demanda",
+                style: const TextStyle(
                   color: Colors.white,
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                 ),
               ),
               const SizedBox(height: 4),
-              const Text(
-                "Envie uma tarefa para qualquer gestor da agencia.",
-                style: TextStyle(color: Colors.white38, fontSize: 12),
+              Text(
+                _isEditing
+                    ? "Altere os dados da demanda."
+                    : "Envie uma tarefa para qualquer gestor da agencia.",
+                style: const TextStyle(color: Colors.white38, fontSize: 12),
               ),
               Flexible(
                 child: SingleChildScrollView(
@@ -354,7 +385,11 @@ class _DemandaFormDialogState extends State<DemandaFormDialog> {
                       backgroundColor: const Color(0xFF7A0BD4),
                       foregroundColor: Colors.white,
                     ),
-                    child: Text(_saving ? "Enviando..." : "Enviar demanda"),
+                    child: Text(
+                      _saving
+                          ? "Salvando..."
+                          : (_isEditing ? "Salvar alteracoes" : "Enviar demanda"),
+                    ),
                   ),
                 ],
               ),

@@ -1,4 +1,5 @@
 import "package:flutter/material.dart";
+import "atividade_agenda_item.dart";
 import "demanda_detail_drawer.dart";
 import "demanda_form_dialog.dart";
 import "demanda_model.dart";
@@ -9,7 +10,14 @@ import "demand_filters.dart";
 import "demand_list_view.dart";
 import "demand_week_view.dart";
 import "month_navigator.dart";
+import "planejamento_page.dart";
 import "view_selector.dart";
+
+class _DemandasData {
+  final List<Demanda> demandas;
+  final List<AtividadeAgendaItem> atividades;
+  const _DemandasData({required this.demandas, required this.atividades});
+}
 
 /// Central de demandas: tarefas que qualquer gestor pode enviar para
 /// qualquer outro gestor da agencia. Painel de organizacao (nao e uma tela
@@ -48,7 +56,7 @@ class _DemandasPageState extends State<DemandasPage> {
   ];
 
   final _repository = DemandaRepository();
-  late Future<List<Demanda>> _future;
+  late Future<_DemandasData> _future;
   DemandasViewMode _viewMode = DemandasViewMode.mes;
   DateTime _focusedMonth = DateTime(
     DateTime.now().year,
@@ -64,10 +72,33 @@ class _DemandasPageState extends State<DemandasPage> {
   @override
   void initState() {
     super.initState();
-    _future = _repository.loadMinhasDemandas();
+    _future = _load();
   }
 
-  void _reload() => setState(() => _future = _repository.loadMinhasDemandas());
+  Future<_DemandasData> _load() async {
+    final results = await Future.wait([
+      _repository.loadMinhasDemandas(),
+      _repository.loadAtividadesDaAgencia(),
+    ]);
+    return _DemandasData(
+      demandas: results[0] as List<Demanda>,
+      atividades: results[1] as List<AtividadeAgendaItem>,
+    );
+  }
+
+  void _reload() => setState(() => _future = _load());
+
+  Future<void> _onTapAtividade(AtividadeAgendaItem a) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlanejamentoPage(
+          demandaId: a.demandaId,
+          demandaTitulo: a.demandaTitulo,
+        ),
+      ),
+    );
+    _reload();
+  }
 
   DateTime _weekStartFor(DateTime d) =>
       DateTime(d.year, d.month, d.day).subtract(Duration(days: d.weekday % 7));
@@ -183,25 +214,43 @@ class _DemandasPageState extends State<DemandasPage> {
     if (created == true) _reload();
   }
 
-  Widget _buildBody(List<Demanda> filtered) {
+  Future<void> _onDemandaEdited() async {
+    final data = await _load();
+    if (!mounted) return;
+    final editedId = _selectedDemanda?.id;
+    setState(() {
+      _future = Future.value(data);
+      _selectedDemanda = editedId == null
+          ? null
+          : data.demandas.where((d) => d.id == editedId).firstOrNull;
+    });
+  }
+
+  Widget _buildBody(List<Demanda> filtered, List<AtividadeAgendaItem> atividades) {
     switch (_viewMode) {
       case DemandasViewMode.mes:
         return DemandCalendar(
           month: _focusedMonth,
           demandas: filtered,
+          atividades: atividades,
           onTapDemand: _onTapDemand,
+          onTapAtividade: _onTapAtividade,
         );
       case DemandasViewMode.semana:
         return DemandWeekView(
           weekStart: _weekStartFor(_focusedDay),
           demandas: filtered,
+          atividades: atividades,
           onTapDemand: _onTapDemand,
+          onTapAtividade: _onTapAtividade,
         );
       case DemandasViewMode.dia:
         return DemandDayView(
           day: _focusedDay,
           demandas: filtered,
+          atividades: atividades,
           onTapDemand: _onTapDemand,
+          onTapAtividade: _onTapAtividade,
         );
       case DemandasViewMode.lista:
         return DemandListView(
@@ -216,7 +265,7 @@ class _DemandasPageState extends State<DemandasPage> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<Demanda>>(
+    return FutureBuilder<_DemandasData>(
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
@@ -234,7 +283,8 @@ class _DemandasPageState extends State<DemandasPage> {
         if (!snapshot.hasData)
           return const Center(child: CircularProgressIndicator());
 
-        final all = snapshot.data!;
+        final all = snapshot.data!.demandas;
+        final atividades = snapshot.data!.atividades;
         final filtered = all.where(_filters.matches).toList();
         final categorias = {for (final d in all) d.categoria}.toList()..sort();
 
@@ -334,7 +384,7 @@ class _DemandasPageState extends State<DemandasPage> {
                     onChanged: (m) => setState(() => _viewMode = m),
                   ),
                   const SizedBox(height: 16),
-                  Expanded(child: _buildBody(filtered)),
+                  Expanded(child: _buildBody(filtered, atividades)),
                 ],
               ),
             ),
@@ -380,6 +430,11 @@ class _DemandasPageState extends State<DemandasPage> {
                       onClose: _closeDetail,
                       onStatusChanged: (status) =>
                           _onStatusChanged(_selectedDemanda!, status),
+                      onEdited: _onDemandaEdited,
+                      onDeleted: () {
+                        setState(() => _selectedDemanda = null);
+                        _reload();
+                      },
                     ),
             ),
           ],

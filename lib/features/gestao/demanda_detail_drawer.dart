@@ -1,4 +1,5 @@
 import "package:flutter/material.dart";
+import "demanda_form_dialog.dart";
 import "demanda_model.dart";
 import "demanda_repository.dart";
 import "planejamento_page.dart";
@@ -9,12 +10,16 @@ class DemandaDetailDrawer extends StatefulWidget {
   final Demanda demanda;
   final VoidCallback onClose;
   final ValueChanged<DemandaStatus> onStatusChanged;
+  final VoidCallback onEdited;
+  final VoidCallback onDeleted;
 
   const DemandaDetailDrawer({
     super.key,
     required this.demanda,
     required this.onClose,
     required this.onStatusChanged,
+    required this.onEdited,
+    required this.onDeleted,
   });
 
   @override
@@ -27,6 +32,7 @@ class _DemandaDetailDrawerState extends State<DemandaDetailDrawer> {
   late Future<List<Map<String, dynamic>>> _observacoesFuture;
   bool _sendingObservacao = false;
   bool _abrindoPlanejamento = false;
+  bool _excluindo = false;
 
   @override
   void initState() {
@@ -89,6 +95,61 @@ class _DemandaDetailDrawerState extends State<DemandaDetailDrawer> {
     }
   }
 
+  Future<void> _editar() async {
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (context) => DemandaFormDialog(existing: widget.demanda),
+    );
+    if (saved == true) widget.onEdited();
+  }
+
+  Future<void> _excluir() async {
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        title: const Text(
+          "Excluir demanda?",
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          "\"" +
+              widget.demanda.titulo +
+              "\" e todo o planejamento/cronograma vinculado serao apagados. Essa acao nao pode ser desfeita.",
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text("Cancelar"),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Excluir"),
+          ),
+        ],
+      ),
+    );
+    if (confirmado != true) return;
+
+    setState(() => _excluindo = true);
+    try {
+      await _repository.excluirDemanda(widget.demanda.id);
+      widget.onDeleted();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _excluindo = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Erro ao excluir: $e")),
+        );
+      }
+    }
+  }
+
   Widget _row(String label, Widget value) => Padding(
     padding: const EdgeInsets.only(bottom: 12),
     child: Row(
@@ -146,6 +207,30 @@ class _DemandaDetailDrawerState extends State<DemandaDetailDrawer> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+                  ),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.edit_outlined,
+                      color: Colors.white70,
+                      size: 20,
+                    ),
+                    tooltip: "Editar",
+                    onPressed: _excluindo ? null : _editar,
+                  ),
+                  IconButton(
+                    icon: _excluindo
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(
+                            Icons.delete_outline,
+                            color: Colors.redAccent,
+                            size: 20,
+                          ),
+                    tooltip: "Excluir",
+                    onPressed: _excluindo ? null : _excluir,
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, color: Colors.white70),
