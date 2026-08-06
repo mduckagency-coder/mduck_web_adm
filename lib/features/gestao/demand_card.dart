@@ -43,6 +43,8 @@ class DemandCard extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (demanda.repeteMensalmente)
+                  Icon(Icons.repeat, size: 11, color: color),
               ],
             ),
             const SizedBox(height: 3),

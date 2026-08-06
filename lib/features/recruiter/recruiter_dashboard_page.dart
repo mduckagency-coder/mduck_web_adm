@@ -636,6 +636,7 @@ class _RecruiterDashboardPageState extends State<RecruiterDashboardPage> {
                 Wrap(spacing: 12, runSpacing: 12, children: [
                   _statCard(Icons.people, "Leads", d["totalLeads"].toString(), Colors.blueAccent, "+" + d["leadsHoje"].toString() + " hoje (ontem: " + d["leadsOntem"].toString() + ")"),
                   _statCard(Icons.verified, "Agenciados Geral (este mes)", d["agenciadosGeralMes"].toString(), Colors.greenAccent, "Toda a equipe - fonte: planilha oficial"),
+                  _statCard(Icons.person_pin, "Meus Agenciamentos (este mes)", d["agenciamentosMes"].toString(), Colors.tealAccent, "Fonte: planilha oficial"),
                   _statCard(Icons.percent, "Conversao", (d["taxaConversao"] as double).toStringAsFixed(0) + "%",
                       const Color(0xFF7A0BD4), (d["taxaConversao"] as double) >= (d["conversaoMediaEquipe"] as double) ? "Acima da media da equipe" : "Media da equipe: " + (d["conversaoMediaEquipe"] as double).toStringAsFixed(0) + "%"),
                   _statCard(Icons.rocket_launch, "Onboardings", d["onboardingsPendentes"].toString() + " pendentes", Colors.orangeAccent, d["onboardingsConcluidos"].toString() + " concluidos"),

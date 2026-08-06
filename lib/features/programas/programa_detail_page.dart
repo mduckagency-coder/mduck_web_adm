@@ -563,22 +563,9 @@ class _ProgramaDetailPageState extends State<ProgramaDetailPage> {
                 Expanded(
                   child: TabBarView(
                     children: [
-                      ProgramaVisaoGeralTab(
-                        program: program,
-                        onChanged: _reload,
-                        year: _selectedYear,
-                        month: _selectedMonth,
-                      ),
-                      ProgramaFluxoTab(
-                        program: program,
-                        year: _selectedYear,
-                        month: _selectedMonth,
-                      ),
-                      ProgramaParticipantesTab(
-                        program: program,
-                        year: _selectedYear,
-                        month: _selectedMonth,
-                      ),
+                      ProgramaVisaoGeralTab(program: program, onChanged: _reload),
+                      ProgramaFluxoTab(program: program),
+                      ProgramaParticipantesTab(program: program),
                       ProgramaPremiacoesTab(
                         program: program,
                         year: _selectedYear,

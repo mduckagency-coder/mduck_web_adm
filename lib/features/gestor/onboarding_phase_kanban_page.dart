@@ -83,6 +83,12 @@ class OnboardingPhaseKanbanPage extends StatefulWidget {
   /// continuacao).
   final String? promoteToPhaseKey;
 
+  /// Quando true, so promove pra promoteToPhaseKey se o card estiver
+  /// marcado com a estrela "streamer em potencial" -- usado pelo
+  /// Acompanhamento 16-31 Dias, que so deve seguir pra Graduacao Novatos
+  /// quem foi destacado como potencial, nao todo mundo aprovado.
+  final bool requirePotentialToPromote;
+
   /// Esconde o botao "Novo Agenciado" -- faz sentido no Onboarding 0-15
   /// (onde streamers entram pela primeira vez), nao no 16-31 (que so recebe
   /// por promocao automatica).
@@ -99,6 +105,7 @@ class OnboardingPhaseKanbanPage extends StatefulWidget {
         "Acompanhamento automatico dos primeiros 15 dias — os cards entram sozinhos quando o recrutador conclui o onboarding.",
     this.materialsStage = "onboarding_15",
     this.promoteToPhaseKey,
+    this.requirePotentialToPromote = false,
     this.showManualCreateButton = true,
     this.deadlineDaysThreshold = 15,
     this.deadlineWarnDays = 11,
@@ -830,6 +837,7 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
         agencyId: _agencyId,
         materialsStage: widget.materialsStage,
         promoteToPhaseKey: widget.promoteToPhaseKey,
+        requirePotentialToPromote: widget.requirePotentialToPromote,
       ),
     ).then((changed) {
       if (changed == true) _load();
@@ -950,7 +958,7 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
   void _openNewAgenciado() {
     showDialog(
       context: context,
-      builder: (context) => const OnboardingNewAgenciadoDialog(),
+      builder: (context) => OnboardingNewAgenciadoDialog(phaseKey: widget.phaseKey),
     ).then((created) {
       if (created == true) _load();
     });
@@ -2011,6 +2019,43 @@ class _OnboardingCard extends StatelessWidget {
                         spacing: 6,
                         runSpacing: 4,
                         children: [
+                          if (isLeadOnly && onCheckLink != null)
+                            InkWell(
+                              onTap: onCheckLink,
+                              borderRadius: BorderRadius.circular(6),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.orangeAccent.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: Colors.orangeAccent,
+                                  ),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.link,
+                                      size: 10,
+                                      color: Colors.orangeAccent,
+                                    ),
+                                    SizedBox(width: 3),
+                                    Text(
+                                      "Vincular",
+                                      style: TextStyle(
+                                        color: Colors.orangeAccent,
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
                           if (onOpenMaterial != null)
                             InkWell(
                               onTap: onOpenMaterial,
@@ -2180,6 +2225,7 @@ class _OnboardingCardDetailDialog extends StatefulWidget {
   final String agencyId;
   final String materialsStage;
   final String? promoteToPhaseKey;
+  final bool requirePotentialToPromote;
   const _OnboardingCardDetailDialog({
     required this.streamerId,
     required this.streamerName,
@@ -2192,6 +2238,7 @@ class _OnboardingCardDetailDialog extends StatefulWidget {
     required this.agencyId,
     required this.materialsStage,
     this.promoteToPhaseKey,
+    this.requirePotentialToPromote = false,
   });
 
   @override
@@ -2421,6 +2468,7 @@ class _OnboardingCardDetailDialogState
           performedBy: userId,
           note: note.isEmpty ? null : note,
           promoteToPhaseKey: widget.promoteToPhaseKey,
+        requirePotentialToPromote: widget.requirePotentialToPromote,
         );
       }
       _changed = true;

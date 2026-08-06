@@ -34,6 +34,7 @@ class _DemandaFormDialogState extends State<DemandaFormDialog> {
   late String _icone = widget.existing?.icone ?? "flag";
   late DateTime? _prazo = widget.existing?.prazo;
   late String? _responsavelId = widget.existing?.responsavelId;
+  bool _repeteMensalmente = false;
   bool _saving = false;
   String? _error;
 
@@ -135,6 +136,7 @@ class _DemandaFormDialogState extends State<DemandaFormDialog> {
           prazo: _prazo,
           responsavelId: _responsavelId!,
           criadoPorLabel: criadoPorLabel,
+          repeteMensalmente: _repeteMensalmente,
         );
       }
       if (mounted) Navigator.of(context).pop(true);
@@ -309,10 +311,44 @@ class _DemandaFormDialogState extends State<DemandaFormDialog> {
                                 color: Colors.white54,
                               ),
                               tooltip: "Remover prazo",
-                              onPressed: () => setState(() => _prazo = null),
+                              onPressed: () => setState(() {
+                                _prazo = null;
+                                _repeteMensalmente = false;
+                              }),
                             ),
                         ],
                       ),
+                      if (!_isEditing && _prazo != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: InkWell(
+                            onTap: () => setState(
+                              () => _repeteMensalmente = !_repeteMensalmente,
+                            ),
+                            borderRadius: BorderRadius.circular(6),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Checkbox(
+                                  value: _repeteMensalmente,
+                                  activeColor: const Color(0xFF7A0BD4),
+                                  onChanged: (v) => setState(
+                                    () => _repeteMensalmente = v ?? false,
+                                  ),
+                                ),
+                                const Flexible(
+                                  child: Text(
+                                    "Repetir todo mes (cria as proximas 12 ocorrencias)",
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       _sectionLabel("Enviar para"),
                       FutureBuilder<List<Map<String, dynamic>>>(
                         future: _managersFuture,

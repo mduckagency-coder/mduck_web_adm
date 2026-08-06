@@ -21,7 +21,17 @@ class WhatsAppDialog extends StatefulWidget {
   final List<WhatsAppTarget> targets;
   final String targetLabel;
 
-  const WhatsAppDialog({super.key, required this.targets, required this.targetLabel});
+  /// Preenche a mensagem ja pronta (ex: metricas do mes) em vez de comecar
+  /// vazia -- quem chama decide o template, "Personalizada" continua
+  /// disponivel pra editar a mensagem antes de enviar.
+  final String? initialMessage;
+
+  const WhatsAppDialog({
+    super.key,
+    required this.targets,
+    required this.targetLabel,
+    this.initialMessage,
+  });
 
   @override
   State<WhatsAppDialog> createState() => _WhatsAppDialogState();
@@ -33,6 +43,14 @@ class _WhatsAppDialogState extends State<WhatsAppDialog> {
   bool _sending = false;
   List<WhatsAppTarget>? _withPhone;
   List<WhatsAppTarget>? _withoutPhone;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialMessage != null) {
+      _messageController.text = widget.initialMessage!;
+    }
+  }
 
   void _applyTemplate(String key) {
     setState(() {

@@ -173,10 +173,70 @@ String _defaultStageColorModule2(String stageKey) {
 /// generica por phase_key) conforme for definindo o processo dessa fase.
 const _defaultChecklistItemsByStageModule2 = <String, List<(String, String)>>{};
 
-bool _isEvaluationStage(String phaseKey, String stageKey) =>
-    phaseKey == onboardingSecondPhaseKey
-    ? stageKey == _secondEvaluationStageKey
-    : stageKey == _evaluationStageKey;
+/// Chave da 3a fase -- continuacao do Onboarding 16-31 Dias pra quem foi
+/// destacado como "streamer em potencial" (ver requirePotentialToPromote em
+/// evaluateOnboardingCard). Chave propria, sem colisao com o modulo
+/// Programas de Desenvolvimento (mesmo motivo do onboarding_16_31: novatos_
+/// destaque/veteranos_40k/top_ducker_80k/etc ja usam esse espaco de nomes
+/// pra criterios automaticos de diamantes -- aqui e um acompanhamento
+/// manual, guiado pelo gestor).
+const onboardingThirdPhaseKey = "graduacao_novatos";
+
+const _thirdStagingStageKey = "entrada_graduacao";
+const _thirdEvaluationStageKey = "avaliacao_graduacao";
+
+/// Sequencia de colunas ate os 3 marcos de diamantes pedidos (40k, 80k,
+/// 150k) -- mesmo padrao das outras 2 fases: coluna de entrada sem
+/// checklist, colunas de progresso com checklist proprio, avaliacao final
+/// no fim.
+const _defaultStagesModule3 = [
+  (_thirdStagingStageKey, "Entrada na Graduação"),
+  ("plano_metas", "Plano de Metas"),
+  ("rumo_40k", "Rumo aos 40k"),
+  ("rumo_80k", "Rumo aos 80k"),
+  ("rumo_150k", "Rumo aos 150k"),
+  (_thirdEvaluationStageKey, "Avaliação de Graduação"),
+];
+
+String _defaultStageColorModule3(String stageKey) {
+  if (stageKey == _thirdStagingStageKey) return "#F2994A";
+  if (stageKey == _thirdEvaluationStageKey) return "#EB5757";
+  const faixaAzul = {"plano_metas", "rumo_40k"};
+  if (faixaAzul.contains(stageKey)) return "#2D9CDB";
+  return "#7A0BD4"; // rumo_80k, rumo_150k
+}
+
+const _defaultChecklistItemsByStageModule3 = {
+  "plano_metas": [
+    ("conversa_boas_vindas", "Conversa de boas-vindas a Graduacao realizada"),
+    ("metas_explicadas", "Metas de diamantes explicadas (40k/80k/150k)"),
+    ("cronograma_definido", "Cronograma de lives definido com o streamer"),
+  ],
+  "rumo_40k": [
+    ("frequencia_acompanhada", "Frequencia de lives acompanhada"),
+    ("dicas_conteudo_enviadas", "Dicas de conteudo/categoria enviadas"),
+    ("checkin_semanal", "Check-in semanal realizado"),
+    ("meta_40k_atingida", "Meta de 40k atingida"),
+  ],
+  "rumo_80k": [
+    ("parabenizacao_40k", "Parabenizacao pelos 40k enviada"),
+    ("estrategia_revisada", "Estrategia de crescimento revisada"),
+    ("batalhas_incentivadas", "Batalhas/colabs incentivadas"),
+    ("meta_80k_atingida", "Meta de 80k atingida"),
+  ],
+  "rumo_150k": [
+    ("parabenizacao_80k", "Parabenizacao pelos 80k enviada"),
+    ("plano_consistencia", "Plano de consistencia para 150k definido"),
+    ("acompanhamento_horas_dias", "Acompanhamento de horas/dias validos"),
+    ("meta_150k_atingida", "Meta de 150k atingida"),
+  ],
+};
+
+bool _isEvaluationStage(String phaseKey, String stageKey) {
+  if (phaseKey == onboardingThirdPhaseKey) return stageKey == _thirdEvaluationStageKey;
+  if (phaseKey == onboardingSecondPhaseKey) return stageKey == _secondEvaluationStageKey;
+  return stageKey == _evaluationStageKey;
+}
 
 bool _isRecoveryStage(String phaseKey, String stageKey) =>
     phaseKey == onboardingPhaseKey && stageKey == _recoveryStageKey;
@@ -199,12 +259,22 @@ Future<void> seedOnboardingPhaseStages({
               .single())["agency_id"]
           as String;
 
-  final isModule2 = phaseKey == onboardingSecondPhaseKey;
-  final defaultStages = isModule2 ? _defaultStagesModule2 : _defaultStages;
-  final colorFn = isModule2 ? _defaultStageColorModule2 : _defaultStageColor;
-  final checklistMap = isModule2
-      ? _defaultChecklistItemsByStageModule2
-      : _defaultChecklistItemsByStage;
+  final List<(String, String)> defaultStages;
+  final String Function(String) colorFn;
+  final Map<String, List<(String, String)>> checklistMap;
+  if (phaseKey == onboardingThirdPhaseKey) {
+    defaultStages = _defaultStagesModule3;
+    colorFn = _defaultStageColorModule3;
+    checklistMap = _defaultChecklistItemsByStageModule3;
+  } else if (phaseKey == onboardingSecondPhaseKey) {
+    defaultStages = _defaultStagesModule2;
+    colorFn = _defaultStageColorModule2;
+    checklistMap = _defaultChecklistItemsByStageModule2;
+  } else {
+    defaultStages = _defaultStages;
+    colorFn = _defaultStageColor;
+    checklistMap = _defaultChecklistItemsByStage;
+  }
 
   final existing = await client
       .from("streamer_phase_stages")
@@ -256,9 +326,11 @@ Future<void> seedOnboardingPhaseStages({
   }
 }
 
-String _phaseLabel(String phaseKey) => phaseKey == onboardingSecondPhaseKey
-    ? "Onboarding 16-31 Dias"
-    : "Onboarding 0-15 Dias";
+String _phaseLabel(String phaseKey) {
+  if (phaseKey == onboardingThirdPhaseKey) return "Graduação Novatos";
+  if (phaseKey == onboardingSecondPhaseKey) return "Onboarding 16-31 Dias";
+  return "Onboarding 0-15 Dias";
+}
 
 /// Cria (ou promove) o card do streamer na primeira coluna da fase
 /// informada (Onboarding 0-15 Dias por padrao). Chamada sempre que o
@@ -551,6 +623,7 @@ Future<String> createManualOnboardingCard({
   String? email,
   String? categoryId,
   String? notes,
+  String phaseKey = onboardingPhaseKey,
 }) async {
   final client = Supabase.instance.client;
   final userId = client.auth.currentUser!.id;
@@ -577,6 +650,11 @@ Future<String> createManualOnboardingCard({
           "assigned_manager_id": userId,
           "is_active": true,
           "joined_at": DateTime.now().toIso8601String(),
+          // Cadastro criado direto pelo gestor, ainda nao confirmado pela
+          // planilha oficial -- os dashboards de "novos agenciados do mes"
+          // ignoram essa linha ate a importacao (metricas ou vinculo de
+          // agente) casar com esse streamer e limpar essa marca.
+          "created_manually": true,
         })
         .select("id")
         .single();
@@ -587,19 +665,19 @@ Future<String> createManualOnboardingCard({
       .from("streamer_phase_progress")
       .select("id")
       .eq("streamer_id", streamerId)
-      .eq("phase_key", onboardingPhaseKey)
+      .eq("phase_key", phaseKey)
       .maybeSingle();
 
   String progressId;
   if (existingProgress != null) {
     progressId = existingProgress["id"] as String;
   } else {
-    await seedOnboardingPhaseStages(agencyId: agencyId);
+    await seedOnboardingPhaseStages(agencyId: agencyId, phaseKey: phaseKey);
     final firstStage = await client
         .from("streamer_phase_stages")
         .select("stage_key")
         .eq("agency_id", agencyId)
-        .eq("phase_key", onboardingPhaseKey)
+        .eq("phase_key", phaseKey)
         .eq("is_active", true)
         .order("order_index", ascending: true)
         .limit(1)
@@ -609,7 +687,7 @@ Future<String> createManualOnboardingCard({
         .from("streamer_phase_progress")
         .insert({
           "streamer_id": streamerId,
-          "phase_key": onboardingPhaseKey,
+          "phase_key": phaseKey,
           "stage_key": firstStage["stage_key"],
           "manager_id": userId,
           "agency_id": agencyId,
@@ -622,7 +700,7 @@ Future<String> createManualOnboardingCard({
     try {
       await client.from("streamer_phase_history").insert({
         "streamer_id": streamerId,
-        "phase_key": onboardingPhaseKey,
+        "phase_key": phaseKey,
         "action": "entrada_onboarding",
         "detail": "Adicionado manualmente pelo gestor",
         "performed_by": userId,
@@ -639,7 +717,7 @@ Future<String> createManualOnboardingCard({
   if (notes != null && notes.trim().isNotEmpty) {
     await client.from("streamer_phase_history").insert({
       "streamer_id": streamerId,
-      "phase_key": onboardingPhaseKey,
+      "phase_key": phaseKey,
       "action": "observacao",
       "detail": notes.trim(),
       "performed_by": userId,
@@ -790,6 +868,7 @@ Future<void> evaluateOnboardingCard({
   required String performedBy,
   String? note,
   String? promoteToPhaseKey,
+  bool requirePotentialToPromote = false,
 }) async {
   final client = Supabase.instance.client;
   final data = <String, dynamic>{
@@ -829,12 +908,27 @@ Future<void> evaluateOnboardingCard({
   // acima: a aprovacao em si ja foi salva, um erro aqui nao pode fazer
   // parecer que a aprovacao falhou pro gestor. createOnboardingPhaseCardIfNeeded
   // ja e idempotente (nao duplica se o streamer ja tiver card na fase seguinte).
+  // requirePotentialToPromote restringe a promocao a quem estiver marcado
+  // com a estrela "streamer em potencial" (ver updateOnboardingCardPotential)
+  // -- usado pelo Acompanhamento 16-31 Dias, que so deve seguir pra
+  // Graduacao Novatos quem foi destacado, nao todo mundo aprovado.
   if (outcome == "aprovado" && promoteToPhaseKey != null) {
     try {
-      await createOnboardingPhaseCardIfNeeded(
-        streamerId: streamerId,
-        phaseKey: promoteToPhaseKey,
-      );
+      var shouldPromote = true;
+      if (requirePotentialToPromote) {
+        final row = await client
+            .from("streamer_phase_progress")
+            .select("is_potential")
+            .eq("id", progressId)
+            .maybeSingle();
+        shouldPromote = row?["is_potential"] == true;
+      }
+      if (shouldPromote) {
+        await createOnboardingPhaseCardIfNeeded(
+          streamerId: streamerId,
+          phaseKey: promoteToPhaseKey,
+        );
+      }
     } catch (_) {}
   }
 }

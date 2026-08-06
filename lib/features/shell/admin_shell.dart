@@ -12,6 +12,7 @@ import "../dashboard/dashboard_page.dart";
 import "../categorias/categorias_page.dart";
 import "../ranking/ranking_page.dart";
 import "../crm/crm_page.dart";
+import "../gestor/gestao_streamers_page.dart";
 import "../missoes_atividades/missoes_atividades_page.dart";
 import "../ilha_top_duckers/ilha_top_duckers_page.dart";
 import "../metricas/level_maintenance_page.dart";
@@ -36,6 +37,7 @@ class _MenuGroup {
 const _menuGroups = [
   _MenuGroup(icon: Icons.people, label: "Criadores", children: [
     (Icons.badge, "CRM"),
+    (Icons.groups_2, "Gestao de Streamers"),
     (Icons.person_outline, "Streamers"),
     (Icons.query_stats, "Metricas Streamers"),
     (Icons.military_tech, "Manutencao de Nivel"),
@@ -158,6 +160,8 @@ class _AdminShellState extends State<AdminShell> {
         return const DashboardPage();
       case "Streamers":
         return const StreamersPage();
+      case "Gestao de Streamers":
+        return const GestaoStreamersPage(showManagerAggregates: true);
       case "Importacao TikTok":
         return const ImportPage();
       case "Progressao Inatividade":

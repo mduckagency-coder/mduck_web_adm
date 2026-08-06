@@ -20,15 +20,21 @@ class GestorStreamerRow {
   final String? tiktokUsername;
   final String? tiktokCreatorId;
   final String? avatarUrl;
+  final String? phone;
   final String? categoryName;
+  final String? categoryIconKey;
   final DateTime joinedAt;
   final DateTime? lastLiveAt;
   final bool isActive;
   final bool hasOnboarding;
   final num diamonds;
   final num? diamondsLastMonth;
+  final num? diamondsTwoMonthsAgo;
+  final int? daysLiveLastMonth;
+  final double? hoursLiveLastMonth;
   final int daysLive;
   final double hoursLive;
+  final int battles;
   final String? potentialLevel;
   final String? assignedManagerId;
   final String? assignedManagerEmail;
@@ -41,15 +47,21 @@ class GestorStreamerRow {
     this.tiktokUsername,
     this.tiktokCreatorId,
     this.avatarUrl,
+    this.phone,
     this.categoryName,
+    this.categoryIconKey,
     required this.joinedAt,
     this.lastLiveAt,
     required this.isActive,
     required this.hasOnboarding,
     required this.diamonds,
     this.diamondsLastMonth,
+    this.diamondsTwoMonthsAgo,
+    this.daysLiveLastMonth,
+    this.hoursLiveLastMonth,
     required this.daysLive,
     required this.hoursLive,
+    this.battles = 0,
     this.potentialLevel,
     this.assignedManagerId,
     this.assignedManagerEmail,
@@ -107,7 +119,7 @@ Future<List<GestorStreamerRow>> fetchGestorStreamerRows({
   final rows = await client
       .from("profiles")
       .select(
-        "id, display_name, tiktok_username, tiktok_creator_id, avatar_url, joined_at, last_live_at, is_active, assigned_manager_id, potential_level, streamer_categories(name), managers!profiles_assigned_manager_id_fkey(login_email), streamer_stats(days_live, hours_live, diamonds)",
+        "id, display_name, tiktok_username, tiktok_creator_id, avatar_url, phone, joined_at, last_live_at, is_active, assigned_manager_id, potential_level, streamer_categories(name, icon_key), managers!profiles_assigned_manager_id_fkey(login_email), streamer_stats(days_live, hours_live, diamonds, battles)",
       )
       .eq("agency_id", agencyId)
       .eq("is_active", true);
@@ -152,11 +164,29 @@ Future<List<GestorStreamerRow>> fetchGestorStreamerRows({
       prevYear.toString() + "-" + prevMonth.toString().padLeft(2, "0");
   final monthlyRows = await client
       .from("monthly_stats")
-      .select("streamer_id, diamonds")
+      .select("streamer_id, diamonds, days_live, hours_live")
       .eq("period_key", prevPeriodKey)
       .inFilter("streamer_id", ids);
   final lastMonthByStreamer = {
     for (final r in (monthlyRows as List).cast<Map<String, dynamic>>())
+      r["streamer_id"] as String: r,
+  };
+
+  // Mes retrasado (2 meses atras), mesma fonte/mesmo padrao da consulta
+  // acima -- so pra dar pro classificador de Gestao de Streamers comparar o
+  // crescimento do mes passado com o crescimento do mes atual e detectar
+  // "estava crescendo e perdeu ritmo".
+  final prevMonth2 = prevMonth == 1 ? 12 : prevMonth - 1;
+  final prevYear2 = prevMonth == 1 ? prevYear - 1 : prevYear;
+  final prevPeriodKey2 =
+      prevYear2.toString() + "-" + prevMonth2.toString().padLeft(2, "0");
+  final monthlyRows2 = await client
+      .from("monthly_stats")
+      .select("streamer_id, diamonds")
+      .eq("period_key", prevPeriodKey2)
+      .inFilter("streamer_id", ids);
+  final twoMonthsAgoByStreamer = {
+    for (final r in (monthlyRows2 as List).cast<Map<String, dynamic>>())
       r["streamer_id"] as String: r["diamonds"] as num?,
   };
 
@@ -165,6 +195,7 @@ Future<List<GestorStreamerRow>> fetchGestorStreamerRows({
     final catData = r["streamer_categories"];
     final managerData = r["managers"];
     final statsData = r["streamer_stats"];
+    final lastMonthRow = lastMonthByStreamer[id];
     Map<String, dynamic>? stats;
     if (statsData is List && statsData.isNotEmpty) {
       stats = statsData.first as Map<String, dynamic>;
@@ -177,7 +208,9 @@ Future<List<GestorStreamerRow>> fetchGestorStreamerRows({
       tiktokUsername: r["tiktok_username"] as String?,
       tiktokCreatorId: r["tiktok_creator_id"] as String?,
       avatarUrl: r["avatar_url"] as String?,
+      phone: r["phone"] as String?,
       categoryName: catData is Map ? catData["name"] as String? : null,
+      categoryIconKey: catData is Map ? catData["icon_key"] as String? : null,
       joinedAt: DateTime.parse(r["joined_at"] as String),
       lastLiveAt: r["last_live_at"] != null
           ? DateTime.parse(r["last_live_at"] as String)
@@ -185,9 +218,13 @@ Future<List<GestorStreamerRow>> fetchGestorStreamerRows({
       isActive: r["is_active"] == true,
       hasOnboarding: onboardingSet.contains(id),
       diamonds: (stats?["diamonds"] as num?) ?? 0,
-      diamondsLastMonth: lastMonthByStreamer[id],
+      diamondsLastMonth: lastMonthRow?["diamonds"] as num?,
+      diamondsTwoMonthsAgo: twoMonthsAgoByStreamer[id],
+      daysLiveLastMonth: (lastMonthRow?["days_live"] as num?)?.toInt(),
+      hoursLiveLastMonth: (lastMonthRow?["hours_live"] as num?)?.toDouble(),
       daysLive: (stats?["days_live"] as num?)?.toInt() ?? 0,
       hoursLive: (stats?["hours_live"] as num?)?.toDouble() ?? 0,
+      battles: (stats?["battles"] as num?)?.toInt() ?? 0,
       potentialLevel: r["potential_level"] as String?,
       assignedManagerId: r["assigned_manager_id"] as String?,
       assignedManagerEmail: managerData is Map
@@ -207,4 +244,38 @@ Future<void> updateStreamerPotential({
       .from("profiles")
       .update({"potential_level": level})
       .eq("id", streamerId);
+}
+
+/// Quantos acompanhamentos (streamer_contact_logs) cada gestor registrou nos
+/// ultimos 30 dias -- so pro painel de agregados da visao do Administrador
+/// em Gestao de Streamers. Agrupa por manager_label (ja gravado em texto
+/// livre em cada log, mesma fonte que o painel lateral ja usa pra exibir
+/// quem registrou) em vez de precisar de outro join com managers.
+Future<Map<String, int>> fetchContactCountsByManager({
+  required String agencyId,
+}) async {
+  final client = Supabase.instance.client;
+  final streamerRows = await client
+      .from("profiles")
+      .select("id")
+      .eq("agency_id", agencyId);
+  final ids = (streamerRows as List)
+      .cast<Map<String, dynamic>>()
+      .map((r) => r["id"] as String)
+      .toList();
+  if (ids.isEmpty) return {};
+
+  final since = DateTime.now().subtract(const Duration(days: 30));
+  final logRows = await client
+      .from("streamer_contact_logs")
+      .select("manager_label, created_at")
+      .inFilter("streamer_id", ids)
+      .gte("created_at", since.toIso8601String());
+
+  final counts = <String, int>{};
+  for (final r in (logRows as List).cast<Map<String, dynamic>>()) {
+    final label = r["manager_label"] as String? ?? "Sem gestor";
+    counts[label] = (counts[label] ?? 0) + 1;
+  }
+  return counts;
 }

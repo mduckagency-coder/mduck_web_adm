@@ -40,10 +40,14 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
 
     // Recrutamentos contam pelos dados oficiais da planilha (profiles), nao pelo status
     // "agenciado" do kanban de leads, que e apenas o funil interno do recrutador.
-    final officialProfiles = await client.from("profiles").select("joined_at, agent_relationship_date");
+    final officialProfiles = await client.from("profiles").select("joined_at, agent_relationship_date, created_manually");
     final officialProfilesList = (officialProfiles as List).cast<Map<String, dynamic>>();
     String? relDate(Map<String, dynamic> p) => (p["agent_relationship_date"] as String?) ?? (p["joined_at"] as String?);
+    // Cadastros criados manualmente (dialog "Novo Agenciado") so contam depois
+    // que a planilha confirma o streamer -- evita inflar o numero com cards
+    // que ainda nao foram (ou nunca serao) validados.
     final recrutamentosDoMes = officialProfilesList.where((p) {
+      if (p["created_manually"] == true) return false;
       final ds = relDate(p);
       if (ds == null) return false;
       final d = DateTime.parse(ds);
@@ -88,6 +92,7 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
       recrutamentosPerWeek["Sem " + weekStart.day.toString() + "/" + weekStart.month.toString()] = 0;
     }
     for (final p in officialProfilesList) {
+      if (p["created_manually"] == true) continue;
       final ds = relDate(p);
       if (ds == null) continue;
       final d = DateTime.parse(ds);

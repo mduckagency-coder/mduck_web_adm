@@ -215,6 +215,10 @@ class TikTokImportRepository {
           if (joinDateUpdate != null)
             profileUpdate["joined_at"] = joinDateUpdate.toIso8601String();
           profileUpdate["tiktok_group_name"] = cell(_colGrupo).trim();
+          // Planilha confirmou esse cadastro (criado agora ou ja existente,
+          // manual ou nao) -- a partir daqui conta como agenciamento oficial
+          // nos dashboards de "novos agenciados".
+          profileUpdate["created_manually"] = false;
           if (profileUpdate.isNotEmpty) {
             await _client
                 .from("profiles")

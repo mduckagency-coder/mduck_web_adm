@@ -2,6 +2,7 @@ import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "activity_types.dart";
 import "gestor_streamer_service.dart";
+import "streamer_stage_service.dart";
 import "streamer_tasks_service.dart";
 
 /// Painel lateral unico do CRM -- usado pelas telas novas (Novatos, e
@@ -70,6 +71,12 @@ class _StreamerSidePanelContentState extends State<_StreamerSidePanelContent> {
   DateTime? _nextActionDate;
   String? _nextActionType;
   bool _saving = false;
+
+  final _actionNoteController = TextEditingController();
+  String _actionStageKey = streamerStages.first.key;
+  int _actionRevisarEmDias = 5;
+  String? _actionPerformedById;
+  bool _actionSaving = false;
 
   @override
   void initState() {
@@ -199,6 +206,14 @@ class _StreamerSidePanelContentState extends State<_StreamerSidePanelContent> {
         .maybeSingle();
     final diamondsLastMonth = monthlyRow?["diamonds"] as num?;
 
+    // Lista de gestores da agencia -- pro dropdown "Realizado por" (quem de
+    // fato fez o acompanhamento, pode ser diferente de quem esta logado
+    // registrando).
+    final agencyManagers = await client
+        .from("managers")
+        .select("id, login_email")
+        .eq("agency_id", agencyId);
+
     return {
       "agencyId": agencyId,
       "profile": profile,
@@ -206,6 +221,7 @@ class _StreamerSidePanelContentState extends State<_StreamerSidePanelContent> {
       "history": combinedHistory,
       "nextAction": nextAction,
       "diamondsLastMonth": diamondsLastMonth,
+      "agencyManagers": (agencyManagers as List).cast<Map<String, dynamic>>(),
     };
   }
 
@@ -292,6 +308,49 @@ class _StreamerSidePanelContentState extends State<_StreamerSidePanelContent> {
     if (picked != null) setState(() => _nextActionDate = picked);
   }
 
+  Future<void> _registerAction(
+    String agencyId,
+    List<Map<String, dynamic>> agencyManagers,
+  ) async {
+    setState(() => _actionSaving = true);
+    String? performedByLabel;
+    if (_actionPerformedById != null) {
+      final match = agencyManagers.firstWhere(
+        (m) => m["id"] == _actionPerformedById,
+        orElse: () => const {},
+      );
+      performedByLabel = match["login_email"] as String?;
+    }
+    try {
+      await registerStreamerAction(
+        streamerId: widget.streamerId,
+        agencyId: agencyId,
+        stageKey: _actionStageKey,
+        note: _actionNoteController.text.trim().isEmpty
+            ? null
+            : _actionNoteController.text.trim(),
+        dueInDays: _actionRevisarEmDias,
+        performedByManagerId: _actionPerformedById,
+        performedByLabel: performedByLabel,
+      );
+      _actionNoteController.clear();
+      setState(() {
+        _actionStageKey = streamerStages.first.key;
+        _actionRevisarEmDias = 5;
+        _actionPerformedById = null;
+        _actionSaving = false;
+      });
+      _reload();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _actionSaving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Erro ao registrar ação: " + e.toString())),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -319,6 +378,8 @@ class _StreamerSidePanelContentState extends State<_StreamerSidePanelContent> {
           final nextAction = data["nextAction"] as StreamerTask?;
           final diamondsLastMonth = data["diamondsLastMonth"] as num?;
           final agencyId = data["agencyId"] as String;
+          final agencyManagers =
+              data["agencyManagers"] as List<Map<String, dynamic>>;
           final assignedManagerId = profile["assigned_manager_id"] as String?;
           final catData = profile["streamer_categories"];
           final managerData = profile["managers"];
@@ -414,6 +475,8 @@ class _StreamerSidePanelContentState extends State<_StreamerSidePanelContent> {
                   ],
                 ),
                 const SizedBox(height: 12),
+                _actionSection(agencyId, agencyManagers),
+                const SizedBox(height: 16),
                 _infoRow(
                   "Dias na agência",
                   DateTime.now().difference(joinedAt).inDays.toString(),
@@ -677,6 +740,142 @@ class _StreamerSidePanelContentState extends State<_StreamerSidePanelContent> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  static const _revisarEmOptions = [3, 5, 7, 10, 15, 30];
+
+  /// "Registrar Ação" -- mesma acao principal da tela Gestao de Streamers
+  /// (streamer_action_dialog.dart), embutida aqui no painel: escolhe o tipo
+  /// de acao, escreve o que precisa ser feito, e o streamer ja vai pra
+  /// coluna daquele tipo no Kanban (registerStreamerAction,
+  /// streamer_stage_service.dart).
+  Widget _actionSection(String agencyId, List<Map<String, dynamic>> agencyManagers) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF7A0BD4).withOpacity(0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF7A0BD4).withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            "Registrar Ação",
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            value: _actionStageKey,
+            dropdownColor: const Color(0xFF1A1A1A),
+            style: const TextStyle(color: Colors.white, fontSize: 13),
+            decoration: const InputDecoration(
+              isDense: true,
+              labelText: "Tipo de ação",
+              labelStyle: TextStyle(color: Colors.white54),
+            ),
+            items: streamerStages
+                .map(
+                  (s) => DropdownMenuItem(
+                    value: s.key,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(s.icon, size: 14, color: Colors.white70),
+                        const SizedBox(width: 6),
+                        Text(s.label),
+                      ],
+                    ),
+                  ),
+                )
+                .toList(),
+            onChanged: (v) => setState(
+              () => _actionStageKey = v ?? streamerStages.first.key,
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _actionNoteController,
+            style: const TextStyle(color: Colors.white, fontSize: 13),
+            decoration: const InputDecoration(
+              labelText: "O que precisa ser feito",
+              labelStyle: TextStyle(color: Colors.white54),
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Text(
+                "Realizado por",
+                style: TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+              const SizedBox(width: 8),
+              DropdownButton<String?>(
+                value: _actionPerformedById,
+                dropdownColor: const Color(0xFF1A1A1A),
+                underline: const SizedBox.shrink(),
+                style: const TextStyle(color: Colors.white, fontSize: 12),
+                hint: const Text(
+                  "Eu mesmo",
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                items: agencyManagers
+                    .map(
+                      (m) => DropdownMenuItem<String?>(
+                        value: m["id"] as String,
+                        child: Text(m["login_email"] as String? ?? "-"),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) => setState(() => _actionPerformedById = v),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Text(
+                "Revisar em",
+                style: TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+              const SizedBox(width: 8),
+              DropdownButton<int>(
+                value: _actionRevisarEmDias,
+                dropdownColor: const Color(0xFF1A1A1A),
+                underline: const SizedBox.shrink(),
+                style: const TextStyle(color: Colors.white, fontSize: 12),
+                items: _revisarEmOptions
+                    .map(
+                      (d) => DropdownMenuItem(
+                        value: d,
+                        child: Text(d.toString() + " dias"),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) =>
+                    setState(() => _actionRevisarEmDias = v ?? 5),
+              ),
+              const Spacer(),
+              ElevatedButton(
+                onPressed: _actionSaving
+                    ? null
+                    : () => _registerAction(agencyId, agencyManagers),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF7A0BD4),
+                  foregroundColor: Colors.white,
+                ),
+                child: Text(_actionSaving ? "Salvando..." : "Registrar"),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

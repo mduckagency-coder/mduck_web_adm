@@ -13,6 +13,19 @@ String _periodKey(DateTime d) =>
     d.year.toString() + "-" + d.month.toString().padLeft(2, "0");
 const streamers80kThreshold = 80000;
 
+/// Separador de milhar (271193 -> "271.193") -- numeros grandes como
+/// diamantes ficam ilegiveis sem isso.
+String formatThousands(num value) {
+  final negative = value < 0;
+  final digits = value.abs().toStringAsFixed(0);
+  final buffer = StringBuffer();
+  for (var i = 0; i < digits.length; i++) {
+    if (i > 0 && (digits.length - i) % 3 == 0) buffer.write(".");
+    buffer.write(digits[i]);
+  }
+  return (negative ? "-" : "") + buffer.toString();
+}
+
 class _DashboardPageState extends State<DashboardPage> {
   late Future<Map<String, dynamic>> _future;
 
@@ -50,12 +63,17 @@ class _DashboardPageState extends State<DashboardPage> {
       }
     }
 
+    // Exclui cadastros manuais ("Novo Agenciado") ainda nao confirmados pela
+    // planilha oficial -- sem isso eles entram no total de streamers com 0
+    // dias de live, derrubando artificialmente a % de Abertura de Live e
+    // inflando o total de streamers da agencia.
     final profiles = await client
         .from("profiles")
         .select(
           "id, display_name, joined_at, last_live_at, streamer_stats(days_live, hours_live, diamonds)",
         )
-        .eq("is_active", true);
+        .eq("is_active", true)
+        .eq("created_manually", false);
 
     final monthlyRows = await client
         .from("monthly_stats")
@@ -151,11 +169,15 @@ class _DashboardPageState extends State<DashboardPage> {
     final nextMonthStart = DateTime(now.year, now.month + 1, 1);
     final recruitmentRows = await client
         .from("profiles")
-        .select("id, joined_at, tiktok_group_name")
+        .select("id, joined_at, tiktok_group_name, created_manually")
         .gte("joined_at", monthStart.toIso8601String())
         .lt("joined_at", nextMonthStart.toIso8601String());
     final novosAgenciadosKeys = <String>{};
     for (final r in (recruitmentRows as List)) {
+      // Cadastros criados manualmente (dialog "Novo Agenciado") so contam
+      // depois que a planilha confirma o streamer -- evita inflar o numero
+      // com cards que ainda nao foram (ou nunca serao) validados.
+      if (r["created_manually"] == true) continue;
       final groupName = (r["tiktok_group_name"] as String?)?.trim();
       novosAgenciadosKeys.add(
         groupName != null && groupName.isNotEmpty
@@ -638,7 +660,7 @@ class _DashboardPageState extends State<DashboardPage> {
                             const Color(0xFF7A0BD4),
                             (d["totalDiamondsAtual"] as int).toDouble(),
                             d["diamondsGoal"] as double?,
-                            (v) => v.toStringAsFixed(0),
+                            formatThousands,
                           ),
                           _goalCard(
                             "Recrutamento",
@@ -675,7 +697,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           _metricCard(
                             Icons.diamond,
                             "Diamantes (mes atual)",
-                            d["totalDiamondsAtual"].toString(),
+                            formatThousands(d["totalDiamondsAtual"] as int),
                             const Color(0xFF7A0BD4),
                             change: pctText(d["diamondsChange"]),
                           ),
@@ -744,7 +766,7 @@ class _DashboardPageState extends State<DashboardPage> {
                             Icons.diamond,
                             const Color(0xFF7A0BD4),
                             d["allByDiamonds"] as List,
-                            (m) => m["diamonds"].toString(),
+                            (m) => formatThousands(m["diamonds"] as int),
                           ),
                           _rankSection(
                             "Horas - Todos",

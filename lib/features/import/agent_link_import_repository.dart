@@ -101,6 +101,9 @@ class AgentLinkImportRepository {
         // conte nas metricas e no ranking por e-mail, mesmo sem login no sistema.
         final updateData = <String, dynamic>{
           "tiktok_agent_email": agentEmail,
+          // Planilha de vinculo de agente confirmou esse cadastro -- conta
+          // como agenciamento oficial nos dashboards de "novos agenciados".
+          "created_manually": false,
         };
         if (manager != null) {
           updateData["recruited_by_manager_id"] = manager["id"];

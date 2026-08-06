@@ -14,6 +14,21 @@ const _observacaoSelect =
 const _atividadeObservacaoSelect =
     "id, texto, created_at, autor:managers!planejamento_atividade_observacoes_autor_id_fkey(login_email, full_name)";
 
+/// Quantidade de ocorrencias geradas de uma vez para uma demanda com
+/// "repetir todo mes" marcado (a original + as proximas 11, um ano fechado).
+const _ocorrenciasRecorrencia = 12;
+
+/// Mesmo dia do mes, um mes a frente; quando o mes seguinte for mais curto
+/// (ex.: dia 31 -> fevereiro), cai para o ultimo dia daquele mes.
+DateTime _addMonthsClamped(DateTime date, int months) {
+  final totalMonths = (date.month - 1) + months;
+  final year = date.year + totalMonths ~/ 12;
+  final month = totalMonths % 12 + 1;
+  final lastDayOfMonth = DateTime(year, month + 1, 0).day;
+  final day = date.day > lastDayOfMonth ? lastDayOfMonth : date.day;
+  return DateTime(year, month, day, date.hour, date.minute, date.second);
+}
+
 /// Acesso a dados de Demandas e Planejamento. Toda a agencia e escopada por
 /// RLS no banco (agency_id do gestor logado) -- aqui so montamos as queries.
 class DemandaRepository {
@@ -63,19 +78,52 @@ class DemandaRepository {
     required DateTime? prazo,
     required String responsavelId,
     required String criadoPorLabel,
+    bool repeteMensalmente = false,
   }) async {
     final agencyId = await _myAgencyId();
-    await _client.from("demandas").insert({
-      "agency_id": agencyId,
-      "titulo": titulo,
-      "descricao": descricao,
-      "prioridade": prioridade.value,
-      "categoria": categoria,
-      "icone": icone,
-      "prazo": prazo?.toIso8601String(),
-      "responsavel_id": responsavelId,
-      "criado_por": _userId,
-    });
+
+    final inserted = await _client
+        .from("demandas")
+        .insert({
+          "agency_id": agencyId,
+          "titulo": titulo,
+          "descricao": descricao,
+          "prioridade": prioridade.value,
+          "categoria": categoria,
+          "icone": icone,
+          "prazo": prazo?.toIso8601String(),
+          "responsavel_id": responsavelId,
+          "criado_por": _userId,
+          "repete_mensalmente": repeteMensalmente && prazo != null,
+        })
+        .select("id")
+        .single();
+    final firstId = inserted["id"] as String;
+
+    if (repeteMensalmente && prazo != null) {
+      await _client
+          .from("demandas")
+          .update({"serie_id": firstId})
+          .eq("id", firstId);
+
+      final futuras = List.generate(_ocorrenciasRecorrencia - 1, (i) {
+        final ocorrenciaPrazo = _addMonthsClamped(prazo, i + 1);
+        return {
+          "agency_id": agencyId,
+          "titulo": titulo,
+          "descricao": descricao,
+          "prioridade": prioridade.value,
+          "categoria": categoria,
+          "icone": icone,
+          "prazo": ocorrenciaPrazo.toIso8601String(),
+          "responsavel_id": responsavelId,
+          "criado_por": _userId,
+          "repete_mensalmente": true,
+          "serie_id": firstId,
+        };
+      });
+      await _client.from("demandas").insert(futuras);
+    }
 
     if (responsavelId != _userId) {
       await notifyNewDemanda(

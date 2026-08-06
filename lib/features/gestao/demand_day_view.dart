@@ -171,6 +171,8 @@ class DemandDayView extends StatelessWidget {
                                 ),
                               ),
                             ),
+                            if (d.repeteMensalmente)
+                              Icon(Icons.repeat, size: 14, color: color),
                           ],
                         ),
                         const SizedBox(height: 4),

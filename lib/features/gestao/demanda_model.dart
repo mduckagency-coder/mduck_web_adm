@@ -98,6 +98,8 @@ class Demanda {
   final String responsavelId;
   final String responsavelLabel;
   final String? responsavelPhotoUrl;
+  final bool repeteMensalmente;
+  final String? serieId;
   final DateTime criadoEm;
   final DateTime atualizadoEm;
 
@@ -115,6 +117,8 @@ class Demanda {
     required this.responsavelId,
     required this.responsavelLabel,
     required this.responsavelPhotoUrl,
+    required this.repeteMensalmente,
+    required this.serieId,
     required this.criadoEm,
     required this.atualizadoEm,
   });
@@ -147,6 +151,8 @@ class Demanda {
       responsavelPhotoUrl: responsavelManager is Map
           ? responsavelManager["photo_url"] as String?
           : null,
+      repeteMensalmente: (row["repete_mensalmente"] as bool?) ?? false,
+      serieId: row["serie_id"] as String?,
       criadoEm: DateTime.parse(row["created_at"] as String),
       atualizadoEm: DateTime.parse(row["updated_at"] as String),
     );
@@ -166,6 +172,8 @@ class Demanda {
     responsavelId: responsavelId,
     responsavelLabel: responsavelLabel,
     responsavelPhotoUrl: responsavelPhotoUrl,
+    repeteMensalmente: repeteMensalmente,
+    serieId: serieId,
     criadoEm: criadoEm,
     atualizadoEm: DateTime.now(),
   );

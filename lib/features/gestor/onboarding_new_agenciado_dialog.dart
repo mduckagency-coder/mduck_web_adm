@@ -2,14 +2,18 @@ import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "onboarding_phase_service.dart";
 
-/// Dialog "Novo Agenciado" do Kanban de Onboarding. Permite buscar e
-/// selecionar um streamer ja cadastrado (preenchendo os campos
-/// automaticamente, so para conferencia -- nao sobrescreve o cadastro) ou
-/// preencher manualmente sem selecionar nenhum (cria um streamer novo em
-/// profiles). Em ambos os casos, cria o card na 1a coluna do Onboarding
-/// 0-15 Dias vinculado ao gestor atual.
+/// Dialog "Novo Agenciado" (ou "Novo card", em fases que nao sao o
+/// Onboarding 0-15) do Kanban de Onboarding. Permite buscar e selecionar um
+/// streamer ja cadastrado (preenchendo os campos automaticamente, so para
+/// conferencia -- nao sobrescreve o cadastro) ou preencher manualmente sem
+/// selecionar nenhum (cria um streamer novo em profiles). Em ambos os
+/// casos, cria o card na 1a coluna da fase informada (phaseKey), vinculado
+/// ao gestor atual -- reusado pelo Onboarding 0-15 Dias e pela Graduacao
+/// Novatos (streamer que ja e candidato a graduar, sem precisar esperar a
+/// promocao automatica do Acompanhamento 16-31 Dias).
 class OnboardingNewAgenciadoDialog extends StatefulWidget {
-  const OnboardingNewAgenciadoDialog({super.key});
+  final String phaseKey;
+  const OnboardingNewAgenciadoDialog({super.key, this.phaseKey = onboardingPhaseKey});
 
   @override
   State<OnboardingNewAgenciadoDialog> createState() =>
@@ -136,6 +140,7 @@ class _OnboardingNewAgenciadoDialogState
         notes: _notesController.text.trim().isEmpty
             ? null
             : _notesController.text.trim(),
+        phaseKey: widget.phaseKey,
       );
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {

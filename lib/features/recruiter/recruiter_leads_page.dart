@@ -246,7 +246,7 @@ class _RecruiterLeadsPageState extends State<RecruiterLeadsPage> {
   }
 
   void _openAdd() {
-    showDialog(context: context, builder: (context) => const LeadFormDialog()).then((saved) {
+    showDialog(context: context, builder: (context) => LeadFormDialog(isCoordOrAdmin: _isCoordOrAdmin)).then((saved) {
       if (saved == true) _load();
     });
   }
@@ -675,7 +675,8 @@ class LeadCard extends StatelessWidget {
 }
 
 class LeadFormDialog extends StatefulWidget {
-  const LeadFormDialog({super.key});
+  final bool isCoordOrAdmin;
+  const LeadFormDialog({super.key, this.isCoordOrAdmin = false});
 
   @override
   State<LeadFormDialog> createState() => _LeadFormDialogState();
@@ -691,10 +692,18 @@ class _LeadFormDialogState extends State<LeadFormDialog> {
   String? _selectedCategory;
   bool _saving = false;
 
+  // So carregada/exibida para coordenador ou admin -- permite cadastrar o
+  // lead ja em nome de outro recrutador, pro dia a dia em que o proprio
+  // recrutador nao coloca o card e o gestor acaba fazendo por ele. Null
+  // mantem o comportamento padrao (lead fica com quem esta cadastrando).
+  List<Map<String, dynamic>> _recruiters = [];
+  String? _selectedRecruiterId;
+
   @override
   void initState() {
     super.initState();
     _loadCategories();
+    if (widget.isCoordOrAdmin) _loadRecruiters();
   }
 
   Future<void> _loadCategories() async {
@@ -703,18 +712,25 @@ class _LeadFormDialogState extends State<LeadFormDialog> {
     setState(() => _categories = (rows as List).cast<Map<String, dynamic>>());
   }
 
+  Future<void> _loadRecruiters() async {
+    final client = Supabase.instance.client;
+    final rows = await client.from("managers").select("id, login_email").order("login_email");
+    setState(() => _recruiters = (rows as List).cast<Map<String, dynamic>>());
+  }
+
   Future<void> _save() async {
     if (_nameController.text.trim().isEmpty) return;
     setState(() => _saving = true);
     final client = Supabase.instance.client;
     final userId = client.auth.currentUser!.id;
+    final recruiterId = _selectedRecruiterId ?? userId;
     final manager = await client.from("managers").select("agency_id").eq("id", userId).single();
     var initialStage = await client.from("lead_kanban_stages").select("stage_key").eq("agency_id", manager["agency_id"]).eq("is_initial", true).eq("is_active", true).maybeSingle();
     initialStage ??= await client.from("lead_kanban_stages").select("stage_key").eq("agency_id", manager["agency_id"]).eq("is_active", true).order("order_index").limit(1).maybeSingle();
 
     final inserted = await client.from("leads").insert({
       "agency_id": manager["agency_id"],
-      "recruiter_id": userId,
+      "recruiter_id": recruiterId,
       "name": _nameController.text.trim(),
       "tiktok_username": _tiktokController.text.trim(),
       "phone": _phoneController.text.trim(),
@@ -724,10 +740,16 @@ class _LeadFormDialogState extends State<LeadFormDialog> {
       "status": initialStage != null ? initialStage["stage_key"] : "novo",
     }).select("id").single();
 
+    // performed_by fica com quem de fato cadastrou (o gestor, quando for o
+    // caso) -- recruiter_id fica com o dono do lead. Isso preserva no
+    // historico que o cadastro foi feito em nome de outra pessoa.
+    final onBehalf = _selectedRecruiterId != null && _selectedRecruiterId != userId;
     await client.from("lead_history").insert({
       "lead_id": inserted["id"],
       "action": "criacao",
-      "detail": "Lead cadastrado",
+      "detail": onBehalf
+          ? "Lead cadastrado pelo gestor em nome do recrutador " + (_recruiters.firstWhere((m) => m["id"] == recruiterId)["login_email"] as String)
+          : "Lead cadastrado",
       "performed_by": userId,
     });
 
@@ -760,6 +782,23 @@ class _LeadFormDialogState extends State<LeadFormDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text("Novo Lead", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+              if (widget.isCoordOrAdmin) ...[
+                const SizedBox(height: 12),
+                const Text("Cadastrar em nome de", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                const SizedBox(height: 4),
+                DropdownButton<String?>(
+                  value: _selectedRecruiterId,
+                  isExpanded: true,
+                  hint: const Text("Eu mesmo", style: TextStyle(color: Colors.white54)),
+                  dropdownColor: const Color(0xFF1A1A1A),
+                  style: const TextStyle(color: Colors.white),
+                  items: [
+                    const DropdownMenuItem<String?>(value: null, child: Text("Eu mesmo")),
+                    ..._recruiters.map((m) => DropdownMenuItem<String?>(value: m["id"] as String, child: Text(m["login_email"] as String? ?? "-"))),
+                  ],
+                  onChanged: (v) => setState(() => _selectedRecruiterId = v),
+                ),
+              ],
               const SizedBox(height: 16),
               TextField(controller: _nameController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Nome", labelStyle: TextStyle(color: Colors.white54))),
               const SizedBox(height: 8),

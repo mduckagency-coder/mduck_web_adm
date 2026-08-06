@@ -300,6 +300,7 @@ class StreamerSnapshot {
   final String id;
   final String displayName;
   final String? avatarUrl;
+  final String? tiktokId;
   final String? categoryId;
   final String? categoryName;
   final int daysInAgency;
@@ -327,6 +328,7 @@ class StreamerSnapshot {
     required this.id,
     required this.displayName,
     this.avatarUrl,
+    this.tiktokId,
     this.categoryId,
     this.categoryName,
     required this.daysInAgency,
@@ -359,6 +361,7 @@ class StreamerSnapshot {
       id: id,
       displayName: displayName,
       avatarUrl: avatarUrl,
+      tiktokId: tiktokId,
       categoryId: categoryId,
       categoryName: categoryName,
       daysInAgency: daysInAgency,
@@ -389,7 +392,7 @@ class StreamerSnapshot {
 }
 
 const _profileSnapshotSelect =
-    "id, display_name, avatar_url, joined_at, last_live_at, category_id, streamer_categories(name), streamer_stats(days_live, hours_live, diamonds, battles, heart_me)";
+    "id, display_name, avatar_url, tiktok_creator_id, joined_at, last_live_at, category_id, streamer_categories(name), streamer_stats(days_live, hours_live, diamonds, battles, heart_me)";
 
 StreamerSnapshot _snapshotFromProfileRow(Map<String, dynamic> r) {
   final statsData = r["streamer_stats"];
@@ -408,6 +411,7 @@ StreamerSnapshot _snapshotFromProfileRow(Map<String, dynamic> r) {
     id: r["id"] as String,
     displayName: (r["display_name"] as String?) ?? "-",
     avatarUrl: r["avatar_url"] as String?,
+    tiktokId: r["tiktok_creator_id"] as String?,
     categoryId: r["category_id"] as String?,
     categoryName: catData is Map ? catData["name"] as String? : null,
     daysInAgency: joinedAt != null

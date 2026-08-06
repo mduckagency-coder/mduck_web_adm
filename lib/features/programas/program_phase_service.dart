@@ -228,6 +228,10 @@ Future<String> currentAgencyId() async {
 /// Garante que a agencia tenha os 6 programas fixos (idempotente, so
 /// insere o que ainda nao existe) -- mesmo padrao de
 /// CalendarService.seedDefaultCategories / seedOnboardingPhaseStages.
+/// Pula qualquer program_key que o gestor tenha excluido de proposito (ver
+/// development_programs_dismissed / deleteDevelopmentProgram abaixo) --
+/// sem isso, excluir um programa fixo so faria ele reaparecer sozinho na
+/// proxima vez que a tela abrisse.
 Future<void> seedDevelopmentPrograms({required String agencyId}) async {
   final client = Supabase.instance.client;
   final existing = await client
@@ -237,8 +241,15 @@ Future<void> seedDevelopmentPrograms({required String agencyId}) async {
   final existingKeys = (existing as List)
       .map((r) => r["program_key"] as String)
       .toSet();
+  final dismissed = await client
+      .from("development_programs_dismissed")
+      .select("program_key")
+      .eq("agency_id", agencyId);
+  final dismissedKeys = (dismissed as List)
+      .map((r) => r["program_key"] as String)
+      .toSet();
   final missing = _defaultPrograms
-      .where((p) => !existingKeys.contains(p.$1))
+      .where((p) => !existingKeys.contains(p.$1) && !dismissedKeys.contains(p.$1))
       .toList();
   if (missing.isNotEmpty) {
     final rows = missing
@@ -259,6 +270,28 @@ Future<void> seedDevelopmentPrograms({required String agencyId}) async {
   for (final key in developmentProgramKeys) {
     await seedProgramStages(phaseKey: key, agencyId: agencyId);
   }
+}
+
+/// Exclui um programa (fixo ou criado manualmente). Premiacoes, participacoes
+/// e anotacoes cascadeiam pela FK -- so precisamos, alem do delete em si,
+/// registrar em development_programs_dismissed quando for um dos 12
+/// programas fixos, senao seedDevelopmentPrograms recria ele sozinho na
+/// proxima vez que a tela de Programas abrir.
+Future<void> deleteDevelopmentProgram({
+  required String programId,
+  required String programKey,
+  required String agencyId,
+  required String deletedBy,
+}) async {
+  final client = Supabase.instance.client;
+  if (developmentProgramKeys.contains(programKey)) {
+    await client.from("development_programs_dismissed").upsert({
+      "agency_id": agencyId,
+      "program_key": programKey,
+      "dismissed_by": deletedBy,
+    });
+  }
+  await client.from("development_programs").delete().eq("id", programId);
 }
 
 /// Semeia as etapas padrao (streamer_phase_stages) de um programa, se

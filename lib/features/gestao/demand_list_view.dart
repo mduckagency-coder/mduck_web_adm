@@ -195,6 +195,14 @@ class DemandListView extends StatelessWidget {
                                           ),
                                         ),
                                       ),
+                                      if (d.repeteMensalmente) ...[
+                                        const SizedBox(width: 4),
+                                        Icon(
+                                          Icons.repeat,
+                                          size: 13,
+                                          color: color,
+                                        ),
+                                      ],
                                     ],
                                   ),
                                   const SizedBox(height: 3),

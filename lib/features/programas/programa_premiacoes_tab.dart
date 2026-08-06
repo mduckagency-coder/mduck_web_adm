@@ -3,6 +3,7 @@ import "package:supabase_flutter/supabase_flutter.dart";
 import "../calendario/widgets/streamer_picker_dialog.dart";
 import "program_eligibility_service.dart";
 import "program_monthly_stats_service.dart";
+import "program_participation_service.dart" show syncParticipationAwardFinancialEntry;
 import "programa_history_helpers.dart";
 
 String _periodKeyFor(int year, int month) =>
@@ -22,6 +23,15 @@ String _itemsSummary(List<Map<String, dynamic>> items) {
         return qty.toString() + "x " + name;
       })
       .join(", ");
+}
+
+num _itemsTotal(List<Map<String, dynamic>> items) {
+  var total = 0.0;
+  for (final it in items) {
+    final value = it["value"] as num?;
+    if (value != null) total += value.toDouble();
+  }
+  return total;
 }
 
 const _awardStatusOptions = ["pendente", "agendado", "entregue"];
@@ -177,6 +187,15 @@ class _ProgramaPremiacoesTabState extends State<ProgramaPremiacoesTab> {
           })
           .eq("id", award["id"]);
       final streamer = award["streamer"];
+      final streamerName = streamer is Map ? streamer["display_name"] as String? : null;
+      await syncParticipationAwardFinancialEntry(
+        programId: widget.program["id"] as String,
+        awardId: award["id"] as String,
+        awardTitle: award["title"] as String,
+        streamerName: streamerName,
+        amount: _itemsTotal(_parseItems(award["items"])),
+        status: "entregue",
+      );
       await logProgramaHistory(
         streamerId: award["streamer_id"] as String,
         phaseKey: widget.program["program_key"] as String,
@@ -725,17 +744,26 @@ class _AwardFormDialogState extends State<_AwardFormDialog> {
             : _reasonController.text.trim(),
         "period_key": _periodKeyFor(_periodYear, _periodMonth),
       };
+      String awardId;
       if (widget.existing != null) {
-        await client
-            .from("program_awards")
-            .update(data)
-            .eq("id", widget.existing!["id"]);
+        awardId = widget.existing!["id"] as String;
+        await client.from("program_awards").update(data).eq("id", awardId);
       } else {
-        await client.from("program_awards").insert({
-          ...data,
-          "created_by": userId,
-        });
+        final inserted = await client
+            .from("program_awards")
+            .insert({...data, "created_by": userId})
+            .select("id")
+            .single();
+        awardId = inserted["id"] as String;
       }
+      await syncParticipationAwardFinancialEntry(
+        programId: widget.program["id"] as String,
+        awardId: awardId,
+        awardTitle: data["title"] as String,
+        streamerName: _selectedStreamer?["display_name"] as String?,
+        amount: _itemsTotal(itemsData),
+        status: _status,
+      );
       if (streamerId != null) {
         await logProgramaHistory(
           streamerId: streamerId,

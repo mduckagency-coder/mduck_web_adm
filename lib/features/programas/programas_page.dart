@@ -1,5 +1,6 @@
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
+import "program_participation_service.dart";
 import "program_phase_service.dart";
 import "programa_detail_page.dart";
 import "programa_history_helpers.dart";
@@ -43,6 +44,7 @@ class _ProgramasPageState extends State<ProgramasPage> {
           ? []
           : await client.from("streamer_phase_stages").select("phase_key, stage_key, is_evaluation_stage").eq("agency_id", agencyId).inFilter("phase_key", phaseKeys);
       final awardRows = programIds.isEmpty ? [] : await client.from("program_awards").select("program_id, status").inFilter("program_id", programIds);
+      final stageCountsByProgram = await fetchParticipationStageCountsByProgram(programIds: programIds);
 
       final progressByPhase = <String, List<Map<String, dynamic>>>{};
       for (final r in (progressRows as List)) {
@@ -76,6 +78,11 @@ class _ProgramasPageState extends State<ProgramasPage> {
         p["pendingCount"] = pendingEvaluations;
         p["pendingAwards"] = pendingAwardsByProgram[p["id"]] ?? 0;
         p["hasStages"] = hasStagesByPhase[phaseKey] ?? false;
+
+        final stageCounts = stageCountsByProgram[p["id"]] ?? const {};
+        p["participationTotal"] = stageCounts["_total"] ?? 0;
+        p["participationEmAndamento"] = stageCounts["em_andamento"] ?? 0;
+        p["participationPendenteEntrega"] = stageCounts["pendente_entrega"] ?? 0;
       }
 
       setState(() {
@@ -98,6 +105,69 @@ class _ProgramasPageState extends State<ProgramasPage> {
     showDialog(context: context, builder: (context) => const _NewProgramDialog()).then((created) {
       if (created == true) _load();
     });
+  }
+
+  Future<void> _editProgram(Map<String, dynamic> program) async {
+    final saved = await showEditProgramDialog(context, program);
+    if (saved) _load();
+  }
+
+  /// Programas fixos (developmentProgramKeys) tambem podem ser excluidos --
+  /// deleteDevelopmentProgram registra a exclusao em
+  /// development_programs_dismissed pra seedDevelopmentPrograms parar de
+  /// recriar esse program_key sozinho na proxima abertura da tela.
+  Future<void> _deleteProgram(Map<String, dynamic> program) async {
+    final isFixed = developmentProgramKeys.contains(program["program_key"] as String);
+    final ok = await confirmAction(
+      context,
+      title: "Excluir programa",
+      message: "Excluir \"" +
+          (program["name"] as String) +
+          "\"? Premiacoes, participacoes e anotacoes deste programa tambem sao apagadas." +
+          (isFixed ? " E um programa padrao -- excluido, ele nao volta a aparecer sozinho." : "") +
+          " Essa acao nao pode ser desfeita.",
+      confirmLabel: "Excluir",
+      confirmColor: Colors.redAccent,
+    );
+    if (!ok) return;
+    try {
+      final client = Supabase.instance.client;
+      await deleteDevelopmentProgram(
+        programId: program["id"] as String,
+        programKey: program["program_key"] as String,
+        agencyId: program["agency_id"] as String,
+        deletedBy: client.auth.currentUser!.id,
+      );
+      _load();
+    } catch (e) {
+      if (mounted) showProgramasActionError(context, e);
+    }
+  }
+
+  /// Segura e arrasta um card sobre outro pra reordenar -- tira o arrastado
+  /// da posicao antiga e insere na posicao do alvo, depois renumera
+  /// order_index de todo mundo em sequencia (1, 2, 3...) pra refletir a
+  /// nova ordem exata, ja que um arraste pode pular varias posicoes de uma
+  /// vez (trocar so 2 valores, como um botao subir/descer faria, nao e
+  /// suficiente aqui).
+  Future<void> _reorderPrograms(Map<String, dynamic> dragged, Map<String, dynamic> target) async {
+    if (dragged["id"] == target["id"]) return;
+    final newList = List<Map<String, dynamic>>.from(_programs);
+    final fromIndex = newList.indexWhere((p) => p["id"] == dragged["id"]);
+    final toIndex = newList.indexWhere((p) => p["id"] == target["id"]);
+    if (fromIndex == -1 || toIndex == -1) return;
+    final item = newList.removeAt(fromIndex);
+    newList.insert(toIndex, item);
+    setState(() => _programs = newList);
+    try {
+      final client = Supabase.instance.client;
+      for (var i = 0; i < newList.length; i++) {
+        await client.from("development_programs").update({"order_index": i + 1}).eq("id", newList[i]["id"]);
+      }
+    } catch (e) {
+      if (mounted) showProgramasActionError(context, e);
+      _load();
+    }
   }
 
   @override
@@ -124,7 +194,16 @@ class _ProgramasPageState extends State<ProgramasPage> {
               child: Wrap(
                 spacing: 16,
                 runSpacing: 16,
-                children: _programs.map((p) => _ProgramCard(program: p, onTap: () => _openDetail(p))).toList(),
+                children: [
+                  for (final p in _programs)
+                    _ProgramCard(
+                      program: p,
+                      onTap: () => _openDetail(p),
+                      onEdit: () => _editProgram(p),
+                      onDelete: () => _deleteProgram(p),
+                      onReorder: (dragged) => _reorderPrograms(dragged, p),
+                    ),
+                ],
               ),
             ),
           ),
@@ -137,7 +216,16 @@ class _ProgramasPageState extends State<ProgramasPage> {
 class _ProgramCard extends StatelessWidget {
   final Map<String, dynamic> program;
   final VoidCallback onTap;
-  const _ProgramCard({required this.program, required this.onTap});
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final ValueChanged<Map<String, dynamic>> onReorder;
+  const _ProgramCard({
+    required this.program,
+    required this.onTap,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onReorder,
+  });
 
   String _responsiblesLabel() {
     final rows = (program["program_managers"] as List?) ?? const [];
@@ -163,8 +251,7 @@ class _ProgramCard extends StatelessWidget {
     return Icon(programIcon(program["icon_key"] as String?), color: color, size: 22);
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildCardContent(BuildContext context) {
     final hasStages = program["hasStages"] as bool? ?? false;
     final status = programStatus(hasStages: hasStages, status: program["status"] as String? ?? "ativo");
     final color = hexToColor(program["color"] as String? ?? "#7A0BD4");
@@ -172,6 +259,9 @@ class _ProgramCard extends StatelessWidget {
     final participantCount = program["participantCount"] as int? ?? 0;
     final pendingCount = program["pendingCount"] as int? ?? 0;
     final pendingAwards = program["pendingAwards"] as int? ?? 0;
+    final participationTotal = program["participationTotal"] as int? ?? 0;
+    final participationEmAndamento = program["participationEmAndamento"] as int? ?? 0;
+    final participationPendenteEntrega = program["participationPendenteEntrega"] as int? ?? 0;
 
     return InkWell(
       onTap: onTap,
@@ -187,6 +277,19 @@ class _ProgramCard extends StatelessWidget {
               _buildIcon(color),
               const SizedBox(width: 8),
               Expanded(child: Text(program["name"] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15), overflow: TextOverflow.ellipsis)),
+              PopupMenuButton<String>(
+                padding: EdgeInsets.zero,
+                icon: const Icon(Icons.more_vert, size: 18, color: Colors.white38),
+                color: const Color(0xFF232323),
+                onSelected: (v) {
+                  if (v == "edit") onEdit();
+                  if (v == "delete") onDelete();
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: "edit", child: Text("Editar", style: TextStyle(color: Colors.white, fontSize: 13))),
+                  PopupMenuItem(value: "delete", child: Text("Excluir", style: TextStyle(color: Colors.redAccent, fontSize: 13))),
+                ],
+              ),
             ]),
             const SizedBox(height: 6),
             if ((program["description"] as String?)?.isNotEmpty == true)
@@ -205,6 +308,28 @@ class _ProgramCard extends StatelessWidget {
               const SizedBox(width: 4),
               Text(participantCount.toString() + " participantes", style: const TextStyle(color: Colors.white38, fontSize: 11)),
             ]),
+            if (participationTotal > 0) ...[
+              const SizedBox(height: 4),
+              Wrap(spacing: 6, runSpacing: 4, children: [
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.groups, size: 12, color: Color(0xFF7A0BD4)),
+                  const SizedBox(width: 3),
+                  Text(participationTotal.toString() + " no Fluxo", style: const TextStyle(color: Color(0xFF7A0BD4), fontSize: 10, fontWeight: FontWeight.bold)),
+                ]),
+                if (participationEmAndamento > 0)
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.hourglass_bottom, size: 12, color: Colors.blueAccent),
+                    const SizedBox(width: 3),
+                    Text(participationEmAndamento.toString() + " em andamento", style: const TextStyle(color: Colors.blueAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                  ]),
+                if (participationPendenteEntrega > 0)
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.payments, size: 12, color: Colors.amber),
+                    const SizedBox(width: 3),
+                    Text(participationPendenteEntrega.toString() + " pendente de pagamento", style: const TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold)),
+                  ]),
+              ]),
+            ],
             const SizedBox(height: 8),
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
@@ -228,6 +353,42 @@ class _ProgramCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  /// Clica e arrasta (Draggable -- mesmo padrao ja usado no quadro Fluxo,
+  /// que funciona com mouse; LongPressDraggable e pensado pra toque e nao
+  /// respondia bem a clique+arraste com mouse no desktop/web) sobre outro
+  /// card pra reordenar. O card-alvo (DragTarget) e que recebe o solto e
+  /// dispara onReorder. Um clique parado (sem mover o mouse) continua
+  /// funcionando como toque normal, abrindo o programa.
+  @override
+  Widget build(BuildContext context) {
+    return DragTarget<Map<String, dynamic>>(
+      onWillAcceptWithDetails: (details) => details.data["id"] != program["id"],
+      onAcceptWithDetails: (details) => onReorder(details.data),
+      builder: (context, candidateData, rejectedData) {
+        final highlighting = candidateData.isNotEmpty;
+        final content = _buildCardContent(context);
+        final card = highlighting
+            ? Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFF7A0BD4), width: 2),
+                ),
+                child: content,
+              )
+            : content;
+        return Draggable<Map<String, dynamic>>(
+          data: program,
+          feedback: Material(
+            color: Colors.transparent,
+            child: SizedBox(width: 300, child: content),
+          ),
+          childWhenDragging: Opacity(opacity: 0.3, child: card),
+          child: card,
+        );
+      },
     );
   }
 }
