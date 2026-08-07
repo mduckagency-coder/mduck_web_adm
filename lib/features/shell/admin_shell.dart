@@ -19,6 +19,10 @@ import "../metricas/level_maintenance_page.dart";
 import "../financeiro_rh/financeiro_rh_shell.dart";
 import "../calendario/agenda_agencia_page.dart";
 import "../calendario/agenda_streamers_page.dart";
+import "../calendario/solicitacoes_page.dart";
+import "../calendario/services/calendar_service.dart";
+import "../max_aulas/max_aulas_page.dart";
+import "../inventario/inventario_page.dart";
 import "../admin/bug_reports_page.dart";
 import "../admin/bug_reports_page.dart";
 import "../eventos/eventos_page.dart";
@@ -53,13 +57,11 @@ const _menuGroups = [
     (Icons.leaderboard, "Ranking"),
     (Icons.landscape, "Ilha Top Duckers"),
     (Icons.backpack, "Inventario"),
-    (Icons.emoji_events, "Conquistas"),
-    (Icons.military_tech, "Brasoes e Titulos"),
     (Icons.school, "MAX Aulas"),
   ]),
   _MenuGroup(icon: Icons.calendar_month, label: "Calendario", children: [
     (Icons.apartment, "Agenda da Agencia"),
-    (Icons.groups, "Agenda dos Streamers"),
+    (Icons.groups, "Calendario APP (Streamers)"),
     (Icons.inbox, "Solicitacoes"),
   ]),
   _MenuGroup(icon: Icons.movie_filter, label: "Configuracao Animacao APP", children: [
@@ -103,9 +105,16 @@ class _AdminShellState extends State<AdminShell> {
     if (saved != null && saved.isNotEmpty) _selected = saved;
     debugPrint("[AdminShell] initState() chamado. saved=" + (saved ?? "null") + " _selected=" + _selected);
     _checkDono();
+    _loadPendingRequestsCount();
   }
 
   bool _isAdmin2 = false;
+  int _pendingRequestsCount = 0;
+
+  Future<void> _loadPendingRequestsCount() async {
+    final count = await CalendarService().countPendingRequests();
+    if (mounted) setState(() => _pendingRequestsCount = count);
+  }
 
   Future<void> _checkDono() async {
     final client = Supabase.instance.client;
@@ -138,6 +147,7 @@ class _AdminShellState extends State<AdminShell> {
         if (isExpanded)
           ...group.children.map((child) {
             final selected = _selected == child.$2;
+            final showBadge = child.$2 == "Solicitacoes" && _pendingRequestsCount > 0;
             return Padding(
               padding: const EdgeInsets.only(left: 16),
               child: ListTile(
@@ -145,7 +155,17 @@ class _AdminShellState extends State<AdminShell> {
                 leading: Icon(child.$1, color: selected ? const Color(0xFF7A0BD4) : Colors.white54, size: 18),
                 title: Text(child.$2,
                     style: TextStyle(color: selected ? const Color(0xFF7A0BD4) : Colors.white70, fontWeight: selected ? FontWeight.bold : FontWeight.normal, fontSize: 13)),
-                onTap: () => _select(child.$2),
+                trailing: showBadge
+                    ? Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(color: Colors.redAccent, borderRadius: BorderRadius.circular(10)),
+                        child: Text(_pendingRequestsCount.toString(), style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                      )
+                    : null,
+                onTap: () {
+                  _select(child.$2);
+                  if (child.$2 == "Solicitacoes") _loadPendingRequestsCount();
+                },
               ),
             );
           }),
@@ -198,8 +218,14 @@ class _AdminShellState extends State<AdminShell> {
         return const IlhaTopDuckersPage();
       case "Agenda da Agencia":
         return const AgendaAgenciaPage();
-      case "Agenda dos Streamers":
+      case "Calendario APP (Streamers)":
         return const AgendaStreamersPage();
+      case "Solicitacoes":
+        return const SolicitacoesPage();
+      case "MAX Aulas":
+        return const MaxAulasPage();
+      case "Inventario":
+        return const InventarioPage();
       default:
         return Center(child: Text(_selected + " - em construcao", style: const TextStyle(fontSize: 18, color: Colors.white70)));
     }

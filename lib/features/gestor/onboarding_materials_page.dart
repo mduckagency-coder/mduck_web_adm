@@ -187,6 +187,7 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
       builder: (context) => OnboardingMaterialFormDialog(
         defaultStage: _stage,
         defaultDayKey: _dayFilter,
+        defaultNiche: _nicheFilter,
       ),
     ).then((saved) {
       if (saved == true) _reload();
@@ -610,7 +611,6 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
                             m["onboarding_stage_key"] != _dayFilter)
                           return false;
                         if (_nicheFilter != null &&
-                            m["niche"] != null &&
                             m["niche"] != _nicheFilter)
                           return false;
                         return true;
@@ -1135,11 +1135,13 @@ class OnboardingMaterialFormDialog extends StatefulWidget {
   final Map<String, dynamic>? existing;
   final String defaultStage;
   final String? defaultDayKey;
+  final String? defaultNiche;
   const OnboardingMaterialFormDialog({
     super.key,
     this.existing,
     required this.defaultStage,
     this.defaultDayKey,
+    this.defaultNiche,
   });
 
   @override
@@ -1169,6 +1171,7 @@ class _OnboardingMaterialFormDialogState
     super.initState();
     _stage = widget.defaultStage;
     _dayKey = widget.defaultDayKey;
+    _niche = widget.defaultNiche;
     final e = widget.existing;
     if (e != null) {
       _titleController.text = e["title"] ?? "";
@@ -1382,7 +1385,7 @@ class _OnboardingMaterialFormDialogState
                 ],
                 const SizedBox(height: 12),
                 const Text(
-                  "Nicho (opcional -- vazio aparece para todos)",
+                  "Nicho (opcional -- sem nicho só aparece no filtro \"Todas\")",
                   style: TextStyle(color: Colors.white54, fontSize: 12),
                 ),
                 const SizedBox(height: 4),

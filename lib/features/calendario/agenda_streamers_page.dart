@@ -9,10 +9,10 @@ import "widgets/category_manager_dialog.dart";
 import "widgets/event_form_dialog.dart";
 import "widgets/mini_month_calendar.dart";
 
-/// Agenda dos Streamers: visualizacao focada em eventos de streamer, lendo da
-/// mesma fonte de dados da Agenda da Agencia (CalendarService) — mostra todo
-/// evento com escopo "streamer" ou que tenha pelo menos um streamer marcado
-/// como participante, sempre em forma de lista colorida por categoria.
+/// Calendario APP (Streamers): previa de tudo que aparece no calendario do
+/// aplicativo do streamer (show_in_app = true) -- nao aparece na Agenda da
+/// Agencia a menos que o evento tambem marque "mostrar na agenda da
+/// agencia". Categorias restritas as 5 do app (appCalendarCategoryKeys).
 class AgendaStreamersPage extends StatefulWidget {
   const AgendaStreamersPage({super.key});
 
@@ -56,12 +56,16 @@ class _AgendaStreamersPageState extends State<AgendaStreamersPage> {
         to: rangeEnd,
         search: _searchText,
         categoryIds: _selectedCategoryIds.isEmpty ? null : _selectedCategoryIds.toList(),
+        mustShowInApp: true,
       ),
       _service.fetchCategories(onlyActive: true),
       _service.fetchStreamerOptions(),
     ]);
 
-    var events = (results[0] as List<CalendarEvent>).where((e) => e.scope == "streamer" || e.streamerParticipants.isNotEmpty).toList();
+    // show_in_app e a mesma regra que o app do streamer usa -- essa tela e
+    // literalmente uma previa do que vai aparecer la (por isso o nome
+    // "Calendario APP (Streamers)").
+    var events = results[0] as List<CalendarEvent>;
     if (_selectedStreamerIds.isNotEmpty) {
       events = events.where((e) => e.streamerParticipants.any((p) => _selectedStreamerIds.contains(p.streamerId))).toList();
     }
@@ -153,7 +157,7 @@ class _AgendaStreamersPageState extends State<AgendaStreamersPage> {
   Widget build(BuildContext context) {
     if (_loading && _events.isEmpty) return const Center(child: CircularProgressIndicator());
 
-    final streamerCategories = _categories.where((c) => c.matchesScope("streamer")).toList();
+    final streamerCategories = _categories.where((c) => appCalendarCategoryKeys.contains(c.key)).toList();
 
     return Padding(
       padding: const EdgeInsets.all(24),

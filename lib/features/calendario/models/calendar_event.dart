@@ -35,6 +35,9 @@ class CalendarEvent {
   final String visibility;
   final String? createdBy;
   final List<EventParticipant> participants;
+  final bool showInAgencyCalendar;
+  final bool showInApp;
+  final String? colorOverride;
 
   const CalendarEvent({
     required this.id,
@@ -55,6 +58,9 @@ class CalendarEvent {
     this.visibility = "equipe",
     this.createdBy,
     this.participants = const [],
+    this.showInAgencyCalendar = true,
+    this.showInApp = false,
+    this.colorOverride,
   });
 
   List<EventParticipant> get streamerParticipants => participants.where((p) => p.isStreamer).toList();
@@ -82,6 +88,9 @@ class CalendarEvent {
       visibility: map["visibility"] as String? ?? "equipe",
       createdBy: map["created_by"] as String?,
       participants: participantsList.map((p) => EventParticipant.fromMap(p as Map<String, dynamic>)).toList(),
+      showInAgencyCalendar: map["show_in_agency_calendar"] as bool? ?? true,
+      showInApp: map["show_in_app"] as bool? ?? false,
+      colorOverride: map["color_override"] as String?,
     );
   }
 }

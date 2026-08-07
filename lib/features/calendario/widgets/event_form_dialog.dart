@@ -37,6 +37,7 @@ class _EventFormDialogState extends State<EventFormDialog> {
   final _locationController = TextEditingController();
   final _meetingLinkController = TextEditingController();
   final _notesController = TextEditingController();
+  final _colorOverrideController = TextEditingController();
 
   List<EventCategory> _categories = [];
   String? _categoryId;
@@ -49,11 +50,53 @@ class _EventFormDialogState extends State<EventFormDialog> {
   String _scope = "agencia";
   String _visibility = "equipe";
   List<EventParticipant> _participants = [];
+  bool _showInAgencyCalendar = true;
+  bool _showInApp = false;
 
   bool _loadingCategories = true;
   bool _saving = false;
+  String? _error;
 
-  List<EventCategory> get _categoriesForScope => _categories.where((c) => c.matchesScope(_scope)).toList();
+  /// Quando e um evento novo com escopo "streamer", so mostra as 5
+  /// categorias do Calendario APP (evita misturar com categorias antigas
+  /// como "Treinamento Gamer"/"Batalha Oficial"). Editando um evento
+  /// existente mantem a categoria original disponivel mesmo se nao estiver
+  /// mais nessa lista, pra nao trocar a categoria sozinho ao so abrir.
+  List<EventCategory> get _categoriesForScope {
+    final base = _categories.where((c) => c.matchesScope(_scope));
+    if (widget.existing == null && _scope == "streamer") {
+      return base.where((c) => appCalendarCategoryKeys.contains(c.key)).toList();
+    }
+    return base.toList();
+  }
+
+  String? get _selectedCategoryKey {
+    for (final c in _categories) {
+      if (c.id == _categoryId) return c.key;
+    }
+    return null;
+  }
+
+  /// Preenche os toggles "mostrar na agenda da agencia" / "mostrar no app"
+  /// com o padrao esperado pra cada categoria (o gestor ainda pode mudar).
+  /// So roda em evento novo -- editar nao deve sobrescrever o que ja foi
+  /// salvo so por trocar de categoria.
+  void _applyVisibilityDefaults(String? categoryKey) {
+    if (widget.existing != null) return;
+    switch (categoryKey) {
+      case "evento_agencia_app":
+        _showInAgencyCalendar = true;
+        _showInApp = true;
+        break;
+      case "treinamento_agencia_app":
+        _showInAgencyCalendar = true;
+        _showInApp = _scope == "streamer";
+        break;
+      default:
+        _showInAgencyCalendar = _scope == "agencia";
+        _showInApp = _scope == "streamer";
+    }
+  }
 
   @override
   void initState() {
@@ -75,11 +118,44 @@ class _EventFormDialogState extends State<EventFormDialog> {
       _scope = e.scope;
       _visibility = e.visibility;
       _participants = List.of(e.participants);
+      _showInAgencyCalendar = e.showInAgencyCalendar;
+      _showInApp = e.showInApp;
+      _colorOverrideController.text = e.colorOverride ?? "";
     } else {
       _scope = widget.initialScope;
       if (widget.initialDate != null) _eventDate = widget.initialDate!;
+      _applyVisibilityDefaults(null);
+      // Evento novo criado a partir de "Minha Agenda" (Gestor/Recrutador):
+      // a lista dessa area filtra por participante, entao sem isso o evento
+      // salva normalmente mas some da visao de quem acabou de cria-lo.
+      if (widget.notifyOnCreate) _addCurrentManagerAsParticipant();
     }
     _loadCategories();
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descriptionController.dispose();
+    _locationController.dispose();
+    _meetingLinkController.dispose();
+    _notesController.dispose();
+    _colorOverrideController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _addCurrentManagerAsParticipant() async {
+    final manager = await _service.currentManagerInfo();
+    if (!mounted) return;
+    setState(() {
+      _participants.add(EventParticipant(
+        participantType: "gestor",
+        managerId: manager["id"] as String,
+        managerName: managerDisplayName(manager),
+        managerPhotoUrl: manager["photo_url"] as String?,
+        roleLabel: "Responsável",
+      ));
+    });
   }
 
   Future<void> _loadCategories() async {
@@ -92,9 +168,18 @@ class _EventFormDialogState extends State<EventFormDialog> {
         final available = _categoriesForScope;
         if (_categoryId == null || !available.any((c) => c.id == _categoryId)) {
           _categoryId = available.isNotEmpty ? available.first.id : null;
+          _applyVisibilityDefaults(_selectedCategoryKey);
         }
         _loadingCategories = false;
       });
+    }
+  }
+
+  Color _tryParseColor(String hex) {
+    try {
+      return hexToColor(hex);
+    } catch (_) {
+      return Colors.white24;
     }
   }
 
@@ -199,8 +284,32 @@ class _EventFormDialogState extends State<EventFormDialog> {
   }
 
   Future<void> _save() async {
-    if (_titleController.text.trim().isEmpty || _categoryId == null) return;
-    setState(() => _saving = true);
+    if (_titleController.text.trim().isEmpty) {
+      setState(() => _error = "Informe um título.");
+      return;
+    }
+    if (_categoryId == null) {
+      setState(() => _error = "Selecione uma categoria.");
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await _saveInternal();
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = "Erro ao salvar evento: " + e.toString();
+        });
+      }
+    }
+  }
+
+  Future<void> _saveInternal() async {
     final startTimeSql = _allDay ? null : timeOfDayToSql(_startTime);
     final endTimeSql = _allDay ? null : timeOfDayToSql(_endTime);
     if (widget.existing != null) {
@@ -221,6 +330,9 @@ class _EventFormDialogState extends State<EventFormDialog> {
         scope: _scope,
         visibility: _visibility,
         participants: _participants,
+        showInAgencyCalendar: _showInAgencyCalendar,
+        showInApp: _showInApp,
+        colorOverride: _colorOverrideController.text.trim().isEmpty ? null : _colorOverrideController.text.trim(),
       );
     } else {
       await _service.createEvent(
@@ -239,13 +351,30 @@ class _EventFormDialogState extends State<EventFormDialog> {
         scope: _scope,
         visibility: _visibility,
         participants: _participants,
+        showInAgencyCalendar: _showInAgencyCalendar,
+        showInApp: _showInApp,
+        colorOverride: _colorOverrideController.text.trim().isEmpty ? null : _colorOverrideController.text.trim(),
       );
       if (widget.notifyOnCreate) {
         final createdByLabel = await _service.currentManagerLabel();
         await notifyNewEventToAdmins(eventTitle: _titleController.text.trim(), createdByLabel: createdByLabel);
       }
+      if (_selectedCategoryKey == "acompanhamento_streamer") {
+        final streamerIds = _participants.where((p) => p.isStreamer && p.streamerId != null).map((p) => p.streamerId!).toList();
+        if (streamerIds.isNotEmpty) {
+          final dateLabel = _eventDate.day.toString().padLeft(2, "0") + "/" + _eventDate.month.toString().padLeft(2, "0") + "/" + _eventDate.year.toString();
+          final timeLabel = _allDay || _startTime == null
+              ? ""
+              : " às " + _startTime!.hour.toString().padLeft(2, "0") + ":" + _startTime!.minute.toString().padLeft(2, "0");
+          await _service.notifyStreamersNewEvent(
+            streamerIds: streamerIds,
+            type: "geral",
+            subject: "Acompanhamento agendado",
+            message: "Seu gestor agendou um acompanhamento pra " + dateLabel + timeLabel + ".",
+          );
+        }
+      }
     }
-    if (mounted) Navigator.of(context).pop(true);
   }
 
   Future<void> _delete() async {
@@ -286,8 +415,24 @@ class _EventFormDialogState extends State<EventFormDialog> {
                           if (!_categoriesForScope.any((c) => c.id == _categoryId)) {
                             _categoryId = _categoriesForScope.isNotEmpty ? _categoriesForScope.first.id : null;
                           }
+                          _applyVisibilityDefaults(_selectedCategoryKey);
                         }),
                       ),
+                      const SizedBox(height: 12),
+                      Row(children: [
+                        Expanded(
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Switch(value: _showInAgencyCalendar, onChanged: (v) => setState(() => _showInAgencyCalendar = v), activeThumbColor: const Color(0xFF7A0BD4)),
+                            const Flexible(child: Text("Mostrar na Agenda da Agência", style: TextStyle(color: Colors.white70, fontSize: 12))),
+                          ]),
+                        ),
+                        Expanded(
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Switch(value: _showInApp, onChanged: (v) => setState(() => _showInApp = v), activeThumbColor: const Color(0xFF7A0BD4)),
+                            const Flexible(child: Text("Mostrar no app do streamer", style: TextStyle(color: Colors.white70, fontSize: 12))),
+                          ]),
+                        ),
+                      ]),
                       const SizedBox(height: 16),
                       TextField(controller: _titleController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Titulo", labelStyle: TextStyle(color: Colors.white54))),
                       const SizedBox(height: 12),
@@ -326,13 +471,35 @@ class _EventFormDialogState extends State<EventFormDialog> {
                                         if (saved == true) await _loadCategories();
                                         return;
                                       }
-                                      setState(() => _categoryId = v);
+                                      setState(() {
+                                        _categoryId = v;
+                                        _applyVisibilityDefaults(_selectedCategoryKey);
+                                      });
                                     },
                                   ),
                           ),
                           IconButton(onPressed: _manageCategories, icon: const Icon(Icons.settings, color: Colors.white54, size: 20), tooltip: "Gerenciar categorias"),
                         ],
                       ),
+                      if (_selectedCategoryKey == "campanha_tiktok_app") ...[
+                        const SizedBox(height: 12),
+                        Row(children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _colorOverrideController,
+                              style: const TextStyle(color: Colors.white),
+                              decoration: const InputDecoration(labelText: "Cor desta campanha (ex: #2E86DE)", labelStyle: TextStyle(color: Colors.white54)),
+                              onChanged: (_) => setState(() {}),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          CircleAvatar(radius: 14, backgroundColor: _tryParseColor(_colorOverrideController.text)),
+                        ]),
+                        const Padding(
+                          padding: EdgeInsets.only(top: 4),
+                          child: Text("Ajuda a diferenciar quando há mais de uma campanha TikTok no mesmo mês.", style: TextStyle(color: Colors.white38, fontSize: 11)),
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       TextField(controller: _descriptionController, maxLines: 2, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Descricao", labelStyle: TextStyle(color: Colors.white54))),
                       const SizedBox(height: 12),
@@ -435,6 +602,11 @@ class _EventFormDialogState extends State<EventFormDialog> {
                   ),
                 ),
               ),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(_error!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                ),
               const SizedBox(height: 16),
               Row(mainAxisAlignment: MainAxisAlignment.end, children: [
                 if (widget.existing != null) TextButton(onPressed: _delete, child: const Text("Excluir", style: TextStyle(color: Colors.redAccent))),

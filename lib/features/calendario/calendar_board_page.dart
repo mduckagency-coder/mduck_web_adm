@@ -72,6 +72,7 @@ class _CalendarBoardPageState extends State<CalendarBoardPage> {
         search: _searchText,
         categoryIds: _selectedCategoryIds.isEmpty ? null : _selectedCategoryIds.toList(),
         managerId: _isMine ? _myManagerId : null,
+        mustShowInAgency: _isMine ? null : true,
       ),
       _service.fetchCategories(onlyActive: true),
     ]);
