@@ -205,10 +205,29 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
           .from("streamer_phase_progress_managers")
           .select("progress_id")
           .inFilter("manager_id", effectiveManagerIds);
-      final progressIds = (linkRows as List)
+      final progressIdSet = (linkRows as List)
           .map((r) => r["progress_id"] as String)
-          .toSet()
-          .toList();
+          .toSet();
+
+      // Cards "pre-vinculo" (streamer_id nulo, criados pelo Recrutador antes
+      // do vinculo oficial) ainda nao tem um gestor especifico responsavel
+      // -- sem isso, um gestor que nao seja o criador nem esteja marcado
+      // como responsavel nunca ve esse card na propria area pra poder
+      // vincular, so quem criou consegue. Qualquer gestor da agencia
+      // precisa poder pegar esses cards, entao eles aparecem pra todo mundo
+      // independente do filtro de "meus cards".
+      final preVinculoRows = await client
+          .from("streamer_phase_progress")
+          .select("id")
+          .eq("agency_id", agencyId)
+          .eq("phase_key", widget.phaseKey)
+          .filter("streamer_id", "is", null)
+          .filter("completed_at", "is", null)
+          .filter("archived_at", _showArchived ? "not.is" : "is", null);
+      progressIdSet.addAll(
+        (preVinculoRows as List).map((r) => r["id"] as String),
+      );
+      final progressIds = progressIdSet.toList();
 
       var cards = <Map<String, dynamic>>[];
       var checklistProgress = <String, Map<String, bool>>{};
