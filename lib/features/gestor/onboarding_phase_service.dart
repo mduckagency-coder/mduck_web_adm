@@ -346,17 +346,15 @@ String _phaseLabel(String phaseKey) {
 Future<void> createOnboardingPhaseCardIfNeeded({
   required String streamerId,
   String phaseKey = onboardingPhaseKey,
+  // Quando o chamador ja sabe de qual lead veio o vinculo (ex: o gestor
+  // clicou "Vincular" num card especifico), passa aqui -- evita depender
+  // do reverse lookup por leads.converted_streamer_id abaixo, que so acha o
+  // lead se aquele update tiver persistido antes (se algo deu errado ali,
+  // esse lookup falha e o card antigo fica orfao pra sempre).
+  String? leadId,
 }) async {
   final client = Supabase.instance.client;
   final userId = client.auth.currentUser!.id;
-
-  final existing = await client
-      .from("streamer_phase_progress")
-      .select("id")
-      .eq("streamer_id", streamerId)
-      .eq("phase_key", phaseKey)
-      .maybeSingle();
-  if (existing != null) return;
 
   final me = await client
       .from("managers")
@@ -372,36 +370,77 @@ Future<void> createOnboardingPhaseCardIfNeeded({
       .maybeSingle();
   final assignedManagerId = profile?["assigned_manager_id"] as String?;
 
+  var resolvedLeadId = leadId;
+  if (resolvedLeadId == null) {
+    final lead = await client
+        .from("leads")
+        .select("id")
+        .eq("converted_streamer_id", streamerId)
+        .maybeSingle();
+    resolvedLeadId = lead?["id"] as String?;
+  }
+
   // Resolve todos os gestores ja definidos para este streamer: prioriza os
   // gestores do lead (lead_onboarding_gestores, suporta varios -- e o que
   // o recrutador preenche em "Streamers Agenciados"), com fallback para
   // profiles.assigned_manager_id (streamers sem lead, ex. criados
   // manualmente via "Novo Agenciado" direto no Kanban do Gestor).
   final managerIds = <String>{};
-  final lead = await client
-      .from("leads")
-      .select("id")
-      .eq("converted_streamer_id", streamerId)
-      .maybeSingle();
-  if (lead != null) {
+  if (resolvedLeadId != null) {
     final gestores = await client
         .from("lead_onboarding_gestores")
         .select("manager_id")
-        .eq("lead_id", lead["id"]);
+        .eq("lead_id", resolvedLeadId);
     managerIds.addAll((gestores as List).map((g) => g["manager_id"] as String));
   }
   if (assignedManagerId != null) managerIds.add(assignedManagerId);
 
-  String progressId;
-  final leadCard = lead != null
+  final leadCard = resolvedLeadId != null
       ? await client
             .from("streamer_phase_progress")
             .select("id")
-            .eq("lead_id", lead["id"])
+            .eq("lead_id", resolvedLeadId)
             .eq("phase_key", phaseKey)
             .maybeSingle()
       : null;
 
+  final existing = await client
+      .from("streamer_phase_progress")
+      .select("id")
+      .eq("streamer_id", streamerId)
+      .eq("phase_key", phaseKey)
+      .maybeSingle();
+
+  // Ja existe um card promovido pra esse streamer (de uma tentativa
+  // anterior que conseguiu criar o card novo mas nao atualizar/apagar o
+  // "pre-vinculo" antigo) -- em vez de deixar o card antigo preso pra
+  // sempre mostrando "Aguardando vinculo", junta os gestores dele no card
+  // valido e apaga o duplicado.
+  if (existing != null && leadCard != null && existing["id"] != leadCard["id"]) {
+    final staleManagers = await client
+        .from("streamer_phase_progress_managers")
+        .select("manager_id")
+        .eq("progress_id", leadCard["id"]);
+    final staleManagerIds = (staleManagers as List)
+        .map((m) => m["manager_id"] as String)
+        .toList();
+    if (staleManagerIds.isNotEmpty) {
+      await addManagersToCard(
+        progressId: existing["id"] as String,
+        managerIds: staleManagerIds,
+        addedBy: userId,
+      );
+    }
+    await client
+        .from("streamer_phase_progress")
+        .delete()
+        .eq("id", leadCard["id"] as String);
+    return;
+  }
+
+  if (existing != null) return;
+
+  String progressId;
   if (leadCard != null) {
     progressId = leadCard["id"] as String;
     final promoted = await client

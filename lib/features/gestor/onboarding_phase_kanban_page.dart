@@ -776,7 +776,10 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
         );
         if (streamerId == null) return;
       }
-      await createOnboardingPhaseCardIfNeeded(streamerId: streamerId);
+      await createOnboardingPhaseCardIfNeeded(
+        streamerId: streamerId,
+        leadId: leadId,
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
