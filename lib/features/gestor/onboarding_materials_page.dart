@@ -128,12 +128,31 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
   String? _dayFilter;
   String? _nicheFilter;
   String? _myUserId;
+  List<Map<String, dynamic>> _pendingRequests = [];
 
   @override
   void initState() {
     super.initState();
     _myUserId = Supabase.instance.client.auth.currentUser!.id;
     _load();
+    _loadPendingRequests();
+  }
+
+  Future<void> _loadPendingRequests() async {
+    final rows = await fetchPendingMaterialRequestsForMe();
+    if (mounted) setState(() => _pendingRequests = rows);
+  }
+
+  Future<void> _openRequestMaterial() async {
+    final sent = await showDialog<bool>(
+      context: context,
+      builder: (_) => const MaterialRequestFormDialog(),
+    );
+    if (sent == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Pedido enviado.")),
+      );
+    }
   }
 
   Future<void> _load() async {
@@ -438,6 +457,13 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
                 onPressed: _reload,
               ),
               const Spacer(),
+              OutlinedButton.icon(
+                onPressed: _openRequestMaterial,
+                icon: const Icon(Icons.forward_to_inbox, size: 18),
+                label: const Text("Solicitar Material"),
+                style: OutlinedButton.styleFrom(foregroundColor: Colors.white70),
+              ),
+              const SizedBox(width: 8),
               ElevatedButton.icon(
                 onPressed: _openCreate,
                 icon: const Icon(Icons.add),
@@ -458,6 +484,20 @@ class _OnboardingMaterialsPageState extends State<OnboardingMaterialsPage> {
               fontStyle: FontStyle.italic,
             ),
           ),
+          if (_pendingRequests.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            const Text(
+              "Pedidos de material pra você",
+              style: TextStyle(color: Colors.amber, fontSize: 13, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            ..._pendingRequests.map(
+              (r) => PendingMaterialRequestCard(
+                request: r,
+                onFulfilled: _loadPendingRequests,
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -1136,12 +1176,22 @@ class OnboardingMaterialFormDialog extends StatefulWidget {
   final String defaultStage;
   final String? defaultDayKey;
   final String? defaultNiche;
+
+  /// Quando aberto a partir de um pedido de material pendente (ver
+  /// MaterialRequestFormDialog/_PendingRequestCard): pre-preenche a
+  /// descricao com o que foi pedido e, ao salvar, marca o pedido como
+  /// concluido e avisa quem pediu.
+  final String? fulfillingRequestId;
+  final String? initialDescription;
+
   const OnboardingMaterialFormDialog({
     super.key,
     this.existing,
     required this.defaultStage,
     this.defaultDayKey,
     this.defaultNiche,
+    this.fulfillingRequestId,
+    this.initialDescription,
   });
 
   @override
@@ -1172,6 +1222,9 @@ class _OnboardingMaterialFormDialogState
     _stage = widget.defaultStage;
     _dayKey = widget.defaultDayKey;
     _niche = widget.defaultNiche;
+    if (widget.fulfillingRequestId != null && widget.initialDescription != null) {
+      _textController.text = widget.initialDescription!;
+    }
     final e = widget.existing;
     if (e != null) {
       _titleController.text = e["title"] ?? "";
@@ -1296,7 +1349,17 @@ class _OnboardingMaterialFormDialogState
             .update(data)
             .eq("id", widget.existing!["id"]);
       } else {
-        await client.from("training_materials").insert(data);
+        final inserted = await client
+            .from("training_materials")
+            .insert(data)
+            .select("id")
+            .single();
+        if (widget.fulfillingRequestId != null) {
+          await completeMaterialRequest(
+            requestId: widget.fulfillingRequestId!,
+            materialId: inserted["id"] as String,
+          );
+        }
       }
 
       if (mounted) Navigator.of(context).pop(true);
@@ -1511,6 +1574,433 @@ class _OnboardingMaterialFormDialogState
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// Solicitacao de material: em vez de criar direto, um gestor pode pedir
+// pra outro colega criar um material (descreve o que precisa + prazo). Fica
+// pendente pro colega ate ele criar o material vinculado; ao criar, quem
+// pediu recebe uma notificacao confirmando que foi feito.
+// ============================================================================
+
+const _materialRequestSelect =
+    "*, requester:managers!training_material_requests_requested_by_fkey(login_email, full_name), "
+    "assignee:managers!training_material_requests_assigned_to_fkey(login_email, full_name)";
+
+String _managerLabel(Map<String, dynamic>? m) {
+  if (m == null) return "-";
+  final name = m["full_name"] as String?;
+  if (name != null && name.isNotEmpty) return name;
+  return (m["login_email"] as String?) ?? "-";
+}
+
+String _formatDate(DateTime d) =>
+    d.day.toString().padLeft(2, "0") + "/" + d.month.toString().padLeft(2, "0") + "/" + d.year.toString();
+
+Future<void> createMaterialRequest({
+  required String assignedTo,
+  required String stage,
+  String? dayKey,
+  String? niche,
+  required String description,
+  DateTime? dueDate,
+}) async {
+  final client = Supabase.instance.client;
+  final userId = client.auth.currentUser!.id;
+  final manager = await client
+      .from("managers")
+      .select("agency_id, full_name, login_email")
+      .eq("id", userId)
+      .single();
+  final requesterLabel = _managerLabel(manager);
+
+  await client.from("training_material_requests").insert({
+    "agency_id": manager["agency_id"],
+    "requested_by": userId,
+    "assigned_to": assignedTo,
+    "stage": stage,
+    "onboarding_stage_key": dayKey,
+    "niche": niche,
+    "description": description,
+    "due_date": dueDate != null
+        ? dueDate.toIso8601String().substring(0, 10)
+        : null,
+  });
+
+  var message = requesterLabel + " pediu um material: \"" + description + "\".";
+  if (dueDate != null) message = message + " Prazo: " + _formatDate(dueDate) + ".";
+  await client.from("manager_notifications").insert({
+    "manager_id": assignedTo,
+    "subject": "Novo material solicitado",
+    "message": message,
+  });
+}
+
+Future<List<Map<String, dynamic>>> fetchPendingMaterialRequestsForMe() async {
+  final client = Supabase.instance.client;
+  final userId = client.auth.currentUser!.id;
+  final rows = await client
+      .from("training_material_requests")
+      .select(_materialRequestSelect)
+      .eq("assigned_to", userId)
+      .eq("status", "pendente")
+      .order("due_date", ascending: true);
+  return (rows as List).cast<Map<String, dynamic>>();
+}
+
+Future<List<Map<String, dynamic>>> fetchMyMaterialRequests() async {
+  final client = Supabase.instance.client;
+  final userId = client.auth.currentUser!.id;
+  final rows = await client
+      .from("training_material_requests")
+      .select(_materialRequestSelect)
+      .eq("requested_by", userId)
+      .order("created_at", ascending: false)
+      .limit(20);
+  return (rows as List).cast<Map<String, dynamic>>();
+}
+
+Future<void> completeMaterialRequest({
+  required String requestId,
+  required String materialId,
+}) async {
+  final client = Supabase.instance.client;
+  final req = await client
+      .from("training_material_requests")
+      .select("requested_by, description")
+      .eq("id", requestId)
+      .single();
+  await client.from("training_material_requests").update({
+    "status": "concluido",
+    "created_material_id": materialId,
+    "completed_at": DateTime.now().toIso8601String(),
+  }).eq("id", requestId);
+
+  await client.from("manager_notifications").insert({
+    "manager_id": req["requested_by"],
+    "subject": "Material concluído",
+    "message": "O material que você pediu (\"" + (req["description"] as String) + "\") foi criado.",
+  });
+}
+
+/// Card de um pedido pendente pra mim, com atalho direto pra criar o
+/// material ja vinculado (preenche descricao/fase/dia automaticamente).
+class PendingMaterialRequestCard extends StatelessWidget {
+  final Map<String, dynamic> request;
+  final VoidCallback onFulfilled;
+  const PendingMaterialRequestCard({
+    super.key,
+    required this.request,
+    required this.onFulfilled,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dueDate = request["due_date"] != null
+        ? DateTime.parse(request["due_date"] as String)
+        : null;
+    final stageName = stageTabs
+        .firstWhere(
+          (s) => s.$1 == request["stage"],
+          orElse: () => (request["stage"] as String, request["stage"] as String),
+        )
+        .$2;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.amber.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.amber.withOpacity(0.5)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.pending_actions, color: Colors.amber, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Pedido de " + _managerLabel(request["requester"] as Map<String, dynamic>?) + " -- " + stageName,
+                  style: const TextStyle(color: Colors.amber, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  request["description"] as String,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                ),
+                if (dueDate != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    "Prazo: " + _formatDate(dueDate),
+                    style: const TextStyle(color: Colors.white54, fontSize: 11),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          ElevatedButton(
+            onPressed: () async {
+              final saved = await showDialog<bool>(
+                context: context,
+                builder: (_) => OnboardingMaterialFormDialog(
+                  defaultStage: request["stage"] as String,
+                  defaultDayKey: request["onboarding_stage_key"] as String?,
+                  defaultNiche: request["niche"] as String?,
+                  fulfillingRequestId: request["id"] as String,
+                  initialDescription: request["description"] as String,
+                ),
+              );
+              if (saved == true) onFulfilled();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF7A0BD4),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Criar material"),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Dialogo pra pedir material a outro gestor -- mesma categorizacao
+/// (fase/dia/nicho) do material em si, pra ele ja nascer no lugar certo
+/// quando for criado.
+class MaterialRequestFormDialog extends StatefulWidget {
+  const MaterialRequestFormDialog({super.key});
+
+  @override
+  State<MaterialRequestFormDialog> createState() => _MaterialRequestFormDialogState();
+}
+
+class _MaterialRequestFormDialogState extends State<MaterialRequestFormDialog> {
+  final _descriptionController = TextEditingController();
+  List<Map<String, dynamic>> _managers = [];
+  String? _assignedTo;
+  String _stage = stageTabs.first.$1;
+  String? _dayKey;
+  String? _niche;
+  DateTime? _dueDate;
+  bool _loadingManagers = true;
+  bool _saving = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadManagers();
+  }
+
+  @override
+  void dispose() {
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadManagers() async {
+    final client = Supabase.instance.client;
+    final userId = client.auth.currentUser!.id;
+    final me = await client.from("managers").select("agency_id").eq("id", userId).single();
+    final rows = await client
+        .from("managers")
+        .select("id, login_email, full_name")
+        .eq("agency_id", me["agency_id"])
+        .neq("id", userId)
+        .order("login_email");
+    if (mounted) {
+      setState(() {
+        _managers = (rows as List).cast<Map<String, dynamic>>();
+        _loadingManagers = false;
+      });
+    }
+  }
+
+  Future<void> _pickDueDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _dueDate ?? now,
+      firstDate: now.subtract(const Duration(days: 1)),
+      lastDate: DateTime(now.year + 2),
+    );
+    if (picked != null) setState(() => _dueDate = picked);
+  }
+
+  Future<void> _save() async {
+    if (_assignedTo == null) {
+      setState(() => _errorMessage = "Selecione pra quem pedir.");
+      return;
+    }
+    if (_descriptionController.text.trim().isEmpty) {
+      setState(() => _errorMessage = "Descreva o que precisa.");
+      return;
+    }
+    if (_stage == "onboarding_15" && _dayKey == null) {
+      setState(() => _errorMessage = "Selecione o dia da etapa.");
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _errorMessage = null;
+    });
+    try {
+      await createMaterialRequest(
+        assignedTo: _assignedTo!,
+        stage: _stage,
+        dayKey: _stage == "onboarding_15" ? _dayKey : null,
+        niche: _niche,
+        description: _descriptionController.text.trim(),
+        dueDate: _dueDate,
+      );
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      setState(() {
+        _saving = false;
+        _errorMessage = "Erro ao solicitar: " + e.toString();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dayKeys = _dayKeysByStage[_stage];
+    return Dialog(
+      backgroundColor: const Color(0xFF1A1A1A),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460, maxHeight: 640),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "Solicitar material",
+                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                "Peça pra outro gestor criar um material -- ele fica com o pedido pendente até criar.",
+                style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic),
+              ),
+              const SizedBox(height: 12),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text("Pedir para", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      const SizedBox(height: 4),
+                      _loadingManagers
+                          ? const LinearProgressIndicator()
+                          : DropdownButton<String>(
+                              value: _assignedTo,
+                              isExpanded: true,
+                              dropdownColor: const Color(0xFF1A1A1A),
+                              style: const TextStyle(color: Colors.white),
+                              hint: const Text("Selecione um gestor", style: TextStyle(color: Colors.white38)),
+                              items: _managers
+                                  .map((m) => DropdownMenuItem(value: m["id"] as String, child: Text(_managerLabel(m))))
+                                  .toList(),
+                              onChanged: (v) => setState(() => _assignedTo = v),
+                            ),
+                      const SizedBox(height: 12),
+                      const Text("Fase", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      const SizedBox(height: 4),
+                      DropdownButton<String>(
+                        value: _stage,
+                        isExpanded: true,
+                        dropdownColor: const Color(0xFF1A1A1A),
+                        style: const TextStyle(color: Colors.white),
+                        items: stageTabs
+                            .map((s) => DropdownMenuItem(value: s.$1, child: Text(s.$2)))
+                            .toList(),
+                        onChanged: (v) => setState(() {
+                          _stage = v ?? _stage;
+                          if (_dayKeysByStage[_stage] == null) _dayKey = null;
+                        }),
+                      ),
+                      if (dayKeys != null) ...[
+                        const SizedBox(height: 12),
+                        const Text("Dia", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                        const SizedBox(height: 4),
+                        DropdownButton<String>(
+                          value: _dayKey,
+                          isExpanded: true,
+                          dropdownColor: const Color(0xFF1A1A1A),
+                          style: const TextStyle(color: Colors.white),
+                          hint: const Text("Selecione o dia", style: TextStyle(color: Colors.white38)),
+                          items: dayKeys
+                              .map((d) => DropdownMenuItem(value: d.$1, child: Text(d.$2)))
+                              .toList(),
+                          onChanged: (v) => setState(() => _dayKey = v),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      const Text("Nicho (opcional)", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      const SizedBox(height: 4),
+                      DropdownButton<String?>(
+                        value: _niche,
+                        isExpanded: true,
+                        dropdownColor: const Color(0xFF1A1A1A),
+                        style: const TextStyle(color: Colors.white),
+                        items: _nicheFilterOptions
+                            .map((o) => DropdownMenuItem(value: o.$1, child: Text(o.$2)))
+                            .toList(),
+                        onChanged: (v) => setState(() => _niche = v),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text("O que você precisa", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      const SizedBox(height: 4),
+                      TextField(
+                        controller: _descriptionController,
+                        maxLines: 4,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: const InputDecoration(
+                          hintText: "Descreva o material que precisa (tema, formato, pontos que deve cobrir...)",
+                          hintStyle: TextStyle(color: Colors.white38),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text("Prazo de entrega (opcional)", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      const SizedBox(height: 4),
+                      OutlinedButton.icon(
+                        onPressed: _pickDueDate,
+                        icon: const Icon(Icons.calendar_month, size: 16),
+                        label: Text(_dueDate == null ? "Definir prazo" : _formatDate(_dueDate!)),
+                      ),
+                      if (_errorMessage != null) ...[
+                        const SizedBox(height: 8),
+                        Text(_errorMessage!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text("Cancelar")),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: _saving ? null : _save,
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
+                    child: Text(_saving ? "Enviando..." : "Solicitar"),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
       ),
