@@ -64,13 +64,14 @@ String _periodKeyForOffset(int monthsFromNow) {
 
 String currentPeriodKey() => _periodKeyForOffset(0);
 
-/// Streamers ativos da agencia com os numeros do MES PASSADO anexados
-/// (diamantes, dias validados e horas -- via StreamerSnapshot.
-/// diamondsLastMonth/daysValidatedLastMonth/hoursLastMonth) -- base da
-/// tabela de candidatos na aba Participantes. Dias e horas exibidos ali sao
-/// sempre do mes passado (fechado), nunca o total acumulado nem o mes
-/// corrente (ainda em andamento, entao nao comparavel entre streamers com
-/// datas de fechamento diferentes). Reusa fetchActiveStreamerSnapshots
+/// Streamers ativos da agencia com os numeros do MES PASSADO (fechado) e do
+/// MES ATUAL (em andamento) anexados -- via StreamerSnapshot.
+/// diamondsLastMonth/daysValidatedLastMonth/hoursLastMonth e os equivalentes
+/// ThisMonth -- base da tabela de candidatos na aba Participantes. Os
+/// filtros de elegibilidade (buckets/min dias/min horas) continuam usando
+/// so os campos LastMonth, ja que o mes atual ainda em andamento nao e
+/// comparavel entre streamers com datas de fechamento diferentes -- os
+/// campos ThisMonth aqui sao so pra exibicao. Reusa fetchActiveStreamerSnapshots
 /// (mesma query base de sempre) e so acrescenta a leitura de monthly_stats,
 /// igual resolveMonthlySnapshots faz em program_monthly_stats_service.dart,
 /// sem precisar montar um ProgramCriteria falso so pra disparar aquele
@@ -98,7 +99,9 @@ Future<List<StreamerSnapshot>> fetchCandidateSnapshots({
     return s.copyWithMonthly(
       diamondsThisMonth: s.diamonds,
       diamondsLastMonth: last?["diamonds"] as num?,
+      daysValidatedThisMonth: s.daysValidated,
       daysValidatedLastMonth: (last?["days_live"] as num?)?.toInt(),
+      hoursThisMonth: s.hoursLive,
       hoursLastMonth: (last?["hours_live"] as num?)?.toDouble(),
     );
   }).toList();

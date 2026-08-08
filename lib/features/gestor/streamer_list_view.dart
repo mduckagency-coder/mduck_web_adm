@@ -44,6 +44,38 @@ class _StreamerListViewState extends State<StreamerListView> {
   int _quickFilterIndex = 0;
   _SortKey _sortKey = _SortKey.diamantes;
   bool _ascending = false;
+  final _tableScrollController = ScrollController();
+
+  // Larguras fixas por coluna -- antes eram Expanded/flex, que so
+  // encolhiam ate virar ilegivel em tela de celular. Com largura fixa +
+  // rolagem horizontal (aplicada no build), a tabela fica legivel em
+  // qualquer largura de tela, igual ao padrao ja usado na aba
+  // Participantes (programa_participantes_tab.dart).
+  static const double _colAvatar = 44;
+  static const double _colNome = 160;
+  static const double _colDias = 60;
+  static const double _colDiamantes = 110;
+  static const double _colCrescimento = 100;
+  static const double _colPotencial = 110;
+  static const double _colUltimaLive = 100;
+  static const double _colUltimoAcompanhamento = 130;
+  static const double _colProximaAcao = 140;
+  static const double _colGestor = 130;
+  static const double _colStatus = 100;
+  static const double _tableWidth = _colAvatar +
+      _colNome +
+      _colDias +
+      _colDiamantes +
+      _colCrescimento +
+      _colPotencial +
+      _colUltimaLive +
+      _colUltimoAcompanhamento +
+      _colProximaAcao +
+      _colGestor +
+      _colStatus;
+
+  Widget _cell(double width, Widget child) =>
+      SizedBox(width: width, child: Padding(padding: const EdgeInsets.only(right: 8), child: child));
 
   List<GestorStreamerRow> get _filtered {
     var list = widget.rows.where((r) {
@@ -81,11 +113,11 @@ class _StreamerListViewState extends State<StreamerListView> {
     return list;
   }
 
-  Widget _sortHeader(String label, _SortKey key, {int flex = 1}) {
+  Widget _sortHeader(String label, _SortKey key, {required double width}) {
     final active = _sortKey == key;
-    return Expanded(
-      flex: flex,
-      child: InkWell(
+    return _cell(
+      width,
+      InkWell(
         onTap: () => setState(() {
           if (active) {
             _ascending = !_ascending;
@@ -124,7 +156,10 @@ class _StreamerListViewState extends State<StreamerListView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             SizedBox(
               width: 280,
@@ -143,10 +178,7 @@ class _StreamerListViewState extends State<StreamerListView> {
                 onChanged: (v) => setState(() => _search = v.trim()),
               ),
             ),
-            if (widget.extraFilters != null) ...[
-              const SizedBox(width: 12),
-              widget.extraFilters!(context),
-            ],
+            if (widget.extraFilters != null) widget.extraFilters!(context),
           ],
         ),
         if (widget.quickFilters.isNotEmpty) ...[
@@ -178,282 +210,287 @@ class _StreamerListViewState extends State<StreamerListView> {
           style: const TextStyle(color: Colors.white54, fontSize: 12),
         ),
         const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: const BoxDecoration(
-            border: Border(bottom: BorderSide(color: Colors.white24)),
-          ),
-          child: Row(
-            children: [
-              const SizedBox(width: 44),
-              _sortHeader("Nick / Nome", _SortKey.nome, flex: 3),
-              _sortHeader("Dias", _SortKey.dias),
-              _sortHeader("Diamantes (mês)", _SortKey.diamantes, flex: 2),
-              _sortHeader("Crescimento", _SortKey.crescimento, flex: 2),
-              const Expanded(
-                flex: 2,
-                child: Text(
-                  "Potencial",
-                  style: TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-              ),
-              _sortHeader("Última live", _SortKey.ultimaLive, flex: 2),
-              const Expanded(
-                flex: 2,
-                child: Text(
-                  "Último acompanhamento",
-                  style: TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-              ),
-              const Expanded(
-                flex: 2,
-                child: Text(
-                  "Próxima ação",
-                  style: TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-              ),
-              const Expanded(
-                flex: 2,
-                child: Text(
-                  "Gestor",
-                  style: TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-              ),
-              const Expanded(
-                flex: 2,
-                child: Text(
-                  "Status",
-                  style: TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-              ),
-            ],
-          ),
-        ),
         Expanded(
-          child: filtered.isEmpty
-              ? const Center(
-                  child: Text(
-                    "Nenhum streamer encontrado.",
-                    style: TextStyle(color: Colors.white54),
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: filtered.length,
-                  itemBuilder: (context, index) {
-                    final row = filtered[index];
-                    final status = row.status;
-                    final alerts = widget.alertsFor?.call(row) ?? const [];
-                    return InkWell(
-                      onTap: () =>
-                          openStreamerSidePanel(context, streamerId: row.id),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        decoration: const BoxDecoration(
-                          border: Border(
-                            bottom: BorderSide(color: Colors.white12),
+          child: Scrollbar(
+            controller: _tableScrollController,
+            thumbVisibility: true,
+            trackVisibility: true,
+            child: SingleChildScrollView(
+              controller: _tableScrollController,
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.only(bottom: 10),
+              child: SizedBox(
+                width: _tableWidth,
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: const BoxDecoration(
+                        border: Border(bottom: BorderSide(color: Colors.white24)),
+                      ),
+                      child: Row(
+                        children: [
+                          const SizedBox(width: _colAvatar),
+                          _sortHeader("Nick / Nome", _SortKey.nome, width: _colNome),
+                          _sortHeader("Dias", _SortKey.dias, width: _colDias),
+                          _sortHeader("Diamantes (mês)", _SortKey.diamantes, width: _colDiamantes),
+                          _sortHeader("Crescimento", _SortKey.crescimento, width: _colCrescimento),
+                          _cell(
+                            _colPotencial,
+                            const Text("Potencial", style: TextStyle(color: Colors.white54, fontSize: 12)),
                           ),
-                        ),
-                        child: Row(
-                          children: [
-                            SizedBox(
-                              width: 44,
-                              child: Stack(
-                                clipBehavior: Clip.none,
-                                children: [
-                                  CircleAvatar(
-                                    radius: 16,
-                                    backgroundColor: Colors.white24,
-                                    backgroundImage: row.avatarUrl != null
-                                        ? NetworkImage(row.avatarUrl!)
-                                        : null,
-                                    child: row.avatarUrl == null
-                                        ? const Icon(
-                                            Icons.person,
-                                            color: Colors.white54,
-                                            size: 16,
-                                          )
-                                        : null,
-                                  ),
-                                  if (alerts.isNotEmpty)
-                                    Positioned(
-                                      right: -2,
-                                      top: -2,
-                                      child: Tooltip(
-                                        message: alerts
-                                            .map((a) => a.emoji + " " + a.label)
-                                            .join("\n"),
-                                        child: Text(
-                                          alerts.first.emoji,
-                                          style: const TextStyle(fontSize: 11),
-                                        ),
+                          _sortHeader("Última live", _SortKey.ultimaLive, width: _colUltimaLive),
+                          _cell(
+                            _colUltimoAcompanhamento,
+                            const Text("Último acompanhamento", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                          ),
+                          _cell(
+                            _colProximaAcao,
+                            const Text("Próxima ação", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                          ),
+                          _cell(
+                            _colGestor,
+                            const Text("Gestor", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                          ),
+                          _cell(
+                            _colStatus,
+                            const Text("Status", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: filtered.isEmpty
+                          ? const Center(
+                              child: Text(
+                                "Nenhum streamer encontrado.",
+                                style: TextStyle(color: Colors.white54),
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: filtered.length,
+                              itemBuilder: (context, index) {
+                                final row = filtered[index];
+                                final status = row.status;
+                                final alerts = widget.alertsFor?.call(row) ?? const [];
+                                return InkWell(
+                                  onTap: () =>
+                                      openStreamerSidePanel(context, streamerId: row.id),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    decoration: const BoxDecoration(
+                                      border: Border(
+                                        bottom: BorderSide(color: Colors.white12),
                                       ),
                                     ),
-                                ],
-                              ),
-                            ),
-                            Expanded(
-                              flex: 3,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    "@" + row.nick,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 12,
+                                    child: Row(
+                                      children: [
+                                        _cell(
+                                          _colAvatar,
+                                          Stack(
+                                            clipBehavior: Clip.none,
+                                            children: [
+                                              CircleAvatar(
+                                                radius: 16,
+                                                backgroundColor: Colors.white24,
+                                                backgroundImage: row.avatarUrl != null
+                                                    ? NetworkImage(row.avatarUrl!)
+                                                    : null,
+                                                child: row.avatarUrl == null
+                                                    ? const Icon(
+                                                        Icons.person,
+                                                        color: Colors.white54,
+                                                        size: 16,
+                                                      )
+                                                    : null,
+                                              ),
+                                              if (alerts.isNotEmpty)
+                                                Positioned(
+                                                  right: -2,
+                                                  top: -2,
+                                                  child: Tooltip(
+                                                    message: alerts
+                                                        .map((a) => a.emoji + " " + a.label)
+                                                        .join("\n"),
+                                                    child: Text(
+                                                      alerts.first.emoji,
+                                                      style: const TextStyle(fontSize: 11),
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                        _cell(
+                                          _colNome,
+                                          Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                "@" + row.nick,
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 12,
+                                                ),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              Text(
+                                                row.displayName,
+                                                style: const TextStyle(
+                                                  color: Colors.white54,
+                                                  fontSize: 11,
+                                                ),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        _cell(
+                                          _colDias,
+                                          Text(
+                                            row.daysInAgency.toString(),
+                                            style: const TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
+                                        _cell(
+                                          _colDiamantes,
+                                          Text(
+                                            row.diamonds.toString(),
+                                            style: const TextStyle(
+                                              color: Color(0xFF7A0BD4),
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
+                                        _cell(
+                                          _colCrescimento,
+                                          Text(
+                                            row.diamondsLastMonth == null
+                                                ? "-"
+                                                : (row.growth >= 0 ? "+" : "") +
+                                                      row.growth.toString(),
+                                            style: TextStyle(
+                                              color: row.growth >= 0
+                                                  ? Colors.greenAccent
+                                                  : Colors.redAccent,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
+                                        _cell(
+                                          _colPotencial,
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 6,
+                                              vertical: 2,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: potentialColor(
+                                                row.potentialLevel,
+                                              ).withOpacity(0.15),
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Text(
+                                              potentialLabel(row.potentialLevel),
+                                              style: TextStyle(
+                                                color: potentialColor(row.potentialLevel),
+                                                fontSize: 11,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ),
+                                        _cell(
+                                          _colUltimaLive,
+                                          Text(
+                                            row.lastLiveAt != null
+                                                ? row.lastLiveAt!
+                                                      .toLocal()
+                                                      .toString()
+                                                      .substring(0, 10)
+                                                : "Nunca",
+                                            style: const TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                        ),
+                                        _cell(
+                                          _colUltimoAcompanhamento,
+                                          Text(
+                                            row.lastContactAt != null
+                                                ? row.lastContactAt!
+                                                      .toLocal()
+                                                      .toString()
+                                                      .substring(0, 10)
+                                                : "-",
+                                            style: const TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                        ),
+                                        _cell(
+                                          _colProximaAcao,
+                                          Text(
+                                            row.nextAction?.title ?? "-",
+                                            style: const TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 11,
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        _cell(
+                                          _colGestor,
+                                          Text(
+                                            row.assignedManagerEmail ?? "-",
+                                            style: const TextStyle(
+                                              color: Colors.white54,
+                                              fontSize: 11,
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        _cell(
+                                          _colStatus,
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 6,
+                                              vertical: 2,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              border: Border.all(color: status.$2),
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Text(
+                                              status.$1,
+                                              style: TextStyle(
+                                                color: status.$2,
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                  Text(
-                                    row.displayName,
-                                    style: const TextStyle(
-                                      color: Colors.white54,
-                                      fontSize: 11,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ),
+                                );
+                              },
                             ),
-                            Expanded(
-                              child: Text(
-                                row.daysInAgency.toString(),
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              flex: 2,
-                              child: Text(
-                                row.diamonds.toString(),
-                                style: const TextStyle(
-                                  color: Color(0xFF7A0BD4),
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              flex: 2,
-                              child: Text(
-                                row.diamondsLastMonth == null
-                                    ? "-"
-                                    : (row.growth >= 0 ? "+" : "") +
-                                          row.growth.toString(),
-                                style: TextStyle(
-                                  color: row.growth >= 0
-                                      ? Colors.greenAccent
-                                      : Colors.redAccent,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              flex: 2,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: potentialColor(
-                                    row.potentialLevel,
-                                  ).withOpacity(0.15),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  potentialLabel(row.potentialLevel),
-                                  style: TextStyle(
-                                    color: potentialColor(row.potentialLevel),
-                                    fontSize: 11,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              flex: 2,
-                              child: Text(
-                                row.lastLiveAt != null
-                                    ? row.lastLiveAt!
-                                          .toLocal()
-                                          .toString()
-                                          .substring(0, 10)
-                                    : "Nunca",
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              flex: 2,
-                              child: Text(
-                                row.lastContactAt != null
-                                    ? row.lastContactAt!
-                                          .toLocal()
-                                          .toString()
-                                          .substring(0, 10)
-                                    : "-",
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              flex: 2,
-                              child: Text(
-                                row.nextAction?.title ?? "-",
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 11,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            Expanded(
-                              flex: 2,
-                              child: Text(
-                                row.assignedManagerEmail ?? "-",
-                                style: const TextStyle(
-                                  color: Colors.white54,
-                                  fontSize: 11,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            Expanded(
-                              flex: 2,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  border: Border.all(color: status.$2),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  status.$1,
-                                  style: TextStyle(
-                                    color: status.$2,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
+                    ),
+                  ],
                 ),
+              ),
+            ),
+          ),
         ),
       ],
     );

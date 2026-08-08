@@ -416,7 +416,7 @@ class _DemandasPageState extends State<DemandasPage> {
               top: 0,
               bottom: 0,
               right: _filtersOpen ? 0 : -380,
-              width: 360,
+              width: (MediaQuery.of(context).size.width * 0.92).clamp(0.0, 360.0),
               child: DemandFilters(
                 filters: _filters,
                 onChanged: (f) => setState(() => _filters = f),
@@ -438,7 +438,7 @@ class _DemandasPageState extends State<DemandasPage> {
               top: 0,
               bottom: 0,
               right: _selectedDemanda != null ? 0 : -420,
-              width: 400,
+              width: (MediaQuery.of(context).size.width * 0.92).clamp(0.0, 400.0),
               child: _selectedDemanda == null
                   ? const SizedBox.shrink()
                   : DemandaDetailDrawer(

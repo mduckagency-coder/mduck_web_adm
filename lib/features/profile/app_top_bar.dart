@@ -5,7 +5,8 @@ import "bug_report_button.dart";
 
 class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onNotificationTap;
-  const AppTopBar({super.key, this.onNotificationTap});
+  final Widget? leading;
+  const AppTopBar({super.key, this.onNotificationTap, this.leading});
 
   @override
   Size get preferredSize => const Size.fromHeight(56);
@@ -17,8 +18,9 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
       color: const Color(0xFF1A1A1A),
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
         children: [
+          if (leading != null) ...[leading!, const SizedBox(width: 4)],
+          const Spacer(),
           const BugReportButton(),
           const SizedBox(width: 4),
           NotificationBell(onNotificationTap: onNotificationTap),

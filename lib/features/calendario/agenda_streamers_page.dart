@@ -153,21 +153,8 @@ class _AgendaStreamersPageState extends State<AgendaStreamersPage> {
     _load();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (_loading && _events.isEmpty) return const Center(child: CircularProgressIndicator());
-
-    final streamerCategories = _categories.where((c) => appCalendarCategoryKeys.contains(c.key)).toList();
-
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 270,
-            child: SingleChildScrollView(
-              child: Column(
+  Widget _buildSidebarContent(List<EventCategory> streamerCategories) {
+    return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   ElevatedButton.icon(
@@ -316,36 +303,84 @@ class _AgendaStreamersPageState extends State<AgendaStreamersPage> {
                       ],
                     ),
                   ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(width: 20),
-          Expanded(
+      ],
+    );
+  }
+
+  Widget _buildToolbarAndBoard({required bool expandBoard}) {
+    final board = Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: const Color(0xFF161616), borderRadius: BorderRadius.circular(12)),
+      child: AgendaList(events: _visibleEvents, onEventTap: _openEditEvent),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CalendarToolbar(
+          focusedDay: _focusedDay,
+          viewMode: _viewMode,
+          onToday: _onToday,
+          onPrevious: _onPrevious,
+          onNext: _onNext,
+          onViewModeChanged: (v) => setState(() => _viewMode = v),
+        ),
+        const SizedBox(height: 16),
+        expandBoard ? Expanded(child: board) : board,
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading && _events.isEmpty) return const Center(child: CircularProgressIndicator());
+
+    final streamerCategories = _categories.where((c) => appCalendarCategoryKeys.contains(c.key)).toList();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Sidebar fixa de 270px so cabe ao lado do board em telas largas --
+        // em telas de celular ela vira uma secao recolhivel abaixo do board,
+        // que e o conteudo principal (mesmo padrao de calendar_board_page.dart).
+        final isMobile = constraints.maxWidth < 800;
+
+        if (isMobile) {
+          return Padding(
+            padding: const EdgeInsets.all(12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CalendarToolbar(
-                  focusedDay: _focusedDay,
-                  viewMode: _viewMode,
-                  onToday: _onToday,
-                  onPrevious: _onPrevious,
-                  onNext: _onNext,
-                  onViewModeChanged: (v) => setState(() => _viewMode = v),
-                ),
-                const SizedBox(height: 16),
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(color: const Color(0xFF161616), borderRadius: BorderRadius.circular(12)),
-                    child: AgendaList(events: _visibleEvents, onEventTap: _openEditEvent),
+                Expanded(child: _buildToolbarAndBoard(expandBoard: true)),
+                const SizedBox(height: 8),
+                Theme(
+                  data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                  child: ExpansionTile(
+                    title: const Text("Filtros e novo evento", style: TextStyle(color: Colors.white)),
+                    collapsedIconColor: Colors.white70,
+                    iconColor: Colors.white70,
+                    childrenPadding: const EdgeInsets.only(bottom: 12),
+                    children: [_buildSidebarContent(streamerCategories)],
                   ),
                 ),
               ],
             ),
+          );
+        }
+
+        return Padding(
+          padding: const EdgeInsets.all(24),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 270,
+                child: SingleChildScrollView(child: _buildSidebarContent(streamerCategories)),
+              ),
+              const SizedBox(width: 20),
+              Expanded(child: _buildToolbarAndBoard(expandBoard: true)),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

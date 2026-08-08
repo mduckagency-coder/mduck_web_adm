@@ -121,7 +121,7 @@ Future<bool> showEditProgramDialog(BuildContext context, Map<String, dynamic> pr
       backgroundColor: const Color(0xFF1A1A1A),
       title: const Text("Editar programa", style: TextStyle(color: Colors.white)),
       content: SizedBox(
-        width: 420,
+        width: (MediaQuery.of(context).size.width * 0.9).clamp(0.0, 420.0),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,

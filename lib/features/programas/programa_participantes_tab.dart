@@ -22,10 +22,14 @@ class _ProgramaParticipantesTabState extends State<ProgramaParticipantesTab> {
   String? _diamondsFilter;
   final _minDaysController = TextEditingController();
   final _minHoursController = TextEditingController();
+  final _minDaysThisMonthController = TextEditingController();
+  final _minHoursThisMonthController = TextEditingController();
   String _search = "";
   final Set<String> _selectedCandidateIds = {};
   bool _showHistory = false;
   DateTime? _lastLoadedAt;
+  int? _sortColumnIndex;
+  bool _sortAscending = true;
 
   String get _programId => widget.program["id"] as String;
   String get _agencyId => widget.program["agency_id"] as String;
@@ -77,6 +81,10 @@ class _ProgramaParticipantesTabState extends State<ProgramaParticipantesTab> {
     final term = _search.trim().toLowerCase();
     final minDays = int.tryParse(_minDaysController.text.trim());
     final minHours = double.tryParse(_minHoursController.text.trim().replaceAll(",", "."));
+    final minDaysThisMonth = int.tryParse(_minDaysThisMonthController.text.trim());
+    final minHoursThisMonth = double.tryParse(
+      _minHoursThisMonthController.text.trim().replaceAll(",", "."),
+    );
     final list = _candidates.where((s) {
       if (enrolled.contains(s.id)) return false;
       if (_tenureFilter != null && tenureBucketKeyFor(s.daysInAgency) != _tenureFilter)
@@ -86,6 +94,10 @@ class _ProgramaParticipantesTabState extends State<ProgramaParticipantesTab> {
         return false;
       if (minDays != null && (s.daysValidatedLastMonth ?? 0) < minDays) return false;
       if (minHours != null && (s.hoursLastMonth ?? 0) < minHours) return false;
+      if (minDaysThisMonth != null && (s.daysValidatedThisMonth ?? 0) < minDaysThisMonth)
+        return false;
+      if (minHoursThisMonth != null && (s.hoursThisMonth ?? 0) < minHoursThisMonth)
+        return false;
       if (term.isNotEmpty && !s.displayName.toLowerCase().contains(term)) return false;
       return true;
     }).toList();
@@ -93,6 +105,43 @@ class _ProgramaParticipantesTabState extends State<ProgramaParticipantesTab> {
       (a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()),
     );
     return list;
+  }
+
+  /// Ordena pela coluna clicada. Colunas numericas comecam do maior pro
+  /// menor no primeiro clique (o que o gestor espera ao clicar em
+  /// "Diamantes", por exemplo); colunas de texto comecam de A a Z. Clicar
+  /// de novo na mesma coluna inverte a direcao.
+  void _onSort(int columnIndex, {required bool numeric}) {
+    setState(() {
+      if (_sortColumnIndex == columnIndex) {
+        _sortAscending = !_sortAscending;
+      } else {
+        _sortColumnIndex = columnIndex;
+        _sortAscending = !numeric;
+      }
+    });
+  }
+
+  static final List<int Function(StreamerSnapshot a, StreamerSnapshot b)> _columnComparators = [
+    (a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()),
+    (a, b) => (a.tiktokId ?? "").toLowerCase().compareTo((b.tiktokId ?? "").toLowerCase()),
+    (a, b) => (a.categoryName ?? "").toLowerCase().compareTo((b.categoryName ?? "").toLowerCase()),
+    (a, b) => a.daysInAgency.compareTo(b.daysInAgency),
+    (a, b) => (a.daysValidatedLastMonth ?? -1).compareTo(b.daysValidatedLastMonth ?? -1),
+    (a, b) => (a.daysValidatedThisMonth ?? -1).compareTo(b.daysValidatedThisMonth ?? -1),
+    (a, b) => (a.hoursLastMonth ?? -1).compareTo(b.hoursLastMonth ?? -1),
+    (a, b) => (a.hoursThisMonth ?? -1).compareTo(b.hoursThisMonth ?? -1),
+    (a, b) => a.battles.compareTo(b.battles),
+    (a, b) => (a.diamondsLastMonth ?? -1).compareTo(b.diamondsLastMonth ?? -1),
+    (a, b) => (a.diamondsThisMonth ?? a.diamonds).compareTo(b.diamondsThisMonth ?? b.diamonds),
+  ];
+
+  List<StreamerSnapshot> _sortedCandidates(List<StreamerSnapshot> list) {
+    if (_sortColumnIndex == null) return list;
+    final sorted = List<StreamerSnapshot>.from(list);
+    final compare = _columnComparators[_sortColumnIndex!];
+    sorted.sort((a, b) => _sortAscending ? compare(a, b) : compare(b, a));
+    return sorted;
   }
 
   void _toggleCandidate(String id) {
@@ -217,71 +266,80 @@ class _ProgramaParticipantesTabState extends State<ProgramaParticipantesTab> {
     );
   }
 
+  static const _currentMonthColor = Colors.cyanAccent;
+  final _tableScrollController = ScrollController();
+
   Widget _buildCandidatesTable(List<StreamerSnapshot> list) {
     Widget textCell(String text) =>
-        Text(text, style: const TextStyle(color: Colors.white70, fontSize: 12));
+        Text(text, style: const TextStyle(color: Colors.white70, fontSize: 11));
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: DataTable(
-        columnSpacing: 18,
-        headingRowHeight: 32,
-        dataRowMinHeight: 36,
-        dataRowMaxHeight: 40,
-        headingRowColor: WidgetStateProperty.all(Colors.white.withOpacity(0.05)),
-        // onSelectAll ja faz o DataTable desenhar sua propria coluna de
-        // checkbox (combinada com DataRow.selected/onSelectChanged abaixo)
-        // -- nao adicionar uma coluna de Checkbox manual aqui, senao
-        // aparecem DUAS colunas de selecao lado a lado.
-        onSelectAll: (_) => _toggleSelectAll(list),
-        columns: [
-          const DataColumn(
-            label: Text("Nome", style: TextStyle(color: Colors.white70, fontSize: 12)),
-          ),
-          const DataColumn(
-            label: Text("ID", style: TextStyle(color: Colors.white70, fontSize: 12)),
-          ),
-          const DataColumn(
-            label: Text("Categoria", style: TextStyle(color: Colors.white70, fontSize: 12)),
-          ),
-          const DataColumn(
-            label: Text("Dias de agencia", style: TextStyle(color: Colors.white70, fontSize: 12)),
-            numeric: true,
-          ),
-          const DataColumn(
-            label: Text(
-              "Dias validos (mes passado)",
-              style: TextStyle(color: Colors.white70, fontSize: 12),
-            ),
-            numeric: true,
-          ),
-          const DataColumn(
-            label: Text(
-              "Horas (mes passado)",
-              style: TextStyle(color: Colors.white70, fontSize: 12),
-            ),
-            numeric: true,
-          ),
-          const DataColumn(
-            label: Text("Batalhas", style: TextStyle(color: Colors.white70, fontSize: 12)),
-            numeric: true,
-          ),
-          const DataColumn(
-            label: Text(
-              "Diamantes mes passado",
-              style: TextStyle(color: Colors.white70, fontSize: 12),
-            ),
-            numeric: true,
-          ),
-          const DataColumn(
-            label: Text(
-              "Diamantes mes atual",
-              style: TextStyle(color: Colors.white70, fontSize: 12),
-            ),
-            numeric: true,
-          ),
-        ],
-        rows: list.map((s) {
+    Widget currentMonthCell(String text) => Text(
+      text,
+      style: const TextStyle(
+        color: _currentMonthColor,
+        fontSize: 11,
+        fontWeight: FontWeight.bold,
+      ),
+    );
+
+    DataColumn column(
+      String label, {
+      required int index,
+      bool numeric = false,
+      Color color = Colors.white70,
+    }) => DataColumn(
+      label: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: color == _currentMonthColor ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+      numeric: numeric,
+      onSort: (_, _) => _onSort(index, numeric: numeric),
+    );
+
+    DataColumn currentMonthColumn(String label, {required int index}) =>
+        column(label, index: index, numeric: true, color: _currentMonthColor);
+
+    final sortedList = _sortedCandidates(list);
+
+    return Scrollbar(
+      controller: _tableScrollController,
+      thumbVisibility: true,
+      trackVisibility: true,
+      child: SingleChildScrollView(
+        controller: _tableScrollController,
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.only(bottom: 10),
+        child: DataTable(
+          columnSpacing: 10,
+          headingRowHeight: 28,
+          dataRowMinHeight: 30,
+          dataRowMaxHeight: 34,
+          headingRowColor: WidgetStateProperty.all(Colors.white.withOpacity(0.05)),
+          sortColumnIndex: _sortColumnIndex,
+          sortAscending: _sortAscending,
+          // onSelectAll ja faz o DataTable desenhar sua propria coluna de
+          // checkbox (combinada com DataRow.selected/onSelectChanged abaixo)
+          // -- nao adicionar uma coluna de Checkbox manual aqui, senao
+          // aparecem DUAS colunas de selecao lado a lado.
+          onSelectAll: (_) => _toggleSelectAll(sortedList),
+          columns: [
+            column("Nome", index: 0),
+            column("ID", index: 1),
+            column("Categoria", index: 2),
+            column("Dias agencia", index: 3, numeric: true),
+            column("Dias (passado)", index: 4, numeric: true),
+            currentMonthColumn("Dias (atual)", index: 5),
+            column("Horas (passado)", index: 6, numeric: true),
+            currentMonthColumn("Horas (atual)", index: 7),
+            column("Batalhas", index: 8, numeric: true),
+            column("Diamantes (passado)", index: 9, numeric: true),
+            currentMonthColumn("Diamantes (atual)", index: 10),
+          ],
+          rows: sortedList.map((s) {
           final selected = _selectedCandidateIds.contains(s.id);
           return DataRow(
             selected: selected,
@@ -301,13 +359,20 @@ class _ProgramaParticipantesTabState extends State<ProgramaParticipantesTab> {
               DataCell(textCell(s.categoryName ?? "-")),
               DataCell(textCell(s.daysInAgency.toString())),
               DataCell(textCell(s.daysValidatedLastMonth?.toString() ?? "-")),
+              DataCell(currentMonthCell(s.daysValidatedThisMonth?.toString() ?? "-")),
               DataCell(textCell(s.hoursLastMonth?.toStringAsFixed(1) ?? "-")),
+              DataCell(currentMonthCell(s.hoursThisMonth?.toStringAsFixed(1) ?? "-")),
               DataCell(textCell(s.battles.toString())),
               DataCell(textCell(s.diamondsLastMonth?.toStringAsFixed(0) ?? "-")),
-              DataCell(textCell(s.diamondsThisMonth?.toStringAsFixed(0) ?? s.diamonds.toStringAsFixed(0))),
+              DataCell(
+                currentMonthCell(
+                  s.diamondsThisMonth?.toStringAsFixed(0) ?? s.diamonds.toStringAsFixed(0),
+                ),
+              ),
             ],
           );
-        }).toList(),
+          }).toList(),
+        ),
       ),
     );
   }
@@ -364,6 +429,42 @@ class _ProgramaParticipantesTabState extends State<ProgramaParticipantesTab> {
                 decoration: const InputDecoration(
                   labelText: "Horas minimas (mes passado)",
                   labelStyle: TextStyle(color: Colors.white38, fontSize: 10),
+                  isDense: true,
+                ),
+                onChanged: (_) => setState(() => _selectedCandidateIds.clear()),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            SizedBox(
+              width: 200,
+              height: 36,
+              child: TextField(
+                controller: _minDaysThisMonthController,
+                keyboardType: TextInputType.number,
+                style: const TextStyle(color: _currentMonthColor, fontSize: 13),
+                decoration: const InputDecoration(
+                  labelText: "Dias validos minimos (mes atual)",
+                  labelStyle: TextStyle(color: _currentMonthColor, fontSize: 10),
+                  isDense: true,
+                ),
+                onChanged: (_) => setState(() => _selectedCandidateIds.clear()),
+              ),
+            ),
+            const SizedBox(width: 10),
+            SizedBox(
+              width: 200,
+              height: 36,
+              child: TextField(
+                controller: _minHoursThisMonthController,
+                keyboardType: TextInputType.number,
+                style: const TextStyle(color: _currentMonthColor, fontSize: 13),
+                decoration: const InputDecoration(
+                  labelText: "Horas minimas (mes atual)",
+                  labelStyle: TextStyle(color: _currentMonthColor, fontSize: 10),
                   isDense: true,
                 ),
                 onChanged: (_) => setState(() => _selectedCandidateIds.clear()),

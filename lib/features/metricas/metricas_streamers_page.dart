@@ -60,6 +60,22 @@ class _MetricasStreamersPageState extends State<MetricasStreamersPage> {
   final Set<String> _selectedIds = {};
   final _searchController = TextEditingController();
   String _search = "";
+  final _tableScrollController = ScrollController();
+
+  // Largura fixa por coluna + rolagem horizontal, em vez de Expanded/flex
+  // (que so encolhia ate ficar ilegivel em tela de celular) -- mesmo
+  // padrao usado em streamer_list_view.dart e progresso_streamers_page.dart.
+  static const double _colAvatar = 110;
+  static const double _colNick = 220;
+  static const double _colDiamantes = 130;
+  static const double _colDias = 70;
+  static const double _colHoras = 70;
+  static const double _colActions = 190;
+  static const double _tableWidth =
+      _colAvatar + _colNick + _colDiamantes + _colDias + _colHoras + _colActions;
+
+  Widget _cell(double width, Widget child) =>
+      SizedBox(width: width, child: Padding(padding: const EdgeInsets.only(right: 8), child: child));
 
   static const _tabs = [
     "15 dias",
@@ -231,11 +247,11 @@ class _MetricasStreamersPageState extends State<MetricasStreamersPage> {
     return _ascending ? result : -result;
   }
 
-  Widget _sortHeader(String label, String key, {int flex = 1}) {
+  Widget _sortHeader(String label, String key, {required double width}) {
     final active = _sortKey == key;
-    return Expanded(
-      flex: flex,
-      child: InkWell(
+    return _cell(
+      width,
+      InkWell(
         onTap: () => setState(() {
           if (_sortKey == key) {
             _ascending = !_ascending;
@@ -630,165 +646,185 @@ class _MetricasStreamersPageState extends State<MetricasStreamersPage> {
                 ],
               ),
               const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                decoration: const BoxDecoration(
-                  border: Border(bottom: BorderSide(color: Colors.white24)),
-                ),
-                child: Row(
-                  children: [
-                    SizedBox(width: _selectionMode ? 108 : 76),
-                    _sortHeader("Nick", "nick", flex: 3),
-                    _sortHeader("Diamantes", "diamonds", flex: 2),
-                    _sortHeader("Dias", "dias", flex: 1),
-                    _sortHeader("Horas", "horas", flex: 1),
-                    const SizedBox(width: 190),
-                  ],
-                ),
-              ),
               Expanded(
-                child: ListView.builder(
-                  itemCount: filtered.length,
-                  itemBuilder: (context, index) {
-                    final s = filtered[index];
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Row(
-                            children: [
-                              SizedBox(
-                                width: _selectionMode ? 108 : 76,
-                                child: Row(
-                                  children: [
-                                    if (_selectionMode)
-                                      Checkbox(
-                                        value: _selectedIds.contains(s.id),
-                                        activeColor: const Color(0xFF7A0BD4),
-                                        onChanged: (checked) => setState(() {
-                                          if (checked == true) {
-                                            _selectedIds.add(s.id);
-                                          } else {
-                                            _selectedIds.remove(s.id);
-                                          }
-                                        }),
-                                      )
-                                    else
-                                      Text(
-                                        "#" + (index + 1).toString(),
-                                        style: const TextStyle(
-                                          color: Colors.white38,
-                                          fontSize: 11,
-                                        ),
-                                      ),
-                                    const SizedBox(width: 6),
-                                    const CircleAvatar(
-                                      radius: 16,
-                                      backgroundColor: Colors.white24,
-                                      child: Icon(
-                                        Icons.person,
-                                        color: Colors.white54,
-                                        size: 16,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Expanded(
-                                flex: 3,
-                                child: InkWell(
-                                  onTap: () => _openProfile(s),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        s.displayName,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      if (s.tiktokId != null)
-                                        Text(
-                                          s.tiktokId!,
-                                          style: const TextStyle(
-                                            color: Colors.white38,
-                                            fontSize: 11,
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              Expanded(
-                                flex: 2,
-                                child: Text(
-                                  s.diamonds.toString(),
-                                  style: const TextStyle(
-                                    color: Color(0xFF7A0BD4),
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              Expanded(
-                                flex: 1,
-                                child: Text(
-                                  s.daysLive.toString(),
-                                  style: const TextStyle(color: Colors.white70),
-                                ),
-                              ),
-                              Expanded(
-                                flex: 1,
-                                child: Text(
-                                  s.hoursLive.toStringAsFixed(0),
-                                  style: const TextStyle(color: Colors.white70),
-                                ),
-                              ),
-                              SizedBox(
-                                width: 190,
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Expanded(
-                                      child: ElevatedButton(
-                                        onPressed: () => _openNote(s),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: const Color(
-                                            0xFFB026FF,
-                                          ),
-                                          foregroundColor: Colors.white,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 6,
-                                          ),
-                                        ),
-                                        child: const Text(
-                                          "Nota",
-                                          style: TextStyle(fontSize: 11),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.chat,
-                                        size: 18,
-                                        color: Color(0xFF25D366),
-                                      ),
-                                      tooltip: "WhatsApp",
-                                      onPressed: () => _openWhatsAppOne(s),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
+                child: Scrollbar(
+                  controller: _tableScrollController,
+                  thumbVisibility: true,
+                  trackVisibility: true,
+                  child: SingleChildScrollView(
+                    controller: _tableScrollController,
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: SizedBox(
+                      width: _tableWidth,
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            decoration: const BoxDecoration(
+                              border: Border(bottom: BorderSide(color: Colors.white24)),
+                            ),
+                            child: Row(
+                              children: [
+                                SizedBox(width: _colAvatar),
+                                _sortHeader("Nick", "nick", width: _colNick),
+                                _sortHeader("Diamantes", "diamonds", width: _colDiamantes),
+                                _sortHeader("Dias", "dias", width: _colDias),
+                                _sortHeader("Horas", "horas", width: _colHoras),
+                                const SizedBox(width: _colActions),
+                              ],
+                            ),
                           ),
-                        ),
-                        const Divider(color: Colors.white12, height: 1),
-                      ],
-                    );
-                  },
+                          Expanded(
+                            child: ListView.builder(
+                              itemCount: filtered.length,
+                              itemBuilder: (context, index) {
+                                final s = filtered[index];
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 8),
+                                      child: Row(
+                                        children: [
+                                          _cell(
+                                            _colAvatar,
+                                            Row(
+                                              children: [
+                                                if (_selectionMode)
+                                                  Checkbox(
+                                                    value: _selectedIds.contains(s.id),
+                                                    activeColor: const Color(0xFF7A0BD4),
+                                                    onChanged: (checked) => setState(() {
+                                                      if (checked == true) {
+                                                        _selectedIds.add(s.id);
+                                                      } else {
+                                                        _selectedIds.remove(s.id);
+                                                      }
+                                                    }),
+                                                  )
+                                                else
+                                                  Text(
+                                                    "#" + (index + 1).toString(),
+                                                    style: const TextStyle(
+                                                      color: Colors.white38,
+                                                      fontSize: 11,
+                                                    ),
+                                                  ),
+                                                const SizedBox(width: 6),
+                                                const CircleAvatar(
+                                                  radius: 16,
+                                                  backgroundColor: Colors.white24,
+                                                  child: Icon(
+                                                    Icons.person,
+                                                    color: Colors.white54,
+                                                    size: 16,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          _cell(
+                                            _colNick,
+                                            InkWell(
+                                              onTap: () => _openProfile(s),
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    s.displayName,
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                  if (s.tiktokId != null)
+                                                    Text(
+                                                      s.tiktokId!,
+                                                      style: const TextStyle(
+                                                        color: Colors.white38,
+                                                        fontSize: 11,
+                                                      ),
+                                                      overflow: TextOverflow.ellipsis,
+                                                    ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                          _cell(
+                                            _colDiamantes,
+                                            Text(
+                                              s.diamonds.toString(),
+                                              style: const TextStyle(
+                                                color: Color(0xFF7A0BD4),
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                          _cell(
+                                            _colDias,
+                                            Text(
+                                              s.daysLive.toString(),
+                                              style: const TextStyle(color: Colors.white70),
+                                            ),
+                                          ),
+                                          _cell(
+                                            _colHoras,
+                                            Text(
+                                              s.hoursLive.toStringAsFixed(0),
+                                              style: const TextStyle(color: Colors.white70),
+                                            ),
+                                          ),
+                                          SizedBox(
+                                            width: _colActions,
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Expanded(
+                                                  child: ElevatedButton(
+                                                    onPressed: () => _openNote(s),
+                                                    style: ElevatedButton.styleFrom(
+                                                      backgroundColor: const Color(
+                                                        0xFFB026FF,
+                                                      ),
+                                                      foregroundColor: Colors.white,
+                                                      padding: const EdgeInsets.symmetric(
+                                                        horizontal: 6,
+                                                      ),
+                                                    ),
+                                                    child: const Text(
+                                                      "Nota",
+                                                      style: TextStyle(fontSize: 11),
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 4),
+                                                IconButton(
+                                                  icon: const Icon(
+                                                    Icons.chat,
+                                                    size: 18,
+                                                    color: Color(0xFF25D366),
+                                                  ),
+                                                  tooltip: "WhatsApp",
+                                                  onPressed: () => _openWhatsAppOne(s),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const Divider(color: Colors.white12, height: 1),
+                                  ],
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ],

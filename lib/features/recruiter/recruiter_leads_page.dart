@@ -330,19 +330,25 @@ class _RecruiterLeadsPageState extends State<RecruiterLeadsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              const Text("Leads", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
-              const SizedBox(width: 12),
-              IconButton(icon: const Icon(Icons.refresh, color: Colors.white70), onPressed: _load),
-              const Spacer(),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text("Leads", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+                  const SizedBox(width: 12),
+                  IconButton(icon: const Icon(Icons.refresh, color: Colors.white70), onPressed: _load),
+                ],
+              ),
               ElevatedButton.icon(
                 onPressed: _openAdd,
                 icon: const Icon(Icons.add),
                 label: const Text("Novo Lead"),
                 style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7A0BD4), foregroundColor: Colors.white),
               ),
-              const SizedBox(width: 8),
               OutlinedButton.icon(
                 onPressed: () {
                   showDialog(context: context, builder: (context) => const BulkImportDialog()).then((saved) {
@@ -370,11 +376,14 @@ class _RecruiterLeadsPageState extends State<RecruiterLeadsPage> {
             ),
           ],
           const SizedBox(height: 16),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              // O painel de meta (190px + margem) so cabe ao lado dos
+              // filtros em telas largas -- em telas estreitas ele empilha
+              // abaixo, senao o campo de busca (220px fixo) estoura o
+              // espaco que sobra pro Expanded dos filtros.
+              final isNarrow = constraints.maxWidth < 700;
+              final filtersColumn = Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Wrap(
@@ -440,10 +449,26 @@ class _RecruiterLeadsPageState extends State<RecruiterLeadsPage> {
                       }).toList(),
                     ),
                   ],
-                ),
-              ),
-              if (_metaData != null) _buildMetaPanel(),
-            ],
+                );
+              return isNarrow
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        filtersColumn,
+                        if (_metaData != null) ...[
+                          const SizedBox(height: 12),
+                          _buildMetaPanel(),
+                        ],
+                      ],
+                    )
+                  : Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: filtersColumn),
+                        if (_metaData != null) _buildMetaPanel(),
+                      ],
+                    );
+            },
           ),
           const SizedBox(height: 8),
           if (_selectedIds.isNotEmpty)

@@ -210,15 +210,16 @@ class _StreamerDetailPanelState extends State<StreamerDetailPanel> {
   Widget build(BuildContext context) {
     final i = widget.item;
     final status = _statusBadge();
-    final screenHeight = MediaQuery.of(context).size.height;
+    final screenSize = MediaQuery.of(context).size;
+    final panelWidth = (screenSize.width * 0.9).clamp(0.0, 420.0);
 
     return Dialog(
       alignment: Alignment.centerRight,
       insetPadding: const EdgeInsets.all(0),
       backgroundColor: const Color(0xFF1A1A1A),
       child: SizedBox(
-        width: 420,
-        height: screenHeight,
+        width: panelWidth,
+        height: screenSize.height,
         child: _loading
             ? const Center(child: CircularProgressIndicator())
             : SingleChildScrollView(

@@ -36,6 +36,30 @@ class _ProgressoStreamersPageState extends State<ProgressoStreamersPage> {
   String _tab = "3";
   bool _ascending = false;
   String _sortKey = "diamonds";
+  final _tableScrollController = ScrollController();
+
+  // Largura fixa por coluna + rolagem horizontal, em vez de Expanded/flex
+  // (que so encolhia ate ficar ilegivel em tela de celular) -- mesmo
+  // padrao usado em streamer_list_view.dart.
+  static const double _colAvatar = 44;
+  static const double _colNick = 200;
+  static const double _colLastLive = 160;
+  static const double _colDaysSince = 140;
+  static const double _colDias = 70;
+  static const double _colHoras = 70;
+  static const double _colDiamantes = 110;
+  static const double _colActions = 190;
+  static const double _tableWidth = _colAvatar +
+      _colNick +
+      _colLastLive +
+      _colDaysSince +
+      _colDias +
+      _colHoras +
+      _colDiamantes +
+      _colActions;
+
+  Widget _cell(double width, Widget child) =>
+      SizedBox(width: width, child: Padding(padding: const EdgeInsets.only(right: 8), child: child));
 
   static const _tabs = [
     ("3", "Inativos ate 3 dias", "Streamers de 1 a 3 dias sem live.", Colors.orangeAccent),
@@ -133,11 +157,11 @@ class _ProgressoStreamersPageState extends State<ProgressoStreamersPage> {
     return _ascending ? result : -result;
   }
 
-  Widget _sortHeader(String label, String key, {int flex = 1}) {
+  Widget _sortHeader(String label, String key, {required double width}) {
     final active = _sortKey == key;
-    return Expanded(
-      flex: flex,
-      child: InkWell(
+    return _cell(
+      width,
+      InkWell(
         onTap: () => setState(() {
           if (_sortKey == key) {
             _ascending = !_ascending;
@@ -226,10 +250,12 @@ class _ProgressoStreamersPageState extends State<ProgressoStreamersPage> {
               const SizedBox(height: 6),
               Text(activeTab.$3, style: const TextStyle(color: Colors.white54, fontStyle: FontStyle.italic)),
               const SizedBox(height: 6),
-              Row(
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
+                runSpacing: 6,
                 children: [
                   Text(filtered.length.toString() + " streamers", style: const TextStyle(color: Colors.white54)),
-                  const SizedBox(width: 12),
                   if (filtered.isNotEmpty)
                     OutlinedButton.icon(
                       onPressed: () => _notifyAll(filtered),
@@ -240,91 +266,112 @@ class _ProgressoStreamersPageState extends State<ProgressoStreamersPage> {
                 ],
               ),
               const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white24))),
-                child: Row(
-                  children: [
-                    const SizedBox(width: 44),
-                    _sortHeader("Nick", "nick", flex: 3),
-                    _sortHeader("Ultima LIVE", "lastLive", flex: 2),
-                    _sortHeader("Dias sem Live", "daysSince", flex: 2),
-                    _sortHeader("Dias", "dias", flex: 1),
-                    _sortHeader("Horas", "horas", flex: 1),
-                    _sortHeader("Diamantes", "diamonds", flex: 2),
-                    const SizedBox(width: 190),
-                  ],
-                ),
-              ),
               Expanded(
-                child: ListView.builder(
-                  itemCount: filtered.length,
-                  itemBuilder: (context, index) {
-                    final s = filtered[index];
-                    final lastLiveText = s.lastLiveAt != null
-                        ? s.lastLiveAt!.toLocal().toString().substring(0, 16)
-                        : "sem registro";
-                    final daysSinceText = s.daysSince != null ? "ha " + s.daysSince.toString() + " dias" : "-";
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Row(
-                            children: [
-                              const CircleAvatar(radius: 18, backgroundColor: Colors.white24, child: Icon(Icons.person, color: Colors.white54, size: 18)),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                flex: 3,
-                                child: InkWell(
-                                  onTap: () => _openProfile(s),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(s.displayName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                      if (s.tiktokId != null)
-                                        Text(s.tiktokId!, style: const TextStyle(color: Colors.white38, fontSize: 11)),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              Expanded(flex: 2, child: Text(lastLiveText, style: const TextStyle(color: Colors.white70))),
-                              Expanded(flex: 2, child: Text(daysSinceText, style: const TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold))),
-                              Expanded(flex: 1, child: Text(s.daysLive.toString(), style: const TextStyle(color: Colors.white70))),
-                              Expanded(flex: 1, child: Text(s.hoursLive.toStringAsFixed(0), style: const TextStyle(color: Colors.white70))),
-                              Expanded(flex: 2, child: Text(s.diamonds.toString(), style: const TextStyle(color: Colors.white))),
-                              SizedBox(
-                                width: 190,
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
+                child: Scrollbar(
+                  controller: _tableScrollController,
+                  thumbVisibility: true,
+                  trackVisibility: true,
+                  child: SingleChildScrollView(
+                    controller: _tableScrollController,
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: SizedBox(
+                      width: _tableWidth,
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white24))),
+                            child: Row(
+                              children: [
+                                const SizedBox(width: _colAvatar),
+                                _sortHeader("Nick", "nick", width: _colNick),
+                                _sortHeader("Ultima LIVE", "lastLive", width: _colLastLive),
+                                _sortHeader("Dias sem Live", "daysSince", width: _colDaysSince),
+                                _sortHeader("Dias", "dias", width: _colDias),
+                                _sortHeader("Horas", "horas", width: _colHoras),
+                                _sortHeader("Diamantes", "diamonds", width: _colDiamantes),
+                                const SizedBox(width: _colActions),
+                              ],
+                            ),
+                          ),
+                          Expanded(
+                            child: ListView.builder(
+                              itemCount: filtered.length,
+                              itemBuilder: (context, index) {
+                                final s = filtered[index];
+                                final lastLiveText = s.lastLiveAt != null
+                                    ? s.lastLiveAt!.toLocal().toString().substring(0, 16)
+                                    : "sem registro";
+                                final daysSinceText = s.daysSince != null ? "ha " + s.daysSince.toString() + " dias" : "-";
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Expanded(
-                                      child: ElevatedButton(
-                                        onPressed: () => _openNote(s),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: const Color(0xFFB026FF),
-                                          foregroundColor: Colors.white,
-                                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                                        ),
-                                        child: const Text("Nota", style: TextStyle(fontSize: 11)),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 8),
+                                      child: Row(
+                                        children: [
+                                          _cell(
+                                            _colAvatar,
+                                            const CircleAvatar(radius: 18, backgroundColor: Colors.white24, child: Icon(Icons.person, color: Colors.white54, size: 18)),
+                                          ),
+                                          _cell(
+                                            _colNick,
+                                            InkWell(
+                                              onTap: () => _openProfile(s),
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(s.displayName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
+                                                  if (s.tiktokId != null)
+                                                    Text(s.tiktokId!, style: const TextStyle(color: Colors.white38, fontSize: 11), overflow: TextOverflow.ellipsis),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                          _cell(_colLastLive, Text(lastLiveText, style: const TextStyle(color: Colors.white70))),
+                                          _cell(_colDaysSince, Text(daysSinceText, style: const TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold))),
+                                          _cell(_colDias, Text(s.daysLive.toString(), style: const TextStyle(color: Colors.white70))),
+                                          _cell(_colHoras, Text(s.hoursLive.toStringAsFixed(0), style: const TextStyle(color: Colors.white70))),
+                                          _cell(_colDiamantes, Text(s.diamonds.toString(), style: const TextStyle(color: Colors.white))),
+                                          SizedBox(
+                                            width: _colActions,
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Expanded(
+                                                  child: ElevatedButton(
+                                                    onPressed: () => _openNote(s),
+                                                    style: ElevatedButton.styleFrom(
+                                                      backgroundColor: const Color(0xFFB026FF),
+                                                      foregroundColor: Colors.white,
+                                                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                                                    ),
+                                                    child: const Text("Nota", style: TextStyle(fontSize: 11)),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 4),
+                                                IconButton(
+                                                  icon: const Icon(Icons.notifications_active, size: 18, color: Colors.amber),
+                                                  tooltip: "Notificar",
+                                                  onPressed: () => _notifyOne(s),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
-                                    const SizedBox(width: 4),
-                                    IconButton(
-                                      icon: const Icon(Icons.notifications_active, size: 18, color: Colors.amber),
-                                      tooltip: "Notificar",
-                                      onPressed: () => _notifyOne(s),
-                                    ),
+                                    const Divider(color: Colors.white12, height: 1),
                                   ],
-                                ),
-                              ),
-                            ],
+                                );
+                              },
+                            ),
                           ),
-                        ),
-                        const Divider(color: Colors.white12, height: 1),
-                      ],
-                    );
-                  },
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ],

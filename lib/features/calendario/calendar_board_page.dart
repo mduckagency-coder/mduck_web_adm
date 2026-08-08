@@ -177,105 +177,140 @@ class _CalendarBoardPageState extends State<CalendarBoardPage> {
     }
   }
 
+  Widget _buildSidebarContent() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ElevatedButton.icon(
+          onPressed: _openNewEvent,
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF27AE60), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14)),
+          icon: const Icon(Icons.add),
+          label: const Text("Novo evento"),
+        ),
+        const SizedBox(height: 16),
+        MiniMonthCalendar(
+          focusedMonth: DateTime(_focusedDay.year, _focusedDay.month, 1),
+          selectedDay: _selectedDay,
+          onMonthChanged: (m) {
+            setState(() => _focusedDay = m);
+            _load();
+          },
+          onDaySelected: _onMiniCalendarDaySelected,
+        ),
+        const SizedBox(height: 16),
+        FiltersPanel(
+          categories: _categories,
+          searchText: _searchText,
+          onSearchChanged: (v) {
+            setState(() => _searchText = v);
+            _load();
+          },
+          scope: _scope,
+          onScopeChanged: (v) {
+            setState(() => _scope = v);
+            _load();
+          },
+          selectedManagerIds: _selectedManagerIds,
+          onManagerToggle: (id) {
+            setState(() {
+              if (_selectedManagerIds.contains(id)) {
+                _selectedManagerIds.remove(id);
+              } else {
+                _selectedManagerIds.add(id);
+              }
+            });
+            _load();
+          },
+          selectedCategoryIds: _selectedCategoryIds,
+          onCategoryToggle: (id) {
+            setState(() {
+              if (_selectedCategoryIds.contains(id)) {
+                _selectedCategoryIds.remove(id);
+              } else {
+                _selectedCategoryIds.add(id);
+              }
+            });
+            _load();
+          },
+          showManagerFilter: !_isMine,
+          onManageCategories: _manageCategories,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildToolbarAndBoard({required bool expandBoard}) {
+    final board = Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: const Color(0xFF161616), borderRadius: BorderRadius.circular(12)),
+      child: _buildBoard(),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CalendarToolbar(
+          focusedDay: _focusedDay,
+          viewMode: _viewMode,
+          onToday: _onToday,
+          onPrevious: _onPrevious,
+          onNext: _onNext,
+          onViewModeChanged: (v) => setState(() => _viewMode = v),
+        ),
+        const SizedBox(height: 16),
+        expandBoard ? Expanded(child: board) : board,
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading && _events.isEmpty) return const Center(child: CircularProgressIndicator());
 
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 270,
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  ElevatedButton.icon(
-                    onPressed: _openNewEvent,
-                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF27AE60), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14)),
-                    icon: const Icon(Icons.add),
-                    label: const Text("Novo evento"),
-                  ),
-                  const SizedBox(height: 16),
-                  MiniMonthCalendar(
-                    focusedMonth: DateTime(_focusedDay.year, _focusedDay.month, 1),
-                    selectedDay: _selectedDay,
-                    onMonthChanged: (m) {
-                      setState(() => _focusedDay = m);
-                      _load();
-                    },
-                    onDaySelected: _onMiniCalendarDaySelected,
-                  ),
-                  const SizedBox(height: 16),
-                  FiltersPanel(
-                    categories: _categories,
-                    searchText: _searchText,
-                    onSearchChanged: (v) {
-                      setState(() => _searchText = v);
-                      _load();
-                    },
-                    scope: _scope,
-                    onScopeChanged: (v) {
-                      setState(() => _scope = v);
-                      _load();
-                    },
-                    selectedManagerIds: _selectedManagerIds,
-                    onManagerToggle: (id) {
-                      setState(() {
-                        if (_selectedManagerIds.contains(id)) {
-                          _selectedManagerIds.remove(id);
-                        } else {
-                          _selectedManagerIds.add(id);
-                        }
-                      });
-                      _load();
-                    },
-                    selectedCategoryIds: _selectedCategoryIds,
-                    onCategoryToggle: (id) {
-                      setState(() {
-                        if (_selectedCategoryIds.contains(id)) {
-                          _selectedCategoryIds.remove(id);
-                        } else {
-                          _selectedCategoryIds.add(id);
-                        }
-                      });
-                      _load();
-                    },
-                    showManagerFilter: !_isMine,
-                    onManageCategories: _manageCategories,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(width: 20),
-          Expanded(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Sidebar fixa de 270px so cabe ao lado do board em telas largas --
+        // em telas de celular ela vira uma secao recolhivel abaixo do board,
+        // que e o conteudo principal.
+        final isMobile = constraints.maxWidth < 800;
+
+        if (isMobile) {
+          return Padding(
+            padding: const EdgeInsets.all(12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CalendarToolbar(
-                  focusedDay: _focusedDay,
-                  viewMode: _viewMode,
-                  onToday: _onToday,
-                  onPrevious: _onPrevious,
-                  onNext: _onNext,
-                  onViewModeChanged: (v) => setState(() => _viewMode = v),
-                ),
-                const SizedBox(height: 16),
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(color: const Color(0xFF161616), borderRadius: BorderRadius.circular(12)),
-                    child: _buildBoard(),
+                Expanded(child: _buildToolbarAndBoard(expandBoard: true)),
+                const SizedBox(height: 8),
+                Theme(
+                  data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                  child: ExpansionTile(
+                    title: const Text("Filtros e novo evento", style: TextStyle(color: Colors.white)),
+                    collapsedIconColor: Colors.white70,
+                    iconColor: Colors.white70,
+                    childrenPadding: const EdgeInsets.only(bottom: 12),
+                    children: [_buildSidebarContent()],
                   ),
                 ),
               ],
             ),
+          );
+        }
+
+        return Padding(
+          padding: const EdgeInsets.all(24),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 270,
+                child: SingleChildScrollView(child: _buildSidebarContent()),
+              ),
+              const SizedBox(width: 20),
+              Expanded(child: _buildToolbarAndBoard(expandBoard: true)),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

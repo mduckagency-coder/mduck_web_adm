@@ -84,15 +84,26 @@ class AdminShell extends StatefulWidget {
   State<AdminShell> createState() => _AdminShellState();
 }
 
+/// Abaixo desta largura a sidebar fixa (250px) nao cabe mais junto com um
+/// conteudo minimamente usavel -- vira gaveta (Drawer) aberta pelo botao de
+/// menu na AppTopBar.
+const _mobileBreakpoint = 700.0;
+
 class _AdminShellState extends State<AdminShell> {
   String _selected = "Dashboard";
   final Set<String> _expanded = {"Criadores"};
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   void _select(String value) {
     debugPrint("[AdminShell] _select chamado com value=" + value);
     setState(() => _selected = value);
     html.window.localStorage["mduck_admin_page"] = value;
     debugPrint("[AdminShell] localStorage gravado=" + value);
+    // No mobile o menu abre em gaveta -- fecha ela ao escolher uma pagina,
+    // senao o usuario tem que fechar manualmente toda vez.
+    if (_scaffoldKey.currentState?.isDrawerOpen == true) {
+      _scaffoldKey.currentState?.closeDrawer();
+    }
   }
 
   @override
@@ -231,98 +242,133 @@ class _AdminShellState extends State<AdminShell> {
     }
   }
 
+  Widget _buildSidebarColumn(BuildContext context) {
+    return Column(
+      children: [
+        const SizedBox(height: 16),
+        InkWell(
+          onTap: () {
+            html.window.localStorage.remove("mduck_area");
+            Navigator.of(context).pop();
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Image.asset("assets/logo/LogoMduck.png", height: 96, fit: BoxFit.contain),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              ListTile(
+                leading: Icon(Icons.dashboard, color: _selected == "Dashboard" ? const Color(0xFF7A0BD4) : Colors.white70, size: 20),
+                title: Text("Dashboard",
+                    style: TextStyle(color: _selected == "Dashboard" ? const Color(0xFF7A0BD4) : Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                onTap: () => _select("Dashboard"),
+              ),
+              ListTile(
+                leading: Icon(Icons.event, color: _selected == "Eventos" ? const Color(0xFF7A0BD4) : Colors.white70, size: 20),
+                title: Text("Eventos",
+                    style: TextStyle(color: _selected == "Eventos" ? const Color(0xFF7A0BD4) : Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                onTap: () => _select("Eventos"),
+              ),
+              ListTile(
+                leading: Icon(Icons.trending_up, color: _selected == "Programas de Desenvolvimento" ? const Color(0xFF7A0BD4) : Colors.white70, size: 20),
+                title: Text("Programas de Desenvolvimento",
+                    style: TextStyle(color: _selected == "Programas de Desenvolvimento" ? const Color(0xFF7A0BD4) : Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                onTap: () => _select("Programas de Desenvolvimento"),
+              ),
+              const Divider(color: Colors.white12, height: 12),
+              ..._menuGroups.map(_groupTile),
+              const Divider(color: Colors.white12, height: 24),
+              ..._standaloneItems.map((item) {
+                final selected = _selected == item.$2;
+                return ListTile(
+                  leading: Icon(item.$1, color: selected ? const Color(0xFF7A0BD4) : Colors.white70, size: 20),
+                  title: Text(item.$3, style: TextStyle(color: selected ? const Color(0xFF7A0BD4) : Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                  onTap: () => _select(item.$2),
+                );
+              }),
+              if (_isDono) ListTile(leading: Icon(Icons.account_balance, color: _selected == "Financeiro & RH" ? const Color(0xFF7A0BD4) : Colors.amber, size: 20), title: Text("Financeiro & RH", style: TextStyle(color: _selected == "Financeiro & RH" ? const Color(0xFF7A0BD4) : Colors.amber, fontWeight: FontWeight.bold, fontSize: 14)), onTap: () => _select("Financeiro & RH")),
+              if (_isDono || _isAdmin2) ListTile(leading: Icon(Icons.bug_report, color: _selected == "Reportes de Bugs" ? const Color(0xFF7A0BD4) : Colors.redAccent, size: 20), title: Text("Reportes de Bugs", style: TextStyle(color: _selected == "Reportes de Bugs" ? const Color(0xFF7A0BD4) : Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 14)), onTap: () => _select("Reportes de Bugs")),
+            ],
+          ),
+        ),
+        InkWell(
+          onTap: () => _select("Importacao TikTok"),
+          child: Container(
+            width: double.infinity,
+            color: _selected == "Importacao TikTok" ? const Color(0xFF7A0BD4) : const Color(0xFF7A0BD4).withOpacity(0.6),
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.upload_file, color: Colors.white, size: 20),
+                SizedBox(width: 8),
+                Text("Importacao TikTok", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Row(
-        children: [
-          Container(
-            width: 250,
-            color: const Color(0xFF1A1A1A),
-            child: Column(
-              children: [
-                const SizedBox(height: 16),
-                InkWell(
-                  onTap: () {
-                    html.window.localStorage.remove("mduck_area");
-                    Navigator.of(context).pop();
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Image.asset("assets/logo/LogoMduck.png", height: 96, fit: BoxFit.contain),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: ListView(
-                    padding: EdgeInsets.zero,
-                    children: [
-                      ListTile(
-                        leading: Icon(Icons.dashboard, color: _selected == "Dashboard" ? const Color(0xFF7A0BD4) : Colors.white70, size: 20),
-                        title: Text("Dashboard",
-                            style: TextStyle(color: _selected == "Dashboard" ? const Color(0xFF7A0BD4) : Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                        onTap: () => _select("Dashboard"),
-                      ),
-                      ListTile(
-                        leading: Icon(Icons.event, color: _selected == "Eventos" ? const Color(0xFF7A0BD4) : Colors.white70, size: 20),
-                        title: Text("Eventos",
-                            style: TextStyle(color: _selected == "Eventos" ? const Color(0xFF7A0BD4) : Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                        onTap: () => _select("Eventos"),
-                      ),
-                      ListTile(
-                        leading: Icon(Icons.trending_up, color: _selected == "Programas de Desenvolvimento" ? const Color(0xFF7A0BD4) : Colors.white70, size: 20),
-                        title: Text("Programas de Desenvolvimento",
-                            style: TextStyle(color: _selected == "Programas de Desenvolvimento" ? const Color(0xFF7A0BD4) : Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                        onTap: () => _select("Programas de Desenvolvimento"),
-                      ),
-                      const Divider(color: Colors.white12, height: 12),
-                      ..._menuGroups.map(_groupTile),
-                      const Divider(color: Colors.white12, height: 24),
-                      ..._standaloneItems.map((item) {
-                        final selected = _selected == item.$2;
-                        return ListTile(
-                          leading: Icon(item.$1, color: selected ? const Color(0xFF7A0BD4) : Colors.white70, size: 20),
-                          title: Text(item.$3, style: TextStyle(color: selected ? const Color(0xFF7A0BD4) : Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                          onTap: () => _select(item.$2),
-                        );
-                      }),
-                      if (_isDono) ListTile(leading: Icon(Icons.account_balance, color: _selected == "Financeiro & RH" ? const Color(0xFF7A0BD4) : Colors.amber, size: 20), title: Text("Financeiro & RH", style: TextStyle(color: _selected == "Financeiro & RH" ? const Color(0xFF7A0BD4) : Colors.amber, fontWeight: FontWeight.bold, fontSize: 14)), onTap: () => _select("Financeiro & RH")),
-                      if (_isDono || _isAdmin2) ListTile(leading: Icon(Icons.bug_report, color: _selected == "Reportes de Bugs" ? const Color(0xFF7A0BD4) : Colors.redAccent, size: 20), title: Text("Reportes de Bugs", style: TextStyle(color: _selected == "Reportes de Bugs" ? const Color(0xFF7A0BD4) : Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 14)), onTap: () => _select("Reportes de Bugs")),
-                    ],
-                  ),
-                ),
-                InkWell(
-                  onTap: () => _select("Importacao TikTok"),
-                  child: Container(
-                    width: double.infinity,
-                    color: _selected == "Importacao TikTok" ? const Color(0xFF7A0BD4) : const Color(0xFF7A0BD4).withOpacity(0.6),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.upload_file, color: Colors.white, size: 20),
-                        SizedBox(width: 8),
-                        Text("Importacao TikTok", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < _mobileBreakpoint;
+
+        if (isMobile) {
+          return Scaffold(
+            key: _scaffoldKey,
+            backgroundColor: const Color(0xFF1A1A1A),
+            drawer: Drawer(
+              backgroundColor: const Color(0xFF1A1A1A),
+              child: SafeArea(child: _buildSidebarColumn(context)),
+            ),
+            body: SafeArea(
+              child: Column(
+                children: [
+                  AppTopBar(
+                    leading: IconButton(
+                      icon: const Icon(Icons.menu, color: Colors.white),
+                      onPressed: () => _scaffoldKey.currentState?.openDrawer(),
                     ),
+                    onNotificationTap: () => _select("Reportes de Bugs"),
                   ),
+                  Expanded(child: _buildContent()),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return Scaffold(
+          key: _scaffoldKey,
+          body: Row(
+            children: [
+              Container(
+                width: 250,
+                color: const Color(0xFF1A1A1A),
+                child: _buildSidebarColumn(context),
+              ),
+              const VerticalDivider(width: 1),
+              Expanded(
+                child: Column(
+                  children: [
+                    AppTopBar(onNotificationTap: () => _select("Reportes de Bugs")),
+                    Expanded(child: _buildContent()),
+                  ],
                 ),
-                
-                const SizedBox(height: 8),
-              ],
-            ),
+              ),
+            ],
           ),
-          const VerticalDivider(width: 1),
-          Expanded(
-            child: Column(
-              children: [
-                AppTopBar(onNotificationTap: () => _select("Reportes de Bugs")),
-                Expanded(child: _buildContent()),
-              ],
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
