@@ -861,33 +861,43 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
         canManageAll: _canManage,
         onToggle: (managerId, addNow) async {
           final userId = _userId;
-          if (addNow) {
-            await addManagersToCard(
-              progressId: progressId,
-              managerIds: [managerId],
-              addedBy: userId,
-            );
-            final m = _agencyManagers.firstWhere(
-              (mgr) => mgr["id"] == managerId,
-              orElse: () => {},
-            );
-            setState(() {
-              _cardManagers.putIfAbsent(progressId, () => []).add({
-                "managerId": managerId,
-                "email": m["login_email"],
-                "photoUrl": m["photo_url"],
-              });
-            });
-          } else {
-            await removeManagerFromCard(
-              progressId: progressId,
-              managerId: managerId,
-            );
-            setState(() {
-              _cardManagers[progressId]?.removeWhere(
-                (mgr) => mgr["managerId"] == managerId,
+          try {
+            if (addNow) {
+              await addManagersToCard(
+                progressId: progressId,
+                managerIds: [managerId],
+                addedBy: userId,
               );
-            });
+              final m = _agencyManagers.firstWhere(
+                (mgr) => mgr["id"] == managerId,
+                orElse: () => {},
+              );
+              setState(() {
+                _cardManagers.putIfAbsent(progressId, () => []).add({
+                  "managerId": managerId,
+                  "email": m["login_email"],
+                  "photoUrl": m["photo_url"],
+                });
+              });
+            } else {
+              await removeManagerFromCard(
+                progressId: progressId,
+                managerId: managerId,
+              );
+              setState(() {
+                _cardManagers[progressId]?.removeWhere(
+                  (mgr) => mgr["managerId"] == managerId,
+                );
+              });
+            }
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text("Erro ao vincular gestor: " + e.toString()),
+                ),
+              );
+            }
           }
         },
       ),
@@ -3152,10 +3162,16 @@ class _GestorVincularStreamerDialogState
     });
     final client = Supabase.instance.client;
     try {
-      await client
+      final updated = await client
           .from("leads")
           .update({"converted_streamer_id": _selectedId})
-          .eq("id", widget.leadId);
+          .eq("id", widget.leadId)
+          .select("id");
+      if ((updated as List).isEmpty) {
+        throw Exception(
+          "O vinculo nao foi salvo (sem permissao para editar este card). Avise um coordenador/admin.",
+        );
+      }
 
       final gestores = await client
           .from("lead_onboarding_gestores")

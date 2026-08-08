@@ -404,14 +404,20 @@ Future<void> createOnboardingPhaseCardIfNeeded({
 
   if (leadCard != null) {
     progressId = leadCard["id"] as String;
-    await client
+    final promoted = await client
         .from("streamer_phase_progress")
         .update({
           "streamer_id": streamerId,
           "lead_id": null,
           "manager_id": assignedManagerId,
         })
-        .eq("id", progressId);
+        .eq("id", progressId)
+        .select("id");
+    if ((promoted as List).isEmpty) {
+      throw Exception(
+        "Nao foi possivel promover o card (sem permissao para editar este registro). Avise um coordenador/admin.",
+      );
+    }
     try {
       await client.from("streamer_phase_history").insert({
         "streamer_id": streamerId,

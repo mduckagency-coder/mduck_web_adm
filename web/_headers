@@ -1,0 +1,28 @@
+# Netlify: evita que o navegador guarde em cache o bootstrap do Flutter Web
+# (index.html, o loader e o bundle principal). Sem isso, depois de cada
+# deploy novo o navegador pode continuar rodando a versao antiga em cache
+# ate um F5 forcado (Ctrl+Shift+R) -- e quando o app tenta buscar um
+# pedaco/asset que so existe no build novo, a troca de tela trava com
+# pagina em branco em vez de dar erro visivel.
+/index.html
+  Cache-Control: no-cache
+
+/flutter_bootstrap.js
+  Cache-Control: no-cache
+
+/main.dart.js
+  Cache-Control: no-cache
+
+/flutter_service_worker.js
+  Cache-Control: no-cache
+
+/version.json
+  Cache-Control: no-cache
+
+# Assets com nome versionado (fontes, imagens, canvaskit) podem ficar em
+# cache por muito tempo -- o nome muda quando o conteudo muda.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/canvaskit/*
+  Cache-Control: public, max-age=31536000, immutable
