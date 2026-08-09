@@ -15,6 +15,7 @@ class IlhaCropEditor extends StatelessWidget {
     required this.offsetY,
     required this.onScaleChanged,
     required this.onOffsetChanged,
+    this.fit = BoxFit.cover,
   });
 
   final String imageUrl;
@@ -25,6 +26,11 @@ class IlhaCropEditor extends StatelessWidget {
   final ValueChanged<double> onScaleChanged;
   final void Function(double x, double y) onOffsetChanged;
 
+  /// cover (padrao, fundo full-bleed da ilha) preenche o quadro inteiro
+  /// cortando o excesso; contain (avatar) mostra o arquivo inteiro sem
+  /// cortar nada, so cropando de verdade se o admin der zoom (scale > 1).
+  final BoxFit fit;
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -33,7 +39,7 @@ class IlhaCropEditor extends StatelessWidget {
         const Text("Corte / enquadramento", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
         const SizedBox(height: 4),
         const Text(
-          "Baseado no print. Dê zoom e arraste pra corrigir vídeo com área maior do que deveria — o app aplica o mesmo corte no vídeo de verdade.",
+          "Baseado no print. Dê zoom e arraste pra corrigir vídeo com área maior do que deveria, ou diminua abaixo de 100% pra mostrar mais do vídeo (menos corte em cima/embaixo ou nas laterais) — o app aplica o mesmo corte no vídeo de verdade.",
           style: TextStyle(color: Colors.white54, fontSize: 12),
         ),
         const SizedBox(height: 8),
@@ -61,7 +67,7 @@ class IlhaCropEditor extends StatelessWidget {
                         child: SizedBox(
                           width: size.width * scale,
                           height: size.height * scale,
-                          child: Image.network(imageUrl, fit: BoxFit.cover),
+                          child: Image.network(imageUrl, fit: fit),
                         ),
                       ),
                     ),
@@ -76,8 +82,8 @@ class IlhaCropEditor extends StatelessWidget {
           const Icon(Icons.zoom_out, color: Colors.white54, size: 16),
           Expanded(
             child: Slider(
-              value: scale.clamp(1.0, 3.0),
-              min: 1.0,
+              value: scale.clamp(0.3, 3.0),
+              min: 0.3,
               max: 3.0,
               activeColor: const Color(0xFF7A0BD4),
               onChanged: (v) {
@@ -88,6 +94,7 @@ class IlhaCropEditor extends StatelessWidget {
           ),
           const Icon(Icons.zoom_in, color: Colors.white54, size: 16),
         ]),
+        Text((scale.clamp(0.3, 3.0) * 100).round().toString() + "%", style: const TextStyle(color: Colors.white38, fontSize: 11)),
       ],
     );
   }

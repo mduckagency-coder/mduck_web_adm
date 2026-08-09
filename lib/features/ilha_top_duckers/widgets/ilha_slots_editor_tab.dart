@@ -17,10 +17,13 @@ class _IlhaSlotsEditorTabState extends State<IlhaSlotsEditorTab> {
   final _service = IlhaTopService();
   bool _loading = true;
   bool _saving = false;
+  bool _savingMaxRank = false;
   List<Map<String, dynamic>> _slots = [];
   List<Map<String, dynamic>> _backgrounds = [];
   String? _selectedBackgroundId;
   String? _selectedSlotKey;
+  int? _maxRank;
+  final _customMaxRankController = TextEditingController();
 
   @override
   void initState() {
@@ -28,10 +31,16 @@ class _IlhaSlotsEditorTabState extends State<IlhaSlotsEditorTab> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _customMaxRankController.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
-    final results = await Future.wait([_service.fetchSlots(), _service.fetchBackgrounds()]);
-    final slots = results[0];
-    final backgrounds = results[1];
+    final slots = await _service.fetchSlots();
+    final backgrounds = await _service.fetchBackgrounds();
+    final maxRank = await _service.fetchMaxRank();
     final withRef = backgrounds.firstWhere(
       (b) => b["media_type"] == "image" || (b["preview_image_url"] as String?)?.isNotEmpty == true,
       orElse: () => <String, dynamic>{},
@@ -41,9 +50,35 @@ class _IlhaSlotsEditorTabState extends State<IlhaSlotsEditorTab> {
         _slots = slots.map((s) => Map<String, dynamic>.from(s)).toList();
         _backgrounds = backgrounds;
         _selectedBackgroundId = withRef.isNotEmpty ? withRef["id"] as String : null;
+        _maxRank = maxRank;
+        _customMaxRankController.text = (maxRank != null && maxRank != 5 && maxRank != 10) ? maxRank.toString() : "";
         _loading = false;
       });
     }
+  }
+
+  Future<void> _setMaxRank(int? value) async {
+    setState(() => _savingMaxRank = true);
+    try {
+      await _service.saveMaxRank(value);
+      if (mounted) {
+        setState(() {
+          _maxRank = value;
+          if (value == null || value == 5 || value == 10) _customMaxRankController.clear();
+        });
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Limite de exibição salvo."), duration: Duration(seconds: 2)));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erro ao salvar: " + e.toString()), backgroundColor: Colors.redAccent));
+    } finally {
+      if (mounted) setState(() => _savingMaxRank = false);
+    }
+  }
+
+  void _applyCustomMaxRank() {
+    final value = int.tryParse(_customMaxRankController.text.trim());
+    if (value == null || value < 1) return;
+    _setMaxRank(value);
   }
 
   /// URL de imagem estatica pra usar de referencia: se o fundo for imagem,
@@ -116,7 +151,67 @@ class _IlhaSlotsEditorTabState extends State<IlhaSlotsEditorTab> {
 
   void _updateScale(String slotKey, double scale) => setState(() => _slot(slotKey)["scale"] = scale);
 
+  void _toggleEnabled(String slotKey, bool value) => setState(() => _slot(slotKey)["is_enabled"] = value);
+
   void _updateMinScale(String slotKey, double minScale) => setState(() => _slot(slotKey)["min_scale"] = minScale);
+
+  Widget _buildMaxRankPanel() {
+    final active = _maxRank != null;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: Colors.white.withOpacity(0.04), borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.white12)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Text("Quantidade de streamers exibidos na ilha", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+            const Spacer(),
+            if (_savingMaxRank) const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+          ]),
+          const SizedBox(height: 4),
+          Text(
+            active ? "Só os top " + _maxRank.toString() + " por diamantes aparecem na ilha." : "Sem limite -- todo mundo elegível (80k+) aparece na ilha.",
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+            ChoiceChip(
+              label: const Text("Sem limite"),
+              selected: !active,
+              selectedColor: const Color(0xFF7A0BD4),
+              labelStyle: TextStyle(color: !active ? Colors.white : Colors.white70, fontSize: 12),
+              onSelected: (_) => _setMaxRank(null),
+            ),
+            ChoiceChip(
+              label: const Text("Até Top 5"),
+              selected: _maxRank == 5,
+              selectedColor: const Color(0xFF7A0BD4),
+              labelStyle: TextStyle(color: _maxRank == 5 ? Colors.white : Colors.white70, fontSize: 12),
+              onSelected: (_) => _setMaxRank(5),
+            ),
+            ChoiceChip(
+              label: const Text("Até Top 10"),
+              selected: _maxRank == 10,
+              selectedColor: const Color(0xFF7A0BD4),
+              labelStyle: TextStyle(color: _maxRank == 10 ? Colors.white : Colors.white70, fontSize: 12),
+              onSelected: (_) => _setMaxRank(10),
+            ),
+            SizedBox(
+              width: 160,
+              child: TextField(
+                controller: _customMaxRankController,
+                keyboardType: TextInputType.number,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+                decoration: const InputDecoration(isDense: true, border: OutlineInputBorder(), labelText: "Personalizado (ex: 20)"),
+                onSubmitted: (_) => _applyCustomMaxRank(),
+              ),
+            ),
+            OutlinedButton(onPressed: _applyCustomMaxRank, child: const Text("Aplicar")),
+          ]),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -130,6 +225,8 @@ class _IlhaSlotsEditorTabState extends State<IlhaSlotsEditorTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildMaxRankPanel(),
+          const SizedBox(height: 16),
           Row(children: [
             const Text("Fundo de referência:", style: TextStyle(color: Colors.white70, fontSize: 13)),
             const SizedBox(width: 8),
@@ -291,6 +388,7 @@ class _IlhaSlotsEditorTabState extends State<IlhaSlotsEditorTab> {
     final slotKey = slot["slot_key"] as String;
     final isArea = islandSlotIsArea(slotKey);
     final selected = _selectedSlotKey == slotKey;
+    final enabled = slot["is_enabled"] as bool? ?? true;
     return Card(
       color: selected ? const Color(0xFF7A0BD4).withOpacity(0.15) : Colors.white.withOpacity(0.05),
       margin: const EdgeInsets.only(bottom: 8),
@@ -299,7 +397,18 @@ class _IlhaSlotsEditorTabState extends State<IlhaSlotsEditorTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(slot["label"] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+            Row(children: [
+              Expanded(
+                child: Text(slot["label"] as String,
+                    style: TextStyle(color: enabled ? Colors.white : Colors.white38, fontWeight: FontWeight.bold, fontSize: 13)),
+              ),
+              Text(enabled ? "Mostrar no app" : "Oculto", style: TextStyle(color: enabled ? Colors.white54 : Colors.redAccent, fontSize: 10)),
+              Switch(
+                value: enabled,
+                activeThumbColor: const Color(0xFF7A0BD4),
+                onChanged: (v) => _toggleEnabled(slotKey, v),
+              ),
+            ]),
             Text(
               "x: " + (slot["pos_x"] as num).toStringAsFixed(1) + "%  y: " + (slot["pos_y"] as num).toStringAsFixed(1) + "%",
               style: const TextStyle(color: Colors.white54, fontSize: 11),

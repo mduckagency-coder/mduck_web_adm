@@ -58,6 +58,22 @@ bool islandMediaLooksLikeVideo(String url) {
   return _videoExtensions.any((ext) => lower.endsWith(ext));
 }
 
+/// Extensoes aceitas no upload de video/imagem da Ilha Top -- curada pra so
+/// deixar passar formato que o Flutter (web aqui no admin e o app do
+/// streamer) decodifica sem plugin extra. video comum (mp4/mov/webm/m4v)
+/// NAO tem canal alfa de verdade em nenhum player Flutter -- pra fundo
+/// transparente use gif ou webp animado (tocam com transparencia nativa,
+/// sem precisar de video player) ou png/webp estatico se nao precisar
+/// animar.
+const islandMediaAllowedExtensions = ["mp4", "mov", "webm", "m4v", "gif", "webp", "png", "jpg", "jpeg"];
+
+const _transparencyCapableExtensions = [".gif", ".webp", ".png"];
+
+bool islandMediaSupportsTransparency(String url) {
+  final lower = url.toLowerCase().split("?").first;
+  return _transparencyCapableExtensions.any((ext) => lower.endsWith(ext));
+}
+
 /// Gestao da Ilha Top: banco de videos/imagens de fundo, banco de avatares
 /// (patos) e posicoes (x/y) de cada slot da ilha. Tudo por agencia.
 class IlhaTopService {
@@ -146,6 +162,11 @@ class IlhaTopService {
     required double cropScale,
     required double cropOffsetX,
     required double cropOffsetY,
+    required String displayShape,
+    required String borderColor,
+    required String sizeMode,
+    required double sizePercent,
+    String? defaultScope,
   }) async {
     final agencyId = await currentAgencyId();
     final data = {
@@ -164,11 +185,39 @@ class IlhaTopService {
       "crop_scale": cropScale,
       "crop_offset_x": cropOffsetX,
       "crop_offset_y": cropOffsetY,
+      "display_shape": displayShape,
+      "border_color": borderColor,
+      "size_mode": sizeMode,
+      "size_percent": sizePercent,
+      "default_scope": defaultScope,
     };
+    String savedId;
     if (id != null) {
       await _client.from("island_avatars").update(data).eq("id", id);
+      savedId = id;
     } else {
-      await _client.from("island_avatars").insert(data);
+      final inserted = await _client.from("island_avatars").insert(data).select("id").single();
+      savedId = inserted["id"] as String;
+    }
+    if (defaultScope != null) await _clearConflictingDefaults(agencyId, savedId, defaultScope, categoryIds);
+  }
+
+  /// So um avatar por agencia pode ser o padrao "para todos", e so um
+  /// avatar por categoria pode ser o padrao "por categoria" -- ao marcar um
+  /// novo, desmarca quem tinha esse papel antes (comportamento tipo radio).
+  Future<void> _clearConflictingDefaults(String agencyId, String savedId, String defaultScope, List<String> categoryIds) async {
+    if (defaultScope == "all") {
+      await _client.from("island_avatars").update({"default_scope": null}).eq("agency_id", agencyId).eq("default_scope", "all").neq("id", savedId);
+      return;
+    }
+    if (defaultScope == "category" && categoryIds.isNotEmpty) {
+      final others = await _client.from("island_avatars").select("id, category_ids").eq("agency_id", agencyId).eq("default_scope", "category").neq("id", savedId);
+      for (final o in (others as List)) {
+        final ids = (o["category_ids"] as List?)?.cast<String>() ?? const <String>[];
+        if (ids.any((c) => categoryIds.contains(c))) {
+          await _client.from("island_avatars").update({"default_scope": null}).eq("id", o["id"] as String);
+        }
+      }
     }
   }
 
@@ -184,6 +233,7 @@ class IlhaTopService {
     required bool testMode,
     int threshold = 80000,
     List<String?> pinnedIds = const [],
+    int? maxRank,
   }) async {
     final profiles = await _client
         .from("profiles")
@@ -192,7 +242,7 @@ class IlhaTopService {
 
     final islands = await _client
         .from("streamer_islands")
-        .select("streamer_id, unlocked_at, avatar_id, island_avatars(label, media_url, preview_image_url)");
+        .select("streamer_id, unlocked_at, avatar_id, island_avatars(label, media_url, preview_image_url, display_shape, border_color, size_mode, size_percent)");
     final islandMap = {for (final i in (islands as List)) i["streamer_id"] as String: i};
 
     final itemsCount = await _client.from("streamer_island_items").select("streamer_id");
@@ -224,12 +274,17 @@ class IlhaTopService {
         "avatar_label": avatar is Map ? avatar["label"] as String? : null,
         "avatar_media_url": avatar is Map ? avatar["media_url"] as String? : null,
         "avatar_preview_url": avatar is Map ? avatar["preview_image_url"] as String? : null,
+        "avatar_display_shape": avatar is Map ? avatar["display_shape"] as String? : null,
+        "avatar_border_color": avatar is Map ? avatar["border_color"] as String? : null,
+        "avatar_size_mode": avatar is Map ? avatar["size_mode"] as String? : null,
+        "avatar_size_percent": avatar is Map ? (avatar["size_percent"] as num?)?.toDouble() : null,
       });
     }
     all.sort((a, b) => (b["diamonds"] as int).compareTo(a["diamonds"] as int));
 
     if (!testMode) {
-      return all.where((s) => (s["diamonds"] as int) >= threshold).toList();
+      final filtered = all.where((s) => (s["diamonds"] as int) >= threshold).toList();
+      return maxRank != null ? filtered.take(maxRank).toList() : filtered;
     }
 
     final byId = {for (final s in all) s["id"] as String: s};
@@ -253,7 +308,7 @@ class IlhaTopService {
         poolIndex++;
       }
     }
-    return result;
+    return maxRank != null ? result.take(maxRank).toList() : result;
   }
 
   /// Todos os streamers ativos (id + nome), pra seletor de "forcar top 1/2/3"
@@ -274,6 +329,20 @@ class IlhaTopService {
   }
 
   Future<void> saveTestMode(bool value) => _saveAppSetting("island_test_mode", value);
+
+  /// Limite de quantos streamers aparecem na ilha (chave "island_max_rank"
+  /// em app_settings, ja lida pelo app do streamer via RLS). null = sem
+  /// limite, mostra todo mundo elegivel (comportamento padrao). Com valor
+  /// definido (ex: 20), so os top N por diamantes aparecem -- os slots
+  /// fixos (Top 1..10) e a area 11+ ja resolvem sozinhos com menos gente.
+  Future<int?> fetchMaxRank() async {
+    final agencyId = await currentAgencyId();
+    final row = await _client.from("app_settings").select("value").eq("agency_id", agencyId).eq("key", "island_max_rank").maybeSingle();
+    final value = row?["value"];
+    return value is num ? value.toInt() : null;
+  }
+
+  Future<void> saveMaxRank(int? value) => _saveAppSetting("island_max_rank", value);
 
   /// Configuracao do modo teste: diamantes minimos customizados, quem fica
   /// fixo em top1/top2/top3, e quais raridades de avatar ficam bloqueadas/

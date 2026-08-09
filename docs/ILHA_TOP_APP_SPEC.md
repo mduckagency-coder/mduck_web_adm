@@ -107,7 +107,8 @@ select p.id, p.display_name, p.avatar_url,
        ss.diamonds,
        si.avatar_id, ia.media_url as avatar_media_url,
        ia.crop_scale, ia.crop_offset_x, ia.crop_offset_y,
-       ia.muted, ia.volume, ia.loop_video
+       ia.muted, ia.volume, ia.loop_video,
+       ia.display_shape, ia.border_color, ia.size_mode, ia.size_percent
 from profiles p
 join streamer_stats ss on ss.streamer_id = p.id
 left join streamer_islands si on si.streamer_id = p.id
@@ -120,10 +121,25 @@ order by ss.diamonds desc;
 Ordene por diamantes desc; a posição na lista (1º, 2º, ...) define o
 `slot_key`: `rank <= 10 ? 'top_' + rank : 'top_11_plus'`.
 
+**Limite de quantidade (configurável no admin, aba "Posições da Ilha")**:
+```sql
+select value from app_settings
+where agency_id = :agency_id and key = 'island_max_rank';
+-- value = numero (jsonb) => so os top N por diamantes aparecem
+-- value = null ou linha inexistente => sem limite, comportamento atual
+```
+Se tiver um valor, apliquem `limit :max_rank` na query acima (depois de
+ordenar por diamantes) — os ranks além disso simplesmente não aparecem em
+lugar nenhum da ilha (nem nos slots fixos, nem na área 11+).
+
 **Atenção**: hoje o admin tem um botão "Desbloquear ilha" por streamer
 (grava `streamer_islands.unlocked_at`). Decidam junto com a agência se o
 app só deve mostrar quem tem `unlocked_at is not null` além de 80k+, ou se
 todo 80k+ já aparece direto — isso muda o filtro da query acima.
+
+**`avatar_id` pode vir `null`** (streamer nunca escolheu, ou o avatar que
+ele tinha foi excluído) — nesse caso apliquem o fallback de avatar padrão
+da seção 9.1 em vez de deixar o slot sem avatar.
 
 ## 5. Corte/enquadramento (zoom + posição)
 
@@ -139,13 +155,103 @@ ClipRect(
     child: SizedBox(
       width: frameWidth * cropScale,
       height: frameHeight * cropScale,
-      child: VideoPlayer(..., fit: BoxFit.cover),
+      child: VideoPlayer(..., fit: mediaFit),
     ),
   ),
 )
 ```
 
-## 6. Top 1 do mês passado
+**`mediaFit` muda conforme o que está sendo renderizado** — o editor do
+admin usa o mesmo `fit` abaixo, então o que ele vê é o que precisa aparecer
+no app:
+
+- **Fundo da ilha**: `BoxFit.cover` — preenche a tela toda (full-bleed),
+  cortando o excesso. `crop_scale = 1` já cobre o frame inteiro por padrão.
+- **Avatar**: `BoxFit.contain` — mostra o arquivo **inteiro, sem cortar
+  nada**, com `crop_scale = 1` (padrão). Só corta de propósito se o admin
+  aumentar o `crop_scale` acima de 1 (zoom manual pra recortar uma parte
+  específica). Isso importa principalmente pra GIF/imagem que não é
+  quadrada — com `cover` ela apareceria cortada mesmo sem o admin querer;
+  com `contain` aparece inteira, com faixas vazias nas bordas se a
+  proporção não for quadrada.
+
+## 6. Formatos de mídia e transparência
+
+`media_url` (fundo e avatar) pode vir em qualquer um destes formatos —
+todos aceitos no upload do admin: `mp4`, `mov`, `webm`, `m4v`, `gif`,
+`webp`, `png`, `jpg`. Decida o player pela extensão (ou `Content-Type` da
+resposta):
+
+- **`mp4`/`mov`/`webm`/`m4v`** → vídeo de verdade, precisa de player de
+  vídeo (`video_player` ou equivalente). **Nenhum desses formatos carrega
+  transparência real no player** — mesmo que o arquivo original tenha sido
+  exportado "com fundo transparente", ele chega como vídeo RGB opaco
+  (geralmente com fundo preto ou verde sólido). Não tem correção possível
+  no player padrão sem shader customizado — não implementem isso, é
+  esperado que vídeo comum tenha fundo sólido.
+- **`gif`/`webp`** → podem ser animados **com transparência real**. Dá pra
+  tocar como imagem animada normal (ex: `Image.network(url)` no Flutter já
+  decodifica GIF/WebP animado nativamente, sem precisar de video player) —
+  é o formato recomendado pelo admin pra avatar com fundo transparente.
+- **`png`/`jpg`** → imagem estática. PNG mantém transparência; JPG não.
+
+Ou seja: se o avatar/fundo cadastrado for `gif` ou `webp`, tratem como
+imagem animada (não como vídeo) pra transparência funcionar. Se for
+`mp4`/`mov`/`webm`/`m4v`, é vídeo opaco normal — apliquem o corte da seção
+5 e as opções da seção 7 do mesmo jeito, só sem esperar transparência.
+
+## 7. Formato (recorte) e tamanho do avatar
+
+Colunas novas em `island_avatars`, só pro slot do avatar escolhido pelo
+streamer (fundo da ilha não usa isso):
+
+- **`display_shape`** (text): `'circle_border'` (padrão), `'circle_plain'`
+  ou `'square'`.
+- **`border_color`** (text, hex tipo `#FFFFFF`): cor do anel, só relevante
+  quando `display_shape = 'circle_border'`.
+- **`size_mode`** (text): `'default'` (padrão) ou `'percent'`.
+- **`size_percent`** (numeric, default 100): só relevante quando
+  `size_mode = 'percent'`. 100 = tamanho real do arquivo; abaixo de 100
+  diminui, acima aumenta.
+
+Se qualquer uma dessas colunas vier `null` (avatar antigo, cadastrado antes
+dessa feature), tratem como os defaults acima — mantém exatamente o visual
+atual (círculo com borda, tamanho só pela escala do slot).
+
+Ordem de aplicação, por cima do que já existe na seção 5 (corte) e da
+`scale` do slot (seção 3):
+
+```dart
+// diametro final do avatar nesse slot
+final baseDiameter = 44 * slot.scale; // 44 = tamanho base de referencia
+final diameter = avatar.sizeMode == 'percent'
+    ? baseDiameter * (avatar.sizePercent / 100)
+    : baseDiameter; // 'default'
+
+Widget mask({required Widget child}) {
+  switch (avatar.displayShape) {
+    case 'square':
+      return ClipRRect(borderRadius: BorderRadius.circular(diameter * 0.12), child: child);
+    case 'circle_plain':
+      return ClipOval(child: child); // sem anel
+    case 'circle_border':
+    default:
+      return Container(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: hexToColor(avatar.borderColor), width: 1.5),
+        ),
+        child: ClipOval(child: child),
+      );
+  }
+}
+```
+
+O corte/enquadramento (crop_scale/crop_offset_x/crop_offset_y, seção 5)
+continua controlando o que aparece *dentro* do recorte — a máscara acima só
+decide o formato da moldura e o tamanho final.
+
+## 8. Top 1 do mês passado
 
 ```sql
 -- pega o period_key mais recente que já foi fechado (importado)
@@ -167,12 +273,13 @@ resultado dessa query. Assim que o mês vira e a agência importa a planilha
 do mês fechado, o slot já atualiza sozinho pra mostrar quem foi o campeão,
 sem nenhuma ação manual.
 
-## 7. Avatares (patos) — banco e escolha do streamer
+## 9. Avatares (patos) — banco e escolha do streamer
 
 Lista de avatares disponíveis pro streamer escolher:
 
 ```sql
-select id, label, media_url, gender, rarity, min_diamonds, category_ids
+select id, label, media_url, gender, rarity, min_diamonds, category_ids,
+       display_shape, border_color, size_mode, size_percent
 from island_avatars
 where agency_id = :agency_id and is_active = true
 order by sort_order;
@@ -192,7 +299,48 @@ where streamer_id = :meu_profile_id;
 Se a linha não existir ainda pra esse streamer, precisa de upsert com
 `streamer_id`.
 
-## 8. Áudio/volume/loop — em todo vídeo do app (não só a ilha)
+### 9.1 Avatar padrão (quando `avatar_id` é `null`)
+
+`streamer_islands.avatar_id` pode ser `null` em dois casos: o streamer
+nunca escolheu um avatar, ou o avatar que ele tinha escolhido foi excluído
+pelo admin (a FK agora é `on delete set null` — excluir um avatar
+desvincula automaticamente quem tinha escolhido ele, em vez de dar erro).
+
+Nesses casos, resolvam um avatar padrão em vez de deixar o slot vazio,
+nessa ordem de prioridade:
+
+1. Avatar com `default_scope = 'category'` cujo `category_ids` contenha a
+   categoria do streamer.
+2. Se não achar nenhum, avatar com `default_scope = 'all'`.
+3. Se nenhum dos dois existir, o slot fica vazio mesmo (sem avatar) — a
+   agência ainda não configurou nenhum padrão.
+
+```sql
+select id, media_url, display_shape, border_color, size_mode, size_percent
+from island_avatars
+where agency_id = :agency_id and is_active = true
+  and (
+    (default_scope = 'category' and category_ids @> array[:categoria_do_streamer])
+    or default_scope = 'all'
+  )
+order by (default_scope = 'category') desc -- categoria tem prioridade sobre "para todos"
+limit 1;
+```
+
+**Coluna de compatibilidade**: `island_avatars.is_default` (boolean) também
+existe, gerada automaticamente como `default_scope = 'all'`. Ela cobre só o
+caso "padrão para todos" — se o código de vocês já checa
+`is_default = true`, o caso "para todos" já passa a funcionar sozinho, sem
+mudar nada. Mas ela **não sabe de categoria**: pra "padrão por categoria"
+funcionar de verdade (e pra categoria ter prioridade sobre o "para todos",
+como descrito acima), precisa trocar pra consultar `default_scope` +
+`category_ids` direto, com a query completa acima.
+
+Só pode existir um avatar `default_scope = 'all'` por agência e um por
+categoria — o admin já garante isso ao salvar (desmarca o anterior
+automaticamente), não precisa validar isso no app.
+
+## 10. Áudio/volume/loop — em todo vídeo do app (não só a ilha)
 
 As mesmas 3 colunas (`muted`, `volume`, `loop_video`) existem também em:
 - `max_lessons` (aulas do MAX)
@@ -202,7 +350,7 @@ As mesmas 3 colunas (`muted`, `volume`, `loop_video`) existem também em:
 
 Regra do loop infinito (isolamento de player) vale igual pra esses dois.
 
-## 9. Conta de teste (pra testar como um streamer de verdade)
+## 11. Conta de teste (pra testar como um streamer de verdade)
 
 Este repo (admin) não implementa login de streamer — isso é 100% do app.
 Pra testar como um streamer real (ex: alguém pediu usar a conta

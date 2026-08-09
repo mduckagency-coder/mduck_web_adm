@@ -1,6 +1,7 @@
 import "package:file_picker/file_picker.dart";
 import "package:flutter/material.dart";
 import "../ilha_top_service.dart";
+import "ilha_avatar_display_fields.dart";
 import "ilha_crop_editor.dart";
 import "ilha_media_playback_fields.dart";
 
@@ -31,6 +32,11 @@ class _IlhaAvatarFormDialogState extends State<IlhaAvatarFormDialog> {
   double _cropScale = 1;
   double _cropOffsetX = 0;
   double _cropOffsetY = 0;
+  String _displayShape = "circle_border";
+  String _borderColor = "#FFFFFF";
+  String _sizeMode = "default";
+  double _sizePercent = 100;
+  String? _defaultScope;
   bool _uploading = false;
   bool _uploadingPreview = false;
   bool _saving = false;
@@ -63,6 +69,11 @@ class _IlhaAvatarFormDialogState extends State<IlhaAvatarFormDialog> {
       _cropScale = (e["crop_scale"] as num?)?.toDouble() ?? 1;
       _cropOffsetX = (e["crop_offset_x"] as num?)?.toDouble() ?? 0;
       _cropOffsetY = (e["crop_offset_y"] as num?)?.toDouble() ?? 0;
+      _displayShape = e["display_shape"] as String? ?? "circle_border";
+      _borderColor = e["border_color"] as String? ?? "#FFFFFF";
+      _sizeMode = e["size_mode"] as String? ?? "default";
+      _sizePercent = (e["size_percent"] as num?)?.toDouble() ?? 100;
+      _defaultScope = e["default_scope"] as String?;
     }
     _loadCategories();
   }
@@ -84,7 +95,7 @@ class _IlhaAvatarFormDialogState extends State<IlhaAvatarFormDialog> {
   }
 
   Future<void> _pickFile() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.media, withData: true);
+    final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: islandMediaAllowedExtensions, withData: true);
     if (result == null || result.files.single.bytes == null) return;
     final file = result.files.single;
     if (file.size > _maxFileSizeBytes) {
@@ -134,6 +145,10 @@ class _IlhaAvatarFormDialogState extends State<IlhaAvatarFormDialog> {
       setState(() => _error = "Escolha se o avatar é feminino ou masculino.");
       return;
     }
+    if (_defaultScope == "category" && _selectedCategoryIds.isEmpty) {
+      setState(() => _error = "Escolha ao menos uma categoria em \"Quem pode escolher\" pra usar como padrão por categoria.");
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
@@ -155,6 +170,11 @@ class _IlhaAvatarFormDialogState extends State<IlhaAvatarFormDialog> {
         cropScale: _cropScale,
         cropOffsetX: _cropOffsetX,
         cropOffsetY: _cropOffsetY,
+        displayShape: _displayShape,
+        borderColor: _borderColor,
+        sizeMode: _sizeMode,
+        sizePercent: _sizePercent,
+        defaultScope: _defaultScope,
       );
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
@@ -201,6 +221,24 @@ class _IlhaAvatarFormDialogState extends State<IlhaAvatarFormDialog> {
                   const Text("arquivo enviado", style: TextStyle(color: Colors.white54, fontSize: 12)),
                 ],
               ]),
+              const SizedBox(height: 6),
+              const Text(
+                "Formatos aceitos: MP4, MOV, WEBM, M4V, GIF, WEBP, PNG, JPG. Vídeo comum (MP4/MOV/WEBM) não sustenta fundo transparente em nenhum player -- pra avatar com fundo transparente use GIF ou WEBP animado, ou PNG estático se não precisar de animação.",
+                style: TextStyle(color: Colors.white38, fontSize: 11),
+              ),
+              if (_mediaUrl != null && !islandMediaSupportsTransparency(_mediaUrl!) && islandMediaLooksLikeVideo(_mediaUrl!)) ...[
+                const SizedBox(height: 6),
+                Row(children: const [
+                  Icon(Icons.warning_amber, color: Colors.amberAccent, size: 14),
+                  SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      "Esse formato de vídeo não mantém fundo transparente no app. Se precisar de transparência, troque por um GIF ou WEBP animado.",
+                      style: TextStyle(color: Colors.amberAccent, fontSize: 11),
+                    ),
+                  ),
+                ]),
+              ],
               if (_mediaIsVideo) ...[
                 const SizedBox(height: 16),
                 const Text("Imagem de referência (print do vídeo)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
@@ -234,6 +272,7 @@ class _IlhaAvatarFormDialogState extends State<IlhaAvatarFormDialog> {
                 IlhaCropEditor(
                   imageUrl: _referenceImageForCrop!,
                   aspectRatio: 1,
+                  fit: BoxFit.contain,
                   scale: _cropScale,
                   offsetX: _cropOffsetX,
                   offsetY: _cropOffsetY,
@@ -263,6 +302,17 @@ class _IlhaAvatarFormDialogState extends State<IlhaAvatarFormDialog> {
                 onMutedChanged: (v) => setState(() => _muted = v),
                 onVolumeChanged: (v) => setState(() => _volume = v),
                 onLoopChanged: (v) => setState(() => _loopVideo = v),
+              ),
+              const SizedBox(height: 20),
+              IlhaAvatarDisplayFields(
+                displayShape: _displayShape,
+                borderColor: _borderColor,
+                sizeMode: _sizeMode,
+                sizePercent: _sizePercent,
+                onDisplayShapeChanged: (v) => setState(() => _displayShape = v),
+                onBorderColorChanged: (v) => setState(() => _borderColor = v),
+                onSizeModeChanged: (v) => setState(() => _sizeMode = v),
+                onSizePercentChanged: (v) => setState(() => _sizePercent = v),
               ),
               const SizedBox(height: 20),
               const Text("Gênero", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
@@ -317,6 +367,7 @@ class _IlhaAvatarFormDialogState extends State<IlhaAvatarFormDialog> {
                   onSelected: (_) => setState(() {
                     _restrictToCategories = false;
                     _selectedCategoryIds.clear();
+                    if (_defaultScope == "category") _defaultScope = null;
                   }),
                 ),
                 ChoiceChip(
@@ -354,6 +405,52 @@ class _IlhaAvatarFormDialogState extends State<IlhaAvatarFormDialog> {
                             ],
                           ),
               ],
+              const SizedBox(height: 20),
+              const Text("Avatar padrão", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+              const SizedBox(height: 4),
+              const Text("Usado quando o streamer ainda não escolheu nenhum avatar (ou perdeu o que tinha, ex: se o avatar escolhido foi excluído).",
+                  style: TextStyle(color: Colors.white54, fontSize: 12)),
+              const SizedBox(height: 8),
+              Wrap(spacing: 8, children: [
+                ChoiceChip(
+                  label: const Text("Não é padrão"),
+                  selected: _defaultScope == null,
+                  selectedColor: const Color(0xFF7A0BD4),
+                  labelStyle: TextStyle(color: _defaultScope == null ? Colors.white : Colors.white70, fontSize: 12),
+                  onSelected: (_) => setState(() => _defaultScope = null),
+                ),
+                ChoiceChip(
+                  label: const Text("Padrão para todos"),
+                  selected: _defaultScope == "all",
+                  selectedColor: const Color(0xFF7A0BD4),
+                  labelStyle: TextStyle(color: _defaultScope == "all" ? Colors.white : Colors.white70, fontSize: 12),
+                  onSelected: (_) => setState(() => _defaultScope = "all"),
+                ),
+                ChoiceChip(
+                  label: const Text("Padrão por categoria"),
+                  selected: _defaultScope == "category",
+                  selectedColor: const Color(0xFF7A0BD4),
+                  labelStyle: TextStyle(color: _defaultScope == "category" ? Colors.white : Colors.white70, fontSize: 12),
+                  onSelected: _restrictToCategories ? (_) => setState(() => _defaultScope = "category") : null,
+                ),
+              ]),
+              if (!_restrictToCategories)
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text("Escolha \"Categorias específicas\" acima pra usar \"Padrão por categoria\".", style: TextStyle(color: Colors.white38, fontSize: 11)),
+                ),
+              if (_defaultScope == "all")
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text("Só pode haver um avatar padrão \"para todos\" por agência -- ao salvar, o anterior deixa de ser padrão automaticamente.",
+                      style: TextStyle(color: Colors.amberAccent, fontSize: 11)),
+                ),
+              if (_defaultScope == "category")
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text("Só pode haver um avatar padrão por categoria -- ao salvar, qualquer outro avatar padrão dessas categorias deixa de ser padrão automaticamente.",
+                      style: TextStyle(color: Colors.amberAccent, fontSize: 11)),
+                ),
               SwitchListTile(
                 value: _isActive,
                 dense: true,

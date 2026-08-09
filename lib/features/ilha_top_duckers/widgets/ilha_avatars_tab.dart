@@ -98,6 +98,7 @@ class _IlhaAvatarsTabState extends State<IlhaAvatarsTab> {
                         itemBuilder: (context, index) {
                           final a = list[index];
                           final active = a["is_active"] as bool? ?? true;
+                          final defaultScope = a["default_scope"] as String?;
                           final rarity = a["rarity"] as String? ?? "comum";
                           final gender = a["gender"] as String?;
                           final minDiamonds = a["min_diamonds"] as int? ?? 0;
@@ -126,6 +127,12 @@ class _IlhaAvatarsTabState extends State<IlhaAvatarsTab> {
                                     ),
                                     if (gender != null)
                                       Icon(gender == "feminino" ? Icons.female : Icons.male, color: Colors.white54, size: 14),
+                                    if (defaultScope != null)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(border: Border.all(color: Colors.amberAccent), borderRadius: BorderRadius.circular(4)),
+                                        child: Text(defaultScope == "all" ? "Padrão (todos)" : "Padrão (categoria)", style: const TextStyle(color: Colors.amberAccent, fontSize: 10)),
+                                      ),
                                     if (!active)
                                       const Text("inativo", style: TextStyle(color: Colors.redAccent, fontSize: 11)),
                                   ]),

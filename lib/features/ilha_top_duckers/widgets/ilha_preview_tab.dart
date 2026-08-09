@@ -1,6 +1,25 @@
 import "package:flutter/material.dart";
 import "../ilha_top_service.dart";
 
+Color _hexToColor(String hex) {
+  try {
+    final cleaned = hex.replaceFirst("#", "");
+    return Color(int.parse("FF" + cleaned, radix: 16));
+  } catch (_) {
+    return Colors.white54;
+  }
+}
+
+/// Multiplicador de tamanho a aplicar sobre o diametro base do slot, de
+/// acordo com as opcoes de tamanho do avatar (padrao = 1, sem mudanca).
+double _avatarSizeMultiplier(Map<String, dynamic>? streamer) {
+  if (streamer == null) return 1;
+  if (streamer["avatar_size_mode"] != "percent") return 1;
+  final percent = streamer["avatar_size_percent"] as double?;
+  if (percent == null) return 1;
+  return percent / 100;
+}
+
 /// Pre-visualizacao da Ilha: renderiza o fundo escolhido + cada slot com o
 /// streamer que ocuparia aquela posicao hoje, usando o ranking atual.
 ///
@@ -29,6 +48,7 @@ class _IlhaPreviewTabState extends State<IlhaPreviewTab> {
   List<Map<String, dynamic>> _streamers = [];
   List<Map<String, dynamic>> _avatars = [];
   Map<String, dynamic>? _lastMonthTop1;
+  int? _maxRank;
   String? _selectedBackgroundId;
   Map<String, dynamic> _testConfig = const {
     "diamond_threshold": 0,
@@ -56,11 +76,13 @@ class _IlhaPreviewTabState extends State<IlhaPreviewTab> {
       _service.fetchTestConfig(),
       _service.fetchAllActiveStreamersBasic(),
       _service.fetchAvatars(),
+      _service.fetchMaxRank(),
     ]);
     _testMode = results[0] as bool;
     _testConfig = results[1] as Map<String, dynamic>;
     _streamers = results[2] as List<Map<String, dynamic>>;
     _avatars = results[3] as List<Map<String, dynamic>>;
+    _maxRank = results[4] as int?;
     _thresholdController.text = (_testConfig["diamond_threshold"] as int).toString();
     await _loadRanking();
   }
@@ -133,6 +155,7 @@ class _IlhaPreviewTabState extends State<IlhaPreviewTab> {
         pinnedIds: _testMode
             ? [_testConfig["pinned_top1"] as String?, _testConfig["pinned_top2"] as String?, _testConfig["pinned_top3"] as String?]
             : const [],
+        maxRank: _maxRank,
       ),
       _service.fetchLastMonthTop1(),
     ]);
@@ -169,9 +192,10 @@ class _IlhaPreviewTabState extends State<IlhaPreviewTab> {
     final cropOffsetX = (selectedBg["crop_offset_x"] as num?)?.toDouble() ?? 0.0;
     final cropOffsetY = (selectedBg["crop_offset_y"] as num?)?.toDouble() ?? 0.0;
 
-    final pointSlots = _slots.where((s) => !islandSlotIsArea(s["slot_key"] as String) && !islandSlotIsPhotoSlot(s["slot_key"] as String));
-    final areaSlot = _slots.firstWhere((s) => islandSlotIsArea(s["slot_key"] as String), orElse: () => <String, dynamic>{});
-    final photoSlot = _slots.firstWhere((s) => islandSlotIsPhotoSlot(s["slot_key"] as String), orElse: () => <String, dynamic>{});
+    final enabledSlots = _slots.where((s) => s["is_enabled"] as bool? ?? true);
+    final pointSlots = enabledSlots.where((s) => !islandSlotIsArea(s["slot_key"] as String) && !islandSlotIsPhotoSlot(s["slot_key"] as String));
+    final areaSlot = enabledSlots.firstWhere((s) => islandSlotIsArea(s["slot_key"] as String), orElse: () => <String, dynamic>{});
+    final photoSlot = enabledSlots.firstWhere((s) => islandSlotIsPhotoSlot(s["slot_key"] as String), orElse: () => <String, dynamic>{});
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 16),
@@ -366,14 +390,17 @@ class _IlhaPreviewTabState extends State<IlhaPreviewTab> {
 
   Map<String, dynamic>? _rankedAt(int rank) => rank - 1 < _ranking.length ? _ranking[rank - 1] : null;
 
-  Widget _avatarThumb(String? previewUrl, String? name, double size, {Color borderColor = Colors.white54}) {
+  Widget _avatarThumb(String? previewUrl, String? name, double size, {Color borderColor = Colors.white54, String shape = "circle_border"}) {
+    final isCircle = shape != "square";
+    final showBorder = shape == "circle_border";
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        shape: BoxShape.circle,
+        shape: isCircle ? BoxShape.circle : BoxShape.rectangle,
+        borderRadius: isCircle ? null : BorderRadius.circular(size * 0.12),
         color: const Color(0xFF2A2A2A),
-        border: Border.all(color: borderColor, width: 1.5),
+        border: showBorder ? Border.all(color: borderColor, width: 1.5) : null,
         image: previewUrl != null ? DecorationImage(image: NetworkImage(previewUrl), fit: BoxFit.cover) : null,
       ),
       child: previewUrl == null
@@ -402,7 +429,11 @@ class _IlhaPreviewTabState extends State<IlhaPreviewTab> {
     final rank = int.tryParse(slotKey.replaceFirst("top_", "")) ?? 0;
     final scale = (slot["scale"] as num).toDouble();
     final streamer = _rankedAt(rank);
-    final diameter = 44 * scale;
+    final diameter = 44 * scale * _avatarSizeMultiplier(streamer);
+    final shape = streamer?["avatar_display_shape"] as String? ?? "circle_border";
+    final borderColor = shape == "circle_border"
+        ? (streamer?["avatar_border_color"] != null ? _hexToColor(streamer!["avatar_border_color"] as String) : (rank == 1 ? Colors.amber : Colors.white54))
+        : Colors.transparent;
     return Positioned(
       left: (slot["pos_x"] as num).toDouble() / 100 * size.width - diameter / 2,
       top: (slot["pos_y"] as num).toDouble() / 100 * size.height - diameter / 2,
@@ -413,7 +444,8 @@ class _IlhaPreviewTabState extends State<IlhaPreviewTab> {
             streamer?["avatar_preview_url"] as String?,
             streamer?["display_name"] as String?,
             diameter,
-            borderColor: rank == 1 ? Colors.amber : Colors.white54,
+            borderColor: borderColor,
+            shape: shape,
           ),
           _nameTag(streamer != null ? streamer["display_name"] as String : "(vazio)"),
         ],
@@ -471,7 +503,15 @@ class _IlhaPreviewTabState extends State<IlhaPreviewTab> {
                   runSpacing: 4,
                   children: [
                     for (final s in extra)
-                      _avatarThumb(s["avatar_preview_url"] as String?, s["display_name"] as String?, diameter),
+                      _avatarThumb(
+                        s["avatar_preview_url"] as String?,
+                        s["display_name"] as String?,
+                        diameter * _avatarSizeMultiplier(s),
+                        shape: s["avatar_display_shape"] as String? ?? "circle_border",
+                        borderColor: (s["avatar_display_shape"] as String? ?? "circle_border") == "circle_border"
+                            ? (s["avatar_border_color"] != null ? _hexToColor(s["avatar_border_color"] as String) : Colors.white54)
+                            : Colors.transparent,
+                      ),
                   ],
                 ),
               ),

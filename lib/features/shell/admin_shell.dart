@@ -29,6 +29,7 @@ import "../eventos/eventos_page.dart";
 import "../programas/programas_page.dart";
 import "../profile/profile_avatar_menu.dart";
 import "../profile/app_top_bar.dart";
+import "../app_animation/app_splash_media_page.dart";
 
 class _MenuGroup {
   final IconData icon;
@@ -69,6 +70,8 @@ const _menuGroups = [
     (Icons.terrain, "Ilha Top Duckers - Config"),
     (Icons.pets, "Max"),
     (Icons.animation, "Animacoes de menus"),
+    (Icons.hourglass_top, "Carregamento"),
+    (Icons.play_circle_outline, "Introducao"),
   ]),
 ];
 
@@ -237,6 +240,20 @@ class _AdminShellState extends State<AdminShell> {
         return const MaxAulasPage();
       case "Inventario":
         return const InventarioPage();
+      case "Carregamento":
+        return const AppSplashMediaPage(
+          key: ValueKey("splash_loading"),
+          kind: "loading",
+          title: "Carregamento",
+          helpText: "Vídeo/imagem que toca assim que o streamer abre o app, como tela de carregamento -- depois dele vem a Introdução.",
+        );
+      case "Introducao":
+        return const AppSplashMediaPage(
+          key: ValueKey("splash_intro"),
+          kind: "intro",
+          title: "Introdução",
+          helpText: "Vídeo/imagem que toca logo depois do Carregamento, antes de entrar no app de verdade.",
+        );
       default:
         return Center(child: Text(_selected + " - em construcao", style: const TextStyle(fontSize: 18, color: Colors.white70)));
     }
