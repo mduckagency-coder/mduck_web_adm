@@ -63,7 +63,10 @@ class _RecruiterLeadsPageState extends State<RecruiterLeadsPage> {
       }
 
       if (_scope == "mine") {
-        final rows = await client.from("leads").select().eq("recruiter_id", userId).order("created_at", ascending: false);
+        // Inclui tambem os leads que o proprio usuario cadastrou em nome de
+        // outro recrutador (coordenador/admin) -- sem isso o card some da
+        // visao de quem criou assim que o dono e outra pessoa.
+        final rows = await client.from("leads").select().or("recruiter_id.eq.$userId,created_by.eq.$userId").order("created_at", ascending: false);
         leadsList = (rows as List).cast<Map<String, dynamic>>();
       } else if (_scope == "team") {
         final team = await client.from("managers").select("id").eq("coordinator_id", userId);
@@ -324,6 +327,7 @@ class _RecruiterLeadsPageState extends State<RecruiterLeadsPage> {
 
     final categories = _leads.map((l) => l["category_interest"]).whereType<String>().where((c) => c.isNotEmpty).toSet().toList()..sort();
     final filtered = _filter(_leads);
+    final userId = Supabase.instance.client.auth.currentUser!.id;
 
     return Padding(
       padding: const EdgeInsets.all(24),
@@ -582,7 +586,10 @@ class _RecruiterLeadsPageState extends State<RecruiterLeadsPage> {
                                             final lead = columnLeads[index];
                                             final leadId = lead["id"] as String;
                                             final isSelected = _selectedIds.contains(leadId);
-                                            final responsibleEmail = _scope != "mine" ? _recruiterEmails[lead["recruiter_id"]] : null;
+                                            // Mostra o responsavel sempre que o card nao pertence a quem esta
+                                            // logado -- inclui o caso de coordenador/admin ve, na propria aba
+                                            // "Meus leads", um card que ele cadastrou em nome de outro recrutador.
+                                            final responsibleEmail = lead["recruiter_id"] != userId ? _recruiterEmails[lead["recruiter_id"]] : null;
                                             return Draggable<Map<String, dynamic>>(
                                               data: lead,
                                               feedback: Material(color: Colors.transparent, child: SizedBox(width: 220, child: LeadCard(lead: lead, statusColor: stageColor, categories: _categories, responsibleEmail: responsibleEmail))),
@@ -761,6 +768,7 @@ class _LeadFormDialogState extends State<LeadFormDialog> {
       final inserted = await client.from("leads").insert({
         "agency_id": manager["agency_id"],
         "recruiter_id": recruiterId,
+        "created_by": userId,
         "name": _nameController.text.trim(),
         "tiktok_username": _tiktokController.text.trim(),
         "phone": _phoneController.text.trim(),
@@ -1202,6 +1210,7 @@ class _BulkImportDialogState extends State<BulkImportDialog> {
       final inserted = await client.from("leads").insert({
         "agency_id": manager["agency_id"],
         "recruiter_id": userId,
+        "created_by": userId,
         "name": handle,
         "tiktok_username": handle,
         "status": statusKey,

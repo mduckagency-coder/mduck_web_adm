@@ -51,10 +51,14 @@ class _RecruiterOnboardingCentralPageState extends State<RecruiterOnboardingCent
       final client = Supabase.instance.client;
       final userId = client.auth.currentUser!.id;
 
+      // Inclui tambem leads cadastrados por este usuario em nome de outro
+      // recrutador (coordenador/admin) -- o card tem que continuar aparecendo
+      // aqui pra quem de fato conduz o recrutamento, mesmo sem ser o dono
+      // formal do lead. Mesmo criterio da aba "Meus leads".
       final leads = await client
           .from("leads")
           .select("id, name, tiktok_username, category_interest, converted_at, converted_streamer_id, phone")
-          .eq("recruiter_id", userId)
+          .or("recruiter_id.eq.$userId,created_by.eq.$userId")
           .eq("status", "agenciado")
           .order("converted_at", ascending: false);
       final leadsList = (leads as List).cast<Map<String, dynamic>>();
