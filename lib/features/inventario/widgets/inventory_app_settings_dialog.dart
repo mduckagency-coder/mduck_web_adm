@@ -4,6 +4,7 @@ import "package:url_launcher/url_launcher.dart";
 import "../app_settings_service.dart";
 
 const inventoryMascotUrlKey = "inventory_mascot_url";
+const inventoryMascotPlaybackKey = "inventory_mascot_playback";
 const _maxMascotFileSizeBytes = 5 * 1024 * 1024;
 
 const _videoExtensions = [".mp4", ".mov", ".webm", ".m4v"];
@@ -31,6 +32,9 @@ class _InventoryAppSettingsDialogState extends State<InventoryAppSettingsDialog>
   bool _saving = false;
   String? _mascotUrl;
   String? _error;
+  bool _muted = false;
+  double _volume = 1;
+  bool _loopVideo = true;
 
   @override
   void initState() {
@@ -40,9 +44,13 @@ class _InventoryAppSettingsDialogState extends State<InventoryAppSettingsDialog>
 
   Future<void> _load() async {
     final value = await _service.fetchValue(inventoryMascotUrlKey);
+    final playback = await _service.fetchJson(inventoryMascotPlaybackKey);
     if (mounted) {
       setState(() {
         _mascotUrl = value;
+        _muted = playback?["muted"] as bool? ?? false;
+        _volume = (playback?["volume"] as num?)?.toDouble() ?? 1;
+        _loopVideo = playback?["loop"] as bool? ?? true;
         _loading = false;
       });
     }
@@ -71,6 +79,7 @@ class _InventoryAppSettingsDialogState extends State<InventoryAppSettingsDialog>
   Future<void> _save() async {
     setState(() => _saving = true);
     await _service.saveValue(inventoryMascotUrlKey, _mascotUrl);
+    await _service.saveJson(inventoryMascotPlaybackKey, {"muted": _muted, "volume": _volume, "loop": _loopVideo});
     if (mounted) Navigator.of(context).pop(true);
   }
 
@@ -102,12 +111,13 @@ class _InventoryAppSettingsDialogState extends State<InventoryAppSettingsDialog>
     return Dialog(
       backgroundColor: const Color(0xFF1A1A1A),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480, maxHeight: 560),
+        constraints: const BoxConstraints(maxWidth: 480, maxHeight: 700),
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: _loading
               ? const SizedBox(height: 200, child: Center(child: CircularProgressIndicator()))
-              : Column(
+              : SingleChildScrollView(
+                  child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -139,6 +149,43 @@ class _InventoryAppSettingsDialogState extends State<InventoryAppSettingsDialog>
                         ),
                       ],
                     ]),
+                    if (_mascotUrl != null && _mascotUrl!.isNotEmpty && _looksLikeVideo(_mascotUrl!)) ...[
+                      const SizedBox(height: 16),
+                      const Text("Áudio e reprodução", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                      SwitchListTile(
+                        value: _muted,
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        activeThumbColor: const Color(0xFF7A0BD4),
+                        title: const Text("Sem som", style: TextStyle(color: Colors.white70, fontSize: 13)),
+                        onChanged: (v) => setState(() => _muted = v),
+                      ),
+                      if (!_muted)
+                        Row(children: [
+                          const Text("Volume", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                          Expanded(
+                            child: Slider(
+                              value: _volume.clamp(0.0, 1.0),
+                              min: 0,
+                              max: 1,
+                              activeColor: const Color(0xFF7A0BD4),
+                              onChanged: (v) => setState(() => _volume = v),
+                            ),
+                          ),
+                          SizedBox(width: 36, child: Text((_volume * 100).round().toString() + "%", style: const TextStyle(color: Colors.white54, fontSize: 12))),
+                        ]),
+                      SwitchListTile(
+                        value: _loopVideo,
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        activeThumbColor: const Color(0xFF7A0BD4),
+                        title: const Text("Loop infinito", style: TextStyle(color: Colors.white70, fontSize: 13)),
+                        subtitle: _loopVideo
+                            ? const Text("Enquanto tocar, nenhum outro vídeo do app pode pausar/interromper este.", style: TextStyle(color: Colors.amberAccent, fontSize: 11))
+                            : null,
+                        onChanged: (v) => setState(() => _loopVideo = v),
+                      ),
+                    ],
                     if (_error != null) ...[
                       const SizedBox(height: 8),
                       Text(_error!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
@@ -154,6 +201,7 @@ class _InventoryAppSettingsDialogState extends State<InventoryAppSettingsDialog>
                       ),
                     ]),
                   ],
+                  ),
                 ),
         ),
       ),

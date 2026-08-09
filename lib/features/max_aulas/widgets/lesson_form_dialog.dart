@@ -27,6 +27,9 @@ class _LessonFormDialogState extends State<LessonFormDialog> {
   String? _uploadedVideoUrl;
   String? _uploadedVideoName;
   bool _isActive = true;
+  bool _muted = false;
+  double _volume = 1;
+  bool _loopVideo = false;
 
   bool _uploadingCover = false;
   bool _uploadingVideo = false;
@@ -46,6 +49,9 @@ class _LessonFormDialogState extends State<LessonFormDialog> {
       _videoSource = e.videoSource;
       _coverImageUrl = e.coverImageUrl;
       _isActive = e.isActive;
+      _muted = e.muted;
+      _volume = e.volume;
+      _loopVideo = e.loopVideo;
       if (e.videoSource == MaxLessonVideoSource.youtube) {
         _youtubeUrlController.text = e.videoUrl;
       } else {
@@ -115,6 +121,9 @@ class _LessonFormDialogState extends State<LessonFormDialog> {
       videoSource: _videoSource,
       videoUrl: _videoUrl!,
       isActive: _isActive,
+      muted: _muted,
+      volume: _volume,
+      loopVideo: _loopVideo,
     );
     if (mounted) Navigator.of(context).pop(true);
   }
@@ -240,6 +249,41 @@ class _LessonFormDialogState extends State<LessonFormDialog> {
                           ],
                         ),
                       const SizedBox(height: 16),
+                      const Text("Áudio e reprodução", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                      SwitchListTile(
+                        value: _muted,
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        activeThumbColor: const Color(0xFF7A0BD4),
+                        title: const Text("Sem som", style: TextStyle(color: Colors.white70, fontSize: 13)),
+                        onChanged: (v) => setState(() => _muted = v),
+                      ),
+                      if (!_muted)
+                        Row(children: [
+                          const Text("Volume", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                          Expanded(
+                            child: Slider(
+                              value: _volume.clamp(0.0, 1.0),
+                              min: 0,
+                              max: 1,
+                              activeColor: const Color(0xFF7A0BD4),
+                              onChanged: (v) => setState(() => _volume = v),
+                            ),
+                          ),
+                          SizedBox(width: 36, child: Text((_volume * 100).round().toString() + "%", style: const TextStyle(color: Colors.white54, fontSize: 12))),
+                        ]),
+                      SwitchListTile(
+                        value: _loopVideo,
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        activeThumbColor: const Color(0xFF7A0BD4),
+                        title: const Text("Repetir em loop ao terminar", style: TextStyle(color: Colors.white70, fontSize: 13)),
+                        subtitle: _loopVideo
+                            ? const Text("Enquanto tocar, nenhum outro vídeo do app pode pausar/interromper esta aula.", style: TextStyle(color: Colors.amberAccent, fontSize: 11))
+                            : null,
+                        onChanged: (v) => setState(() => _loopVideo = v),
+                      ),
+                      const SizedBox(height: 8),
                       Row(children: [
                         const Text("Aula ativa (visível no app)", style: TextStyle(color: Colors.white70, fontSize: 12)),
                         const Spacer(),

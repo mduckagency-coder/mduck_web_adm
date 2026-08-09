@@ -723,6 +723,7 @@ class _LeadFormDialogState extends State<LeadFormDialog> {
   // mantem o comportamento padrao (lead fica com quem esta cadastrando).
   List<Map<String, dynamic>> _recruiters = [];
   String? _selectedRecruiterId;
+  String? _error;
 
   @override
   void initState() {
@@ -745,53 +746,62 @@ class _LeadFormDialogState extends State<LeadFormDialog> {
 
   Future<void> _save() async {
     if (_nameController.text.trim().isEmpty) return;
-    setState(() => _saving = true);
-    final client = Supabase.instance.client;
-    final userId = client.auth.currentUser!.id;
-    final recruiterId = _selectedRecruiterId ?? userId;
-    final manager = await client.from("managers").select("agency_id").eq("id", userId).single();
-    var initialStage = await client.from("lead_kanban_stages").select("stage_key").eq("agency_id", manager["agency_id"]).eq("is_initial", true).eq("is_active", true).maybeSingle();
-    initialStage ??= await client.from("lead_kanban_stages").select("stage_key").eq("agency_id", manager["agency_id"]).eq("is_active", true).order("order_index").limit(1).maybeSingle();
-
-    final inserted = await client.from("leads").insert({
-      "agency_id": manager["agency_id"],
-      "recruiter_id": recruiterId,
-      "name": _nameController.text.trim(),
-      "tiktok_username": _tiktokController.text.trim(),
-      "phone": _phoneController.text.trim(),
-      "category_interest": _selectedCategory,
-      "origin": _selectedOrigin,
-      "origin_detail": _originDetailController.text.trim(),
-      "status": initialStage != null ? initialStage["stage_key"] : "novo",
-    }).select("id").single();
-
-    // performed_by fica com quem de fato cadastrou (o gestor, quando for o
-    // caso) -- recruiter_id fica com o dono do lead. Isso preserva no
-    // historico que o cadastro foi feito em nome de outra pessoa.
-    final onBehalf = _selectedRecruiterId != null && _selectedRecruiterId != userId;
-    await client.from("lead_history").insert({
-      "lead_id": inserted["id"],
-      "action": "criacao",
-      "detail": onBehalf
-          ? "Lead cadastrado pelo gestor em nome do recrutador " + (_recruiters.firstWhere((m) => m["id"] == recruiterId)["login_email"] as String)
-          : "Lead cadastrado",
-      "performed_by": userId,
+    setState(() {
+      _saving = true;
+      _error = null;
     });
+    try {
+      final client = Supabase.instance.client;
+      final userId = client.auth.currentUser!.id;
+      final recruiterId = _selectedRecruiterId ?? userId;
+      final manager = await client.from("managers").select("agency_id").eq("id", userId).single();
+      var initialStage = await client.from("lead_kanban_stages").select("stage_key").eq("agency_id", manager["agency_id"]).eq("is_initial", true).eq("is_active", true).maybeSingle();
+      initialStage ??= await client.from("lead_kanban_stages").select("stage_key").eq("agency_id", manager["agency_id"]).eq("is_active", true).order("order_index").limit(1).maybeSingle();
 
-    if (_selectedOrigin == "Indicacao") {
-      try {
-        final donos = await client.from("managers").select("id").eq("financial_role", "dono");
-        for (final d in (donos as List)) {
-          await client.from("manager_notifications").insert({
-            "manager_id": d["id"],
-            "subject": "Novo lead por indicacao",
-            "message": (_nameController.text.trim()) + " - indicado por: " + (_originDetailController.text.trim().isEmpty ? "nao informado" : _originDetailController.text.trim()),
-          });
-        }
-      } catch (_) {}
+      final inserted = await client.from("leads").insert({
+        "agency_id": manager["agency_id"],
+        "recruiter_id": recruiterId,
+        "name": _nameController.text.trim(),
+        "tiktok_username": _tiktokController.text.trim(),
+        "phone": _phoneController.text.trim(),
+        "category_interest": _selectedCategory,
+        "origin": _selectedOrigin,
+        "origin_detail": _originDetailController.text.trim(),
+        "status": initialStage != null ? initialStage["stage_key"] : "novo",
+      }).select("id").single();
+
+      // performed_by fica com quem de fato cadastrou (o gestor, quando for o
+      // caso) -- recruiter_id fica com o dono do lead. Isso preserva no
+      // historico que o cadastro foi feito em nome de outra pessoa.
+      final onBehalf = _selectedRecruiterId != null && _selectedRecruiterId != userId;
+      await client.from("lead_history").insert({
+        "lead_id": inserted["id"],
+        "action": "criacao",
+        "detail": onBehalf
+            ? "Lead cadastrado pelo gestor em nome do recrutador " + (_recruiters.firstWhere((m) => m["id"] == recruiterId)["login_email"] as String)
+            : "Lead cadastrado",
+        "performed_by": userId,
+      });
+
+      if (_selectedOrigin == "Indicacao") {
+        try {
+          final donos = await client.from("managers").select("id").eq("financial_role", "dono");
+          for (final d in (donos as List)) {
+            await client.from("manager_notifications").insert({
+              "manager_id": d["id"],
+              "subject": "Novo lead por indicacao",
+              "message": (_nameController.text.trim()) + " - indicado por: " + (_originDetailController.text.trim().isEmpty ? "nao informado" : _originDetailController.text.trim()),
+            });
+          }
+        } catch (_) {}
+      }
+
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      if (mounted) setState(() => _error = "Erro ao salvar: " + e.toString());
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
-
-    if (mounted) Navigator.of(context).pop(true);
   }
 
   @override
@@ -861,6 +871,10 @@ class _LeadFormDialogState extends State<LeadFormDialog> {
                     labelStyle: const TextStyle(color: Colors.white54),
                   ),
                 ),
+              ],
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Text(_error!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
               ],
               const SizedBox(height: 16),
               Row(
@@ -1272,6 +1286,7 @@ class _LeadTransferDialogState extends State<LeadTransferDialog> {
   final _reasonController = TextEditingController();
   bool _loading = true;
   bool _saving = false;
+  String? _error;
 
   @override
   void initState() {
@@ -1295,41 +1310,53 @@ class _LeadTransferDialogState extends State<LeadTransferDialog> {
 
   Future<void> _confirm() async {
     if (!_canConfirm) return;
-    setState(() => _saving = true);
-    final client = Supabase.instance.client;
-    final userId = client.auth.currentUser!.id;
-    final leadId = widget.lead["id"] as String;
-    final previousRecruiterId = widget.lead["recruiter_id"] as String?;
-    final newRecruiterId = _selectedId!;
-    final newEmail = _recruiters.firstWhere((m) => m["id"] == newRecruiterId)["login_email"] as String;
-    final reason = _reasonController.text.trim();
-
-    await client.from("leads").update({"recruiter_id": newRecruiterId}).eq("id", leadId);
-
-    await client.from("lead_transfers").insert({
-      "lead_id": leadId,
-      "previous_recruiter_id": previousRecruiterId,
-      "new_recruiter_id": newRecruiterId,
-      "performed_by": userId,
-      "reason": reason,
+    setState(() {
+      _saving = true;
+      _error = null;
     });
-
-    await client.from("lead_history").insert({
-      "lead_id": leadId,
-      "action": "transferencia",
-      "detail": "De " + (_currentResponsibleEmail ?? "-") + " para " + newEmail + ". Motivo: " + reason,
-      "performed_by": userId,
-    });
-
     try {
-      await client.from("manager_notifications").insert({
-        "manager_id": newRecruiterId,
-        "subject": "Lead transferido para voce",
-        "message": (widget.lead["name"] as String? ?? "Lead") + " foi transferido para voce. Motivo: " + reason,
-      });
-    } catch (_) {}
+      final client = Supabase.instance.client;
+      final userId = client.auth.currentUser!.id;
+      final leadId = widget.lead["id"] as String;
+      final previousRecruiterId = widget.lead["recruiter_id"] as String?;
+      final newRecruiterId = _selectedId!;
+      final newEmail = _recruiters.firstWhere((m) => m["id"] == newRecruiterId)["login_email"] as String;
+      final reason = _reasonController.text.trim();
 
-    if (mounted) Navigator.of(context).pop(true);
+      final updated = await client.from("leads").update({"recruiter_id": newRecruiterId}).eq("id", leadId).select("id");
+      if ((updated as List).isEmpty) {
+        throw Exception("Nenhuma linha foi alterada (bloqueado por permissão/RLS). Fale com o suporte.");
+      }
+
+      await client.from("lead_transfers").insert({
+        "lead_id": leadId,
+        "previous_recruiter_id": previousRecruiterId,
+        "new_recruiter_id": newRecruiterId,
+        "performed_by": userId,
+        "reason": reason,
+      });
+
+      await client.from("lead_history").insert({
+        "lead_id": leadId,
+        "action": "transferencia",
+        "detail": "De " + (_currentResponsibleEmail ?? "-") + " para " + newEmail + ". Motivo: " + reason,
+        "performed_by": userId,
+      });
+
+      try {
+        await client.from("manager_notifications").insert({
+          "manager_id": newRecruiterId,
+          "subject": "Lead transferido para voce",
+          "message": (widget.lead["name"] as String? ?? "Lead") + " foi transferido para voce. Motivo: " + reason,
+        });
+      } catch (_) {}
+
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      if (mounted) setState(() => _error = "Erro ao transferir: " + e.toString());
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -1369,6 +1396,10 @@ class _LeadTransferDialogState extends State<LeadTransferDialog> {
                       decoration: const InputDecoration(labelText: "Motivo da transferencia", labelStyle: TextStyle(color: Colors.white54), border: OutlineInputBorder()),
                       onChanged: (_) => setState(() {}),
                     ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 12),
+                      Text(_error!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                    ],
                     const SizedBox(height: 16),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,

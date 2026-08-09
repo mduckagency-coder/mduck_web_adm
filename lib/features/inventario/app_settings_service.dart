@@ -21,14 +21,28 @@ class AppSettingsService {
     return row["value"] as String?;
   }
 
-  Future<void> saveValue(String key, String? value) async {
+  Future<void> saveValue(String key, String? value) => _saveRaw(key, value);
+
+  Future<Map<String, dynamic>?> fetchJson(String key) async {
     final agencyId = await currentAgencyId();
-    final existing = await _client.from("app_settings").select("id").eq("agency_id", agencyId).eq("key", key).maybeSingle();
-    if (existing != null) {
-      await _client.from("app_settings").update({"value": value, "updated_at": DateTime.now().toIso8601String()}).eq("id", existing["id"] as String);
-    } else {
-      await _client.from("app_settings").insert({"agency_id": agencyId, "key": key, "value": value});
-    }
+    final row = await _client.from("app_settings").select("id, value").eq("agency_id", agencyId).eq("key", key).maybeSingle();
+    if (row == null) return null;
+    final value = row["value"];
+    return value is Map<String, dynamic> ? value : null;
+  }
+
+  Future<void> saveJson(String key, Map<String, dynamic> value) => _saveRaw(key, value);
+
+  /// Upsert atomico (precisa da constraint unique(agency_id,key) da
+  /// migration 0070) -- evita a corrida do padrao antigo "select -> insert
+  /// ou update", que quebrava com PGRST116 (multiplas linhas) se duas telas
+  /// salvassem a mesma chave quase ao mesmo tempo.
+  Future<void> _saveRaw(String key, dynamic value) async {
+    final agencyId = await currentAgencyId();
+    await _client.from("app_settings").upsert(
+      {"agency_id": agencyId, "key": key, "value": value, "updated_at": DateTime.now().toIso8601String()},
+      onConflict: "agency_id,key",
+    );
   }
 
   Future<String> uploadMedia(PlatformFile file) => uploadEventFile(bucket: "app_settings_media", prefix: "setting", file: file);

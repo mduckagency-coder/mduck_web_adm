@@ -59,6 +59,9 @@ class MaxLesson {
   final MaxLessonVideoSource videoSource;
   final String videoUrl;
   final bool isActive;
+  final bool muted;
+  final double volume;
+  final bool loopVideo;
   final DateTime createdAt;
 
   const MaxLesson({
@@ -71,6 +74,9 @@ class MaxLesson {
     required this.videoSource,
     required this.videoUrl,
     required this.isActive,
+    required this.muted,
+    required this.volume,
+    required this.loopVideo,
     required this.createdAt,
   });
 
@@ -85,6 +91,9 @@ class MaxLesson {
       videoSource: maxLessonVideoSourceFromDb(map["video_source"] as String),
       videoUrl: map["video_url"] as String,
       isActive: map["is_active"] as bool? ?? true,
+      muted: map["muted"] as bool? ?? false,
+      volume: (map["volume"] as num?)?.toDouble() ?? 1,
+      loopVideo: map["loop_video"] as bool? ?? false,
       createdAt: DateTime.parse(map["created_at"] as String),
     );
   }

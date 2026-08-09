@@ -229,24 +229,33 @@ class _StreamerSidePanelContentState extends State<_StreamerSidePanelContent> {
     setState(() => _future = _load());
   }
 
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), backgroundColor: Colors.redAccent));
+  }
+
   Future<void> _toggleChecklistItem(
     String phaseKey,
     String stageKey,
     String itemKey,
     bool current,
   ) async {
-    final client = Supabase.instance.client;
-    final userId = client.auth.currentUser!.id;
-    await client.from("streamer_phase_checklist_progress").upsert({
-      "streamer_id": widget.streamerId,
-      "phase_key": phaseKey,
-      "stage_key": stageKey,
-      "item_key": itemKey,
-      "done": !current,
-      "done_at": !current ? DateTime.now().toIso8601String() : null,
-      "done_by": !current ? userId : null,
-    }, onConflict: "streamer_id,phase_key,stage_key,item_key");
-    _reload();
+    try {
+      final client = Supabase.instance.client;
+      final userId = client.auth.currentUser!.id;
+      await client.from("streamer_phase_checklist_progress").upsert({
+        "streamer_id": widget.streamerId,
+        "phase_key": phaseKey,
+        "stage_key": stageKey,
+        "item_key": itemKey,
+        "done": !current,
+        "done_at": !current ? DateTime.now().toIso8601String() : null,
+        "done_by": !current ? userId : null,
+      }, onConflict: "streamer_id,phase_key,stage_key,item_key");
+      _reload();
+    } catch (e) {
+      _showError("Erro ao marcar item: " + e.toString());
+    }
   }
 
   Future<void> _setPotential(String? level) async {
@@ -256,17 +265,21 @@ class _StreamerSidePanelContentState extends State<_StreamerSidePanelContent> {
 
   Future<void> _saveObservation() async {
     if (_obsController.text.trim().isEmpty) return;
-    final client = Supabase.instance.client;
-    final userId = client.auth.currentUser!.id;
-    await client.from("streamer_contact_logs").insert({
-      "streamer_id": widget.streamerId,
-      "manager_id": userId,
-      "manager_label": client.auth.currentUser?.email ?? "Gestor",
-      "message_sent": _obsController.text.trim(),
-      "context": "painel_streamer",
-    });
-    _obsController.clear();
-    _reload();
+    try {
+      final client = Supabase.instance.client;
+      final userId = client.auth.currentUser!.id;
+      await client.from("streamer_contact_logs").insert({
+        "streamer_id": widget.streamerId,
+        "manager_id": userId,
+        "manager_label": client.auth.currentUser?.email ?? "Gestor",
+        "message_sent": _obsController.text.trim(),
+        "context": "painel_streamer",
+      });
+      _obsController.clear();
+      _reload();
+    } catch (e) {
+      _showError("Erro ao salvar anotação: " + e.toString());
+    }
   }
 
   Future<void> _saveNextAction(

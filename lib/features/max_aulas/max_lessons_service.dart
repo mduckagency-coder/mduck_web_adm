@@ -33,6 +33,9 @@ class MaxLessonsService {
     required MaxLessonVideoSource videoSource,
     required String videoUrl,
     bool isActive = true,
+    bool muted = false,
+    double volume = 1,
+    bool loopVideo = false,
   }) async {
     if (id != null) {
       await _client.from("max_lessons").update({
@@ -44,6 +47,9 @@ class MaxLessonsService {
         "video_source": maxLessonVideoSourceToDb(videoSource),
         "video_url": videoUrl,
         "is_active": isActive,
+        "muted": muted,
+        "volume": volume,
+        "loop_video": loopVideo,
         "updated_at": DateTime.now().toIso8601String(),
       }).eq("id", id);
       return;
@@ -60,6 +66,9 @@ class MaxLessonsService {
       "video_source": maxLessonVideoSourceToDb(videoSource),
       "video_url": videoUrl,
       "is_active": isActive,
+      "muted": muted,
+      "volume": volume,
+      "loop_video": loopVideo,
       "created_by": userId,
     });
   }
