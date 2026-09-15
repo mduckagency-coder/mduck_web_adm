@@ -43,6 +43,7 @@ class _EntradasSaidasPageState extends State<EntradasSaidasPage> {
   late Future<List<Map<String, dynamic>>> _future;
   String _filter = "todas";
   bool _filterByMonth = true;
+  final Set<String> _selectedIds = {};
 
   @override
   void initState() {
@@ -72,6 +73,28 @@ class _EntradasSaidasPageState extends State<EntradasSaidasPage> {
     final client = Supabase.instance.client;
     await client.from("financial_entries").update({"status": "pago", "payment_date": DateTime.now().toIso8601String().substring(0, 10)}).eq("id", id);
     setState(() => _future = _load());
+  }
+
+  void _toggleSelected(String id, bool? selected) {
+    setState(() {
+      if (selected == true) {
+        _selectedIds.add(id);
+      } else {
+        _selectedIds.remove(id);
+      }
+    });
+  }
+
+  Future<void> _bulkSetStatus(String status) async {
+    if (_selectedIds.isEmpty) return;
+    final client = Supabase.instance.client;
+    final data = <String, dynamic>{"status": status};
+    data["payment_date"] = status == "pago" ? DateTime.now().toIso8601String().substring(0, 10) : null;
+    await client.from("financial_entries").update(data).inFilter("id", _selectedIds.toList());
+    setState(() {
+      _selectedIds.clear();
+      _future = _load();
+    });
   }
 
   String _personLabel(Map<String, dynamic> e) {
@@ -109,12 +132,24 @@ class _EntradasSaidasPageState extends State<EntradasSaidasPage> {
                         final isLate = e["status"] == "pendente" && e["due_date"] != null && DateTime.parse(e["due_date"]).isBefore(DateTime.now());
                         final statusColor = e["status"] == "pago" ? Colors.greenAccent : e["status"] == "cancelado" ? Colors.white38 : isLate ? Colors.redAccent : Colors.amber;
                         final personLabel = _personLabel(e);
+                        final id = e["id"] as String;
                         return InkWell(
                           onTap: () => _openForm(existing: e),
                           borderRadius: BorderRadius.circular(8),
                           child: Padding(
                             padding: const EdgeInsets.symmetric(vertical: 6),
                             child: Row(children: [
+                              SizedBox(
+                                width: 28,
+                                height: 28,
+                                child: Checkbox(
+                                  value: _selectedIds.contains(id),
+                                  onChanged: (v) => _toggleSelected(id, v),
+                                  visualDensity: VisualDensity.compact,
+                                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
                               Icon(_entryIcons[e["entry_type"]] ?? Icons.receipt_long, color: color, size: 18),
                               const SizedBox(width: 8),
                               Expanded(
@@ -180,6 +215,29 @@ class _EntradasSaidasPageState extends State<EntradasSaidasPage> {
           ChoiceChip(label: const Text("So Saidas"), selected: _filter == "saidas", selectedColor: Colors.redAccent, labelStyle: TextStyle(color: _filter == "saidas" ? Colors.black : Colors.white70), onSelected: (_) => setState(() => _filter = "saidas")),
         ]),
         const SizedBox(height: 12),
+        if (_selectedIds.isNotEmpty) ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(color: Colors.amber.withOpacity(0.08), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.amber.withOpacity(0.4))),
+            child: Row(children: [
+              Text(_selectedIds.length.toString() + " selecionado(s)", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+              const SizedBox(width: 16),
+              TextButton.icon(
+                onPressed: () => _bulkSetStatus("pago"),
+                icon: const Icon(Icons.check_circle_outline, size: 16, color: Colors.greenAccent),
+                label: const Text("Marcar como pago", style: TextStyle(color: Colors.greenAccent, fontSize: 12)),
+              ),
+              TextButton.icon(
+                onPressed: () => _bulkSetStatus("pendente"),
+                icon: const Icon(Icons.hourglass_empty, size: 16, color: Colors.amber),
+                label: const Text("Marcar como pendente", style: TextStyle(color: Colors.amber, fontSize: 12)),
+              ),
+              const Spacer(),
+              TextButton(onPressed: () => setState(() => _selectedIds.clear()), child: const Text("Limpar selecao", style: TextStyle(fontSize: 12))),
+            ]),
+          ),
+          const SizedBox(height: 12),
+        ],
         Expanded(
           child: FutureBuilder<List<Map<String, dynamic>>>(
             future: _future,

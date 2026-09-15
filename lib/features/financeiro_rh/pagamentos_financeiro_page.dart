@@ -217,33 +217,55 @@ class _PagamentosFinanceiroPageState extends State<PagamentosFinanceiroPage> {
                   return Card(
                     color: Colors.white.withOpacity(0.05),
                     margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
+                    child: InkWell(
                       onTap: () => canEdit ? _openForm(existing: e) : _openHistory(e),
-                      title: Row(children: [
-                        Expanded(child: Text((e["description"] as String? ?? e["category"] as String? ?? _typeLabels[e["entry_type"]] ?? "-"), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                        if (e["is_recurring"] == true) const Icon(Icons.repeat, color: Colors.white38, size: 14),
-                      ]),
-                      subtitle: Text(
-                        (_typeLabels[e["entry_type"]] ?? e["entry_type"] as String) +
-                            (personLabel != null ? "  -  " + personLabel : "") +
-                            "  -  " +
-                            (e["due_date"] as String? ?? e["created_at"].toString().substring(0, 10)),
-                        style: const TextStyle(color: Colors.white54, fontSize: 12),
-                      ),
-                      trailing: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text("R\$ " + (e["amount"] as num).toStringAsFixed(2), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                          Container(
-                            margin: const EdgeInsets.only(top: 4),
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(border: Border.all(color: statusColor), borderRadius: BorderRadius.circular(4)),
-                            child: Text(isLate ? "ATRASADO" : (e["status"] as String).toUpperCase(), style: TextStyle(color: statusColor, fontSize: 9, fontWeight: FontWeight.bold)),
-                          ),
-                          if (e["status"] != "pago" && e["status"] != "cancelado")
-                            TextButton(onPressed: () => _markPaid(e), child: const Text("Marcar pago", style: TextStyle(fontSize: 11))),
-                        ],
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(children: [
+                                    Expanded(child: Text((e["description"] as String? ?? e["category"] as String? ?? _typeLabels[e["entry_type"]] ?? "-"), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+                                    if (e["is_recurring"] == true) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.repeat, color: Colors.white38, size: 14)),
+                                  ]),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    (_typeLabels[e["entry_type"]] ?? e["entry_type"] as String) +
+                                        (personLabel != null ? "  -  " + personLabel : "") +
+                                        "  -  " +
+                                        (e["due_date"] as String? ?? e["created_at"].toString().substring(0, 10)),
+                                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text("R\$ " + (e["amount"] as num).toStringAsFixed(2), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                Container(
+                                  margin: const EdgeInsets.only(top: 4),
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(border: Border.all(color: statusColor), borderRadius: BorderRadius.circular(4)),
+                                  child: Text(isLate ? "ATRASADO" : (e["status"] as String).toUpperCase(), style: TextStyle(color: statusColor, fontSize: 9, fontWeight: FontWeight.bold)),
+                                ),
+                                if (e["status"] != "pago" && e["status"] != "cancelado")
+                                  TextButton(
+                                    onPressed: () => _markPaid(e),
+                                    style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 28), tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                                    child: const Text("Marcar pago", style: TextStyle(fontSize: 11)),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   );

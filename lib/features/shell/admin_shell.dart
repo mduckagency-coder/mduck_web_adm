@@ -2,20 +2,13 @@ import "dart:html" as html;
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "../import/import_page.dart";
-import "../progresso/progresso_streamers_page.dart";
-import "../metricas/metricas_streamers_page.dart";
 import "../campaigns/agency_campaigns_page.dart";
 import "../app_missions/app_missions_page.dart";
 import "../financeiro/financeiro_page.dart";
-import "../streamers/streamers_page.dart";
 import "../dashboard/dashboard_page.dart";
-import "../categorias/categorias_page.dart";
 import "../ranking/ranking_page.dart";
-import "../crm/crm_page.dart";
-import "../gestor/gestao_streamers_page.dart";
 import "../missoes_atividades/missoes_atividades_page.dart";
 import "../ilha_top_duckers/ilha_top_duckers_page.dart";
-import "../metricas/level_maintenance_page.dart";
 import "../financeiro_rh/financeiro_rh_shell.dart";
 import "../calendario/agenda_agencia_page.dart";
 import "../calendario/agenda_streamers_page.dart";
@@ -40,15 +33,6 @@ class _MenuGroup {
 }
 
 const _menuGroups = [
-  _MenuGroup(icon: Icons.people, label: "Criadores", children: [
-    (Icons.badge, "CRM"),
-    (Icons.groups_2, "Gestao de Streamers"),
-    (Icons.person_outline, "Streamers"),
-    (Icons.query_stats, "Metricas Streamers"),
-    (Icons.military_tech, "Manutencao de Nivel"),
-    (Icons.category, "Categorias"),
-    (Icons.timeline, "Progressao Inatividade"),
-  ]),
   _MenuGroup(icon: Icons.flag, label: "Missoes", children: [
     (Icons.campaign, "Missao Agencia"),
     (Icons.flag_outlined, "Missoes APP"),
@@ -94,7 +78,7 @@ const _mobileBreakpoint = 700.0;
 
 class _AdminShellState extends State<AdminShell> {
   String _selected = "Dashboard";
-  final Set<String> _expanded = {"Criadores"};
+  final Set<String> _expanded = {};
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   void _select(String value) {
@@ -192,18 +176,8 @@ class _AdminShellState extends State<AdminShell> {
     switch (_selected) {
       case "Dashboard":
         return const DashboardPage();
-      case "Streamers":
-        return const StreamersPage();
-      case "Gestao de Streamers":
-        return const GestaoStreamersPage(showManagerAggregates: true);
       case "Importacao TikTok":
         return const ImportPage();
-      case "Progressao Inatividade":
-        return const ProgressoStreamersPage();
-      case "Metricas Streamers":
-        return const MetricasStreamersPage();
-      case "Manutencao de Nivel":
-        return const LevelMaintenancePage();
       case "Missao Agencia":
         return const AgencyCampaignsPage();
       case "Missoes APP":
@@ -216,12 +190,8 @@ class _AdminShellState extends State<AdminShell> {
         return const FinanceiroRhShell();
       case "Reportes de Bugs":
         return const BugReportsPage();
-      case "Categorias":
-        return const CategoriasPage();
       case "Ranking":
         return const RankingPage();
-      case "CRM":
-        return const CrmPage();
       case "Eventos":
         return const EventosPage();
       case "Programas de Desenvolvimento":

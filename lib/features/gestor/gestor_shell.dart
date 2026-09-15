@@ -2,9 +2,14 @@ import "dart:html" as html;
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "../calendario/calendar_board_page.dart";
+import "../categorias/categorias_page.dart";
 import "../crm/crm_page.dart";
 import "../gestao/demandas_page.dart";
+import "../metricas/level_maintenance_page.dart";
+import "../metricas/metricas_streamers_page.dart";
 import "../profile/app_top_bar.dart";
+import "../progresso/progresso_streamers_page.dart";
+import "../streamers/streamers_page.dart";
 import "gestao_streamers_page.dart";
 import "gestor_dashboard_page.dart";
 import "gestor_my_streamers_page.dart";
@@ -14,18 +19,51 @@ import "onboarding_phase_service.dart"
     show onboardingPhaseKey, onboardingSecondPhaseKey, onboardingThirdPhaseKey;
 import "onboarding_materials_page.dart";
 
-const _menuItems = [
+class _MenuGroup {
+  final IconData icon;
+  final String label;
+  final List<(IconData, String)> children;
+
+  const _MenuGroup({
+    required this.icon,
+    required this.label,
+    required this.children,
+  });
+}
+
+// Movido de Home Central (AdminShell) pra ca -- o gestor e quem realmente
+// usa esse grupo no dia a dia, nao fazia sentido ficar so na area do
+// Administrador. "Gestao de Streamers" virou "Acao Streamers" dentro do
+// grupo (mesma pagina, GestaoStreamersPage, so o nome do menu muda).
+const _menuGroupsTop = [
+  _MenuGroup(
+    icon: Icons.people,
+    label: "Criadores",
+    children: [
+      (Icons.badge, "CRM"),
+      (Icons.groups_2, "Ação Streamers"),
+      (Icons.person_outline, "Streamers"),
+      (Icons.query_stats, "Metricas Streamers"),
+      (Icons.military_tech, "Manutencao de Nivel"),
+      (Icons.category, "Categorias"),
+      (Icons.timeline, "Progressao Inatividade"),
+    ],
+  ),
+];
+
+const _menuItemsTop = [
   (Icons.dashboard, "Dashboard"),
   (Icons.assignment_outlined, "Demandas"),
   (Icons.groups, "Meus Streamers"),
-  (Icons.groups_2, "Gestao de Streamers"),
+];
+
+const _menuItemsBottom = [
   (Icons.hourglass_bottom, "Proximos Agenciados"),
   (Icons.timelapse, "Onboard 0-15 Dias"),
   (Icons.timelapse, "Acompanhamento 16-31 Dias"),
   (Icons.school, "Graduacao Novatos"),
   (Icons.menu_book, "Material Acompanhamento"),
   (Icons.calendar_month, "Calendario"),
-  (Icons.badge, "CRM"),
 ];
 
 class GestorShell extends StatefulWidget {
@@ -37,6 +75,7 @@ class GestorShell extends StatefulWidget {
 
 class _GestorShellState extends State<GestorShell> {
   String _selected = "Dashboard";
+  final Set<String> _expanded = {"Criadores"};
 
   void _select(String value) {
     setState(() => _selected = value);
@@ -58,8 +97,18 @@ class _GestorShellState extends State<GestorShell> {
         return const DemandasPage();
       case "Meus Streamers":
         return const GestorMyStreamersPage();
-      case "Gestao de Streamers":
+      case "Ação Streamers":
         return const GestaoStreamersPage();
+      case "Streamers":
+        return const StreamersPage();
+      case "Metricas Streamers":
+        return const MetricasStreamersPage();
+      case "Manutencao de Nivel":
+        return const LevelMaintenancePage();
+      case "Categorias":
+        return const CategoriasPage();
+      case "Progressao Inatividade":
+        return const ProgressoStreamersPage();
       case "Proximos Agenciados":
         return const GestorProximosAgenciadosPage();
       case "Onboard 0-15 Dias":
@@ -111,6 +160,81 @@ class _GestorShellState extends State<GestorShell> {
     }
   }
 
+  Widget _itemTile((IconData, String) item) {
+    final selected = _selected == item.$2;
+    return ListTile(
+      leading: Icon(
+        item.$1,
+        color: selected ? const Color(0xFF7A0BD4) : Colors.white70,
+        size: 20,
+      ),
+      title: Text(
+        item.$2,
+        style: TextStyle(
+          color: selected ? const Color(0xFF7A0BD4) : Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 14,
+        ),
+      ),
+      onTap: () => _select(item.$2),
+    );
+  }
+
+  Widget _groupTile(_MenuGroup group) {
+    final isExpanded = _expanded.contains(group.label);
+    return Column(
+      children: [
+        ListTile(
+          leading: Icon(group.icon, color: Colors.white70, size: 20),
+          title: Text(
+            group.label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+          trailing: Icon(
+            isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+            color: Colors.white54,
+            size: 18,
+          ),
+          onTap: () => setState(() {
+            if (isExpanded) {
+              _expanded.remove(group.label);
+            } else {
+              _expanded.add(group.label);
+            }
+          }),
+        ),
+        if (isExpanded)
+          ...group.children.map((child) {
+            final selected = _selected == child.$2;
+            return Padding(
+              padding: const EdgeInsets.only(left: 16),
+              child: ListTile(
+                dense: true,
+                leading: Icon(
+                  child.$1,
+                  color: selected ? const Color(0xFF7A0BD4) : Colors.white54,
+                  size: 18,
+                ),
+                title: Text(
+                  child.$2,
+                  style: TextStyle(
+                    color: selected ? const Color(0xFF7A0BD4) : Colors.white70,
+                    fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                    fontSize: 13,
+                  ),
+                ),
+                onTap: () => _select(child.$2),
+              ),
+            );
+          }),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -151,29 +275,9 @@ class _GestorShellState extends State<GestorShell> {
                     child: ListView(
                       padding: EdgeInsets.zero,
                       children: [
-                        ..._menuItems.map((item) {
-                          final selected = _selected == item.$2;
-                          return ListTile(
-                            leading: Icon(
-                              item.$1,
-                              color: selected
-                                  ? const Color(0xFF7A0BD4)
-                                  : Colors.white70,
-                              size: 20,
-                            ),
-                            title: Text(
-                              item.$2,
-                              style: TextStyle(
-                                color: selected
-                                    ? const Color(0xFF7A0BD4)
-                                    : Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
-                            ),
-                            onTap: () => _select(item.$2),
-                          );
-                        }),
+                        ..._menuItemsTop.map(_itemTile),
+                        ..._menuGroupsTop.map(_groupTile),
+                        ..._menuItemsBottom.map(_itemTile),
                       ],
                     ),
                   ),

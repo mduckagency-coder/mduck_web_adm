@@ -134,8 +134,16 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
   String _periodFilter = "todos";
   String? _movementFilter;
   bool _showArchived = false;
+  String _searchQuery = "";
 
   final _horizontalController = ScrollController();
+  final _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   String get _userId => Supabase.instance.client.auth.currentUser!.id;
 
@@ -457,6 +465,11 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
   List<Map<String, dynamic>> get _visibleCards {
     return _cards.where((c) {
       if (_categoryFilter != "todos" && c["categoryIconKey"] != _categoryFilter)
+        return false;
+      if (_searchQuery.isNotEmpty &&
+          !(c["displayName"] as String? ?? "").toLowerCase().contains(
+            _searchQuery,
+          ))
         return false;
       if (!_showArchived) {
         final startedAt = c["startedAt"] as String?;
@@ -1061,6 +1074,49 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
       runSpacing: 8,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
+        SizedBox(
+          width: 200,
+          height: 36,
+          child: TextField(
+            controller: _searchController,
+            style: const TextStyle(color: Colors.white, fontSize: 12),
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: "Buscar por nome...",
+              hintStyle: const TextStyle(
+                color: Colors.white38,
+                fontSize: 12,
+              ),
+              prefixIcon: const Icon(
+                Icons.search,
+                size: 16,
+                color: Colors.white38,
+              ),
+              suffixIcon: _searchQuery.isEmpty
+                  ? null
+                  : InkWell(
+                      onTap: () {
+                        _searchController.clear();
+                        setState(() => _searchQuery = "");
+                      },
+                      child: const Icon(
+                        Icons.close,
+                        size: 16,
+                        color: Colors.white38,
+                      ),
+                    ),
+              filled: true,
+              fillColor: Colors.white.withOpacity(0.05),
+              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide.none,
+              ),
+            ),
+            onChanged: (v) =>
+                setState(() => _searchQuery = v.trim().toLowerCase()),
+          ),
+        ),
         ..._categoryFilterOptions.map((opt) {
           final selected = _categoryFilter == opt.$1;
           return ChoiceChip(
@@ -1168,6 +1224,11 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
   List<Map<String, dynamic>> get _visibleCardsIgnoringMovement {
     return _cards.where((c) {
       if (_categoryFilter != "todos" && c["categoryIconKey"] != _categoryFilter)
+        return false;
+      if (_searchQuery.isNotEmpty &&
+          !(c["displayName"] as String? ?? "").toLowerCase().contains(
+            _searchQuery,
+          ))
         return false;
       final startedAt = c["startedAt"] as String?;
       if (startedAt != null && !_inPeriod(DateTime.parse(startedAt)))
@@ -4259,7 +4320,23 @@ class _StreamerMetricsDialogState extends State<_StreamerMetricsDialog> {
         .select("days_live, hours_live, diamonds, battles")
         .eq("streamer_id", widget.streamerId)
         .maybeSingle();
-    return {"profile": profile, "stats": stats};
+
+    // Mes anterior fechado (monthly_stats), mesma fonte ja usada em
+    // gestor_streamer_service.dart pra calcular crescimento -- da a base
+    // pro comparativo do StreamerMetricsComparisonShareCard.
+    final now = DateTime.now();
+    final prevMonth = now.month == 1 ? 12 : now.month - 1;
+    final prevYear = now.month == 1 ? now.year - 1 : now.year;
+    final prevPeriodKey =
+        prevYear.toString() + "-" + prevMonth.toString().padLeft(2, "0");
+    final lastMonthStats = await client
+        .from("monthly_stats")
+        .select("diamonds, days_live, hours_live")
+        .eq("streamer_id", widget.streamerId)
+        .eq("period_key", prevPeriodKey)
+        .maybeSingle();
+
+    return {"profile": profile, "stats": stats, "lastMonthStats": lastMonthStats};
   }
 
   Widget _statTile(String label, String value, Color color) {
@@ -4345,6 +4422,8 @@ class _StreamerMetricsDialogState extends State<_StreamerMetricsDialog> {
               }
               final p = snapshot.data!["profile"] as Map<String, dynamic>;
               final stats = snapshot.data!["stats"] as Map<String, dynamic>?;
+              final lastMonthStats =
+                  snapshot.data!["lastMonthStats"] as Map<String, dynamic>?;
               final catData = p["streamer_categories"];
               final managerData = p["managers"];
               final joinedAt = DateTime.parse(p["joined_at"] as String);
@@ -4462,6 +4541,27 @@ class _StreamerMetricsDialogState extends State<_StreamerMetricsDialog> {
                         hoursLive: (stats["hours_live"] as num? ?? 0)
                             .toDouble(),
                       ),
+                      if (lastMonthStats != null) ...[
+                        const SizedBox(height: 8),
+                        StreamerMetricsComparisonShareCard(
+                          nick: widget.streamerName,
+                          categoria: catData is Map
+                              ? (catData["name"] as String? ?? "Sem categoria")
+                              : "Sem categoria",
+                          diamondsThisMonth: (stats["diamonds"] as num? ?? 0)
+                              .toInt(),
+                          daysLiveThisMonth: (stats["days_live"] as num? ?? 0)
+                              .toInt(),
+                          hoursLiveThisMonth: (stats["hours_live"] as num? ?? 0)
+                              .toDouble(),
+                          diamondsLastMonth:
+                              lastMonthStats["diamonds"] as num? ?? 0,
+                          daysLiveLastMonth:
+                              lastMonthStats["days_live"] as num? ?? 0,
+                          hoursLiveLastMonth:
+                              lastMonthStats["hours_live"] as num? ?? 0,
+                        ),
+                      ],
                     ],
                     const SizedBox(height: 12),
                     Align(

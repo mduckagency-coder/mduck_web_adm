@@ -1,6 +1,7 @@
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "../metricas/streamer_metrics_share_card.dart";
+import "../programas/program_monthly_stats_service.dart" show monthLabel;
 import "../programas/program_phase_service.dart" show developmentProgramKeys;
 
 class CrmPage extends StatefulWidget {
@@ -197,6 +198,7 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
   final _recruitedByController = TextEditingController();
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
+  final _pixController = TextEditingController();
   final _noteController = TextEditingController();
   bool _savingRecruited = false;
   bool _savingContact = false;
@@ -241,14 +243,43 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
     final profile = await client
         .from("profiles")
         .select(
-          "display_name, tiktok_username, tiktok_creator_id, tiktok_group_name, joined_at, is_active, left_at, left_reason, recruited_by, phone, email, avatar_url, category_id, group_id, streamer_categories(name), groups!profiles_group_id_fkey(name), streamer_stats(diamonds, days_live, hours_live)",
+          "display_name, tiktok_username, tiktok_creator_id, tiktok_group_name, joined_at, is_active, left_at, left_reason, recruited_by, phone, email, pix_key, avatar_url, category_id, group_id, last_live_at, streamer_categories(name), groups!profiles_group_id_fkey(name), streamer_stats(diamonds, days_live, hours_live)",
         )
         .eq("id", widget.streamerId)
         .single();
 
+    // Mes anterior fechado (monthly_stats) pro comparativo, e o historico
+    // recente pra achar o ultimo mes em que o streamer realmente teve
+    // atividade (days_live > 0) -- usado na mensagem de reengajamento de
+    // quem esta inativo. Mesma fonte/mesmo padrao ja usado em
+    // onboarding_phase_kanban_page.dart e gestor_streamer_service.dart.
+    final now = DateTime.now();
+    final prevMonth = now.month == 1 ? 12 : now.month - 1;
+    final prevYear = now.month == 1 ? now.year - 1 : now.year;
+    final prevPeriodKey =
+        prevYear.toString() + "-" + prevMonth.toString().padLeft(2, "0");
+    final lastMonthStats = await client
+        .from("monthly_stats")
+        .select("diamonds, days_live, hours_live")
+        .eq("streamer_id", widget.streamerId)
+        .eq("period_key", prevPeriodKey)
+        .maybeSingle();
+
+    final monthlyHistoryRows = await client
+        .from("monthly_stats")
+        .select("period_key, diamonds, days_live, hours_live")
+        .eq("streamer_id", widget.streamerId)
+        .order("period_key", ascending: false)
+        .limit(12);
+    final lastActiveMonth = (monthlyHistoryRows as List)
+        .cast<Map<String, dynamic>>()
+        .where((r) => (r["days_live"] as num? ?? 0) > 0)
+        .firstOrNull;
+
     _recruitedByController.text = (profile["recruited_by"] as String?) ?? "";
     _phoneController.text = (profile["phone"] as String?) ?? "";
     _emailController.text = (profile["email"] as String?) ?? "";
+    _pixController.text = (profile["pix_key"] as String?) ?? "";
 
     final campaignRewards = await client
         .from("campaign_rewards")
@@ -498,6 +529,8 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
       "cycleParticipations": (cycleParticipations as List)
           .cast<Map<String, dynamic>>(),
       "programAwards": (programAwards as List).cast<Map<String, dynamic>>(),
+      "lastMonthStats": lastMonthStats,
+      "lastActiveMonth": lastActiveMonth,
     };
   }
 
@@ -519,6 +552,7 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
         .update({
           "phone": _phoneController.text.trim(),
           "email": _emailController.text.trim(),
+          "pix_key": _pixController.text.trim(),
         })
         .eq("id", widget.streamerId);
     setState(() => _savingContact = false);
@@ -652,7 +686,7 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
     });
   }
 
-  Widget _buildPerfilTab(Map<String, dynamic> p) {
+  Widget _buildPerfilTab(Map<String, dynamic> p, Map<String, dynamic> data) {
     final groupData = p["groups"];
     final catData = p["streamer_categories"];
     final active = p["is_active"] as bool? ?? true;
@@ -670,6 +704,33 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
     final diamonds = stats?["diamonds"] as int? ?? 0;
     final daysLive = stats?["days_live"] as int? ?? 0;
     final hoursLive = (stats?["hours_live"] as num?)?.toDouble() ?? 0;
+
+    // "Inativo" aqui segue a mesma regra ja usada em computeStreamerStatus
+    // (recruiter_streamers_page.dart): sem last_live_at, ou mais de 15 dias
+    // sem ir ao vivo. So faz sentido considerar quem ainda esta agenciado
+    // (active) -- quem ja saiu tem o proprio fluxo de "Encerrado em".
+    final lastLiveAtStr = p["last_live_at"] as String?;
+    final lastLiveAt = lastLiveAtStr != null
+        ? DateTime.parse(lastLiveAtStr)
+        : null;
+    final daysSinceLastLive = lastLiveAt != null
+        ? DateTime.now().difference(lastLiveAt).inDays
+        : DateTime.now()
+              .difference(DateTime.parse(p["joined_at"] as String))
+              .inDays;
+    final isInactive = active && (lastLiveAt == null || daysSinceLastLive > 15);
+
+    final lastMonthStats = data["lastMonthStats"] as Map<String, dynamic>?;
+    final lastActiveMonth = data["lastActiveMonth"] as Map<String, dynamic>?;
+    String? lastActiveMonthLabel;
+    if (lastActiveMonth != null) {
+      final periodKey = lastActiveMonth["period_key"] as String;
+      final parts = periodKey.split("-");
+      lastActiveMonthLabel = monthLabel(
+        int.parse(parts[0]),
+        int.parse(parts[1]),
+      );
+    }
 
     return SingleChildScrollView(
       child: Column(
@@ -694,6 +755,32 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
             daysLive: daysLive,
             hoursLive: hoursLive,
           ),
+          if (isInactive) ...[
+            const SizedBox(height: 8),
+            StreamerReengagementShareCard(
+              nick: (p["display_name"] as String?) ?? "-",
+              categoria: categoria,
+              daysSinceLastLive: daysSinceLastLive,
+              lastActiveMonthLabel: lastActiveMonthLabel,
+              lastActiveMonthDays: lastActiveMonth?["days_live"] as int?,
+              lastActiveMonthHours: (lastActiveMonth?["hours_live"] as num?)
+                  ?.toDouble(),
+              lastActiveMonthDiamonds:
+                  lastActiveMonth?["diamonds"] as int?,
+            ),
+          ] else if (lastMonthStats != null) ...[
+            const SizedBox(height: 8),
+            StreamerMetricsComparisonShareCard(
+              nick: (p["display_name"] as String?) ?? "-",
+              categoria: categoria,
+              diamondsThisMonth: diamonds,
+              daysLiveThisMonth: daysLive,
+              hoursLiveThisMonth: hoursLive,
+              diamondsLastMonth: lastMonthStats["diamonds"] as num? ?? 0,
+              daysLiveLastMonth: lastMonthStats["days_live"] as num? ?? 0,
+              hoursLiveLastMonth: lastMonthStats["hours_live"] as num? ?? 0,
+            ),
+          ],
           const SizedBox(height: 16),
           _infoRow("Nome", (p["display_name"] as String?) ?? "-"),
           _infoRow("ID TikTok", (p["tiktok_creator_id"] as String?) ?? "-"),
@@ -756,6 +843,17 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
                 ),
               ),
               const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _pixController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: "Chave PIX",
+                    labelStyle: TextStyle(color: Colors.white54),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
               ElevatedButton(
                 onPressed: _savingContact ? null : _saveContact,
                 style: ElevatedButton.styleFrom(
@@ -765,6 +863,11 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
                 child: Text(_savingContact ? "..." : "Salvar"),
               ),
             ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            "A chave PIX cadastrada aqui e usada para pagar bonus de indicacao quando esse streamer indicar alguem (em Financeiro / Financeiro & RH > Indicacoes).",
+            style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic),
           ),
           const SizedBox(height: 8),
           Row(
@@ -1378,7 +1481,7 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
                     Expanded(
                       child: TabBarView(
                         children: [
-                          _buildPerfilTab(p),
+                          _buildPerfilTab(p, data),
                           _buildRecrutamentoTab(data),
                           _buildProgramasDesenvolvimentoTab(data),
                           _buildTimelineTab(timeline),

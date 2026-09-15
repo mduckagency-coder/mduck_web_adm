@@ -1,5 +1,6 @@
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
+import "../financeiro_rh/indicacoes_page.dart";
 
 const _categoryLabels = {
   "mes": "Mes",
@@ -26,6 +27,7 @@ class FinanceiroPage extends StatefulWidget {
 
 class _FinanceiroPageState extends State<FinanceiroPage> {
   late Future<_FinanceData> _future;
+  String _tab = "campanhas";
 
   @override
   void initState() {
@@ -82,9 +84,21 @@ class _FinanceiroPageState extends State<FinanceiroPage> {
             ],
           ),
           const SizedBox(height: 16),
-          const Text("Campanhas", style: TextStyle(color: Colors.white70)),
+          Wrap(spacing: 8, children: [
+            ("campanhas", "Campanhas"),
+            ("indicacoes", "Indicacoes"),
+          ].map((t) {
+            final selected = _tab == t.$1;
+            return ChoiceChip(
+              label: Text(t.$2),
+              selected: selected,
+              selectedColor: const Color(0xFF7A0BD4),
+              labelStyle: TextStyle(color: selected ? Colors.white : Colors.white70, fontWeight: FontWeight.bold),
+              onSelected: (_) => setState(() => _tab = t.$1),
+            );
+          }).toList()),
           const SizedBox(height: 16),
-          Expanded(
+          if (_tab == "indicacoes") const Expanded(child: IndicacoesPage()) else Expanded(
             child: FutureBuilder<_FinanceData>(
               future: _future,
               builder: (context, snapshot) {
