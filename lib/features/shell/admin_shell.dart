@@ -14,8 +14,12 @@ import "../calendario/agenda_agencia_page.dart";
 import "../calendario/agenda_streamers_page.dart";
 import "../calendario/solicitacoes_page.dart";
 import "../calendario/services/calendar_service.dart";
-import "../max_aulas/max_aulas_page.dart";
+import "../academia/academia_page.dart";
+import "../max_estados/max_estados_page.dart";
+import "../app_icon/app_icon_page.dart";
 import "../inventario/inventario_page.dart";
+import "../app_config/app_config_pages.dart";
+import "../app_config/app_reports_page.dart";
 import "../admin/bug_reports_page.dart";
 import "../admin/bug_reports_page.dart";
 import "../eventos/eventos_page.dart";
@@ -23,6 +27,9 @@ import "../programas/programas_page.dart";
 import "../profile/profile_avatar_menu.dart";
 import "../profile/app_top_bar.dart";
 import "../app_animation/app_splash_media_page.dart";
+import "../home_background/home_background_page.dart";
+import "../novidades_home/novidades_home_page.dart";
+import "../desafio/desafio_page.dart";
 
 class _MenuGroup {
   final IconData icon;
@@ -42,7 +49,9 @@ const _menuGroups = [
     (Icons.leaderboard, "Ranking"),
     (Icons.landscape, "Ilha Top Duckers"),
     (Icons.backpack, "Inventario"),
-    (Icons.school, "MAX Aulas"),
+    (Icons.school, "Academia MDuck"),
+    (Icons.auto_stories, "Novidades Home"),
+    (Icons.casino, "Desafio"),
   ]),
   _MenuGroup(icon: Icons.calendar_month, label: "Calendario", children: [
     (Icons.apartment, "Agenda da Agencia"),
@@ -52,17 +61,26 @@ const _menuGroups = [
   _MenuGroup(icon: Icons.movie_filter, label: "Configuracao Animacao APP", children: [
     (Icons.image, "Background Home"),
     (Icons.terrain, "Ilha Top Duckers - Config"),
-    (Icons.pets, "Max"),
-    (Icons.animation, "Animacoes de menus"),
+    (Icons.pets, "Max Entrada"),
+    (Icons.palette, "Ícone"),
     (Icons.hourglass_top, "Carregamento"),
-    (Icons.play_circle_outline, "Introducao"),
+  ]),
+  _MenuGroup(icon: Icons.settings_applications, label: "Configuracoes do Aplicativo", children: [
+    (Icons.info_outline, "Sobre a MDuck"),
+    (Icons.help_outline, "Ajuda e Suporte"),
+    (Icons.feedback_outlined, "Reportes do Aplicativo"),
+    (Icons.new_releases_outlined, "Versao e Atualizacoes"),
+    (Icons.text_fields, "Textos do Aplicativo"),
   ]),
 ];
 
 const _standaloneItems = [
   (Icons.attach_money, "Campanhas Financeiro", "Financeiro"),
-  (Icons.settings, "Configuracoes", "Configuracoes"),
 ];
+
+/// Paginas que ja existiram no menu e foram removidas: se o navegador tinha
+/// uma delas salva como ultima pagina aberta, volta pro Dashboard.
+const _removedPages = {"Configuracoes", "Animacoes de menus"};
 
 class AdminShell extends StatefulWidget {
   const AdminShell({super.key});
@@ -100,7 +118,7 @@ class _AdminShellState extends State<AdminShell> {
   void initState() {
     super.initState();
     final saved = html.window.localStorage["mduck_admin_page"];
-    if (saved != null && saved.isNotEmpty) _selected = saved;
+    if (saved != null && saved.isNotEmpty && !_removedPages.contains(saved)) _selected = saved;
     debugPrint("[AdminShell] initState() chamado. saved=" + (saved ?? "null") + " _selected=" + _selected);
     _checkDono();
     _loadPendingRequestsCount();
@@ -206,8 +224,29 @@ class _AdminShellState extends State<AdminShell> {
         return const AgendaStreamersPage();
       case "Solicitacoes":
         return const SolicitacoesPage();
+      case "Academia MDuck":
       case "MAX Aulas":
-        return const MaxAulasPage();
+        return const AcademiaPage();
+      case "Desafio":
+        return const DesafioPage();
+      case "Novidades Home":
+        return const NovidadesHomePage();
+      case "Background Home":
+        return const HomeBackgroundPage();
+      case "Max Entrada":
+        return const MaxEstadosPage();
+      case "Ícone":
+        return const AppIconPage();
+      case "Sobre a MDuck":
+        return const AppConfigPage(key: ValueKey("cfg_sobre"), section: AppConfigSection.sobre);
+      case "Ajuda e Suporte":
+        return const AppConfigPage(key: ValueKey("cfg_ajuda"), section: AppConfigSection.ajuda);
+      case "Versao e Atualizacoes":
+        return const AppConfigPage(key: ValueKey("cfg_versao"), section: AppConfigSection.versao);
+      case "Textos do Aplicativo":
+        return const AppConfigPage(key: ValueKey("cfg_textos"), section: AppConfigSection.textos);
+      case "Reportes do Aplicativo":
+        return const AppReportsPage();
       case "Inventario":
         return const InventarioPage();
       case "Carregamento":
@@ -216,13 +255,6 @@ class _AdminShellState extends State<AdminShell> {
           kind: "loading",
           title: "Carregamento",
           helpText: "Vídeo/imagem que toca assim que o streamer abre o app, como tela de carregamento -- depois dele vem a Introdução.",
-        );
-      case "Introducao":
-        return const AppSplashMediaPage(
-          key: ValueKey("splash_intro"),
-          kind: "intro",
-          title: "Introdução",
-          helpText: "Vídeo/imagem que toca logo depois do Carregamento, antes de entrar no app de verdade.",
         );
       default:
         return Center(child: Text(_selected + " - em construcao", style: const TextStyle(fontSize: 18, color: Colors.white70)));

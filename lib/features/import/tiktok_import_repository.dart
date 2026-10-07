@@ -4,7 +4,7 @@ import "package:supabase_flutter/supabase_flutter.dart";
 class ImportRowResult {
   final String tiktokId;
   final String nick;
-  final String status; // "aplicado" | "criado" | "nao_encontrado" | "erro"
+  final String status; // "aplicado" | "criado" | "nao_encontrado" | "erro" | "desativado"
   final String? detail;
 
   ImportRowResult({
@@ -25,6 +25,7 @@ class ImportSummary {
   int get created => rows.where((r) => r.status == "criado").length;
   int get notFound => rows.where((r) => r.status == "nao_encontrado").length;
   int get errors => rows.where((r) => r.status == "erro").length;
+  int get deactivated => rows.where((r) => r.status == "desativado").length;
 }
 
 const _colPeriodo = 0;
@@ -76,6 +77,18 @@ class TikTokImportRepository {
     );
   }
 
+  /// Ultima data do periodo da planilha ("2026-10-01 ~ 2026-10-02" -> 02/10).
+  /// Com uma data so, usa ela.
+  DateTime? _dataUntil(String periodoTexto) {
+    final dates = RegExp(r"(\d{4})[-/.](\d{2})[-/.](\d{2})").allMatches(periodoTexto).toList();
+    if (dates.isEmpty) return null;
+    final m = dates.last;
+    return DateTime(int.parse(m.group(1)!), int.parse(m.group(2)!), int.parse(m.group(3)!));
+  }
+
+  String _isoDate(DateTime d) =>
+      "${d.year.toString().padLeft(4, "0")}-${d.month.toString().padLeft(2, "0")}-${d.day.toString().padLeft(2, "0")}";
+
   (String current, String previous) _periods(String periodoTexto) {
     final firstDate = periodoTexto.split("~").first.trim();
     final year = int.parse(firstDate.substring(0, 4));
@@ -101,6 +114,9 @@ class TikTokImportRepository {
     }
 
     final results = <ImportRowResult>[];
+    // Perfis que vieram na planilha (inclusive os "Saiu") e o mes dela.
+    final seenIds = <String>{};
+    String? sheetPeriod;
 
     final importRecord = await _client
         .from("tiktok_imports")
@@ -125,6 +141,8 @@ class TikTokImportRepository {
       if (periodoTexto.isEmpty) continue;
 
       final periods = _periods(periodoTexto);
+      final currentPeriod = periods.$1;
+      sheetPeriod ??= currentPeriod;
       final previousPeriod = periods.$2;
 
       final tiktokId = cell(_colId).trim();
@@ -139,13 +157,13 @@ class TikTokImportRepository {
         if (isNumericId) {
           profile = await _client
               .from("profiles")
-              .select("id")
+              .select("id, tiktok_username, display_name")
               .eq("tiktok_creator_id", tiktokId)
               .maybeSingle();
         }
         profile ??= await _client
             .from("profiles")
-            .select("id")
+            .select("id, tiktok_username, display_name, tiktok_creator_id")
             .eq("tiktok_username", nick)
             .maybeSingle();
         // Streamers cadastrados manualmente (dialog "Novo Agenciado") tem o @
@@ -156,9 +174,31 @@ class TikTokImportRepository {
         if (nick.isNotEmpty) {
           profile ??= await _client
               .from("profiles")
-              .select("id")
+              .select("id, tiktok_username, display_name, tiktok_creator_id")
               .eq("tiktok_creator_id", nick)
               .maybeSingle();
+        }
+        // Achou pelo nick, mas esse cadastro ja pertence a OUTRO ID do TikTok:
+        // e outra pessoa usando um nick que alguem largou. Nao mistura.
+        final linkedId = (profile?["tiktok_creator_id"] ?? "").toString().trim();
+        if (profile != null && isNumericId && RegExp(r"^\d+$").hasMatch(linkedId) && linkedId != tiktokId) {
+          profile = null;
+        }
+        // Linha sem ID valido (ex.: "deixou a agencia") com um @ antigo:
+        // procura no historico de trocas de nick (migration 0093).
+        if (profile == null && !isNumericId && nick.isNotEmpty) {
+          try {
+            final hist = await _client
+                .from("tiktok_nick_history")
+                .select("streamer_id")
+                // "_" e "%" sao curingas no ilike (e "_" e comum em nick)
+                .ilike("old_nick", nick.replaceAll(r"\", r"\\").replaceAll("%", r"\%").replaceAll("_", r"\_"))
+                .order("changed_at", ascending: false)
+                .limit(1);
+            if ((hist as List).isNotEmpty) {
+              profile = {"id": hist.first["streamer_id"]};
+            }
+          } catch (_) {}
         }
 
         var wasCreated = false;
@@ -201,12 +241,18 @@ class TikTokImportRepository {
         }
 
         final streamerId = profile["id"];
+        seenIds.add(streamerId as String);
 
         if (saiu) {
           await _client
               .from("profiles")
-              .update({"is_active": false})
-              .eq("id", streamerId);
+              .update({
+                "is_active": false,
+                "left_at": DateTime.now().toIso8601String(),
+                "left_reason": "Saiu da agência (planilha do TikTok)",
+              })
+              .eq("id", streamerId)
+              .eq("is_active", true);
         } else {
           final joinDateUpdate = _parseJoinDate(cell(_colHorarioIngresso));
           final profileUpdate = <String, dynamic>{};
@@ -215,6 +261,20 @@ class TikTokImportRepository {
           if (joinDateUpdate != null)
             profileUpdate["joined_at"] = joinDateUpdate.toIso8601String();
           profileUpdate["tiktok_group_name"] = cell(_colGrupo).trim();
+          // Troca de nick: o ID do TikTok nunca muda, o @ sim. Achou pelo ID
+          // e o nick da planilha e outro -> atualiza o cadastro (o historico
+          // fica em tiktok_nick_history, via trigger da migration 0093). O
+          // nome de exibicao acompanha so se era o proprio nick antigo.
+          final oldNick = (profile["tiktok_username"] as String?)?.trim();
+          if (isNumericId && !wasCreated && nick.isNotEmpty && oldNick != null && oldNick != nick) {
+            profileUpdate["tiktok_username"] = nick;
+            final oldDisplay = (profile["display_name"] as String?)?.trim();
+            if (oldDisplay == null || oldDisplay.isEmpty || oldDisplay == oldNick) {
+              profileUpdate["display_name"] = nick;
+            }
+          } else if (isNumericId && !wasCreated && nick.isNotEmpty && (oldNick == null || oldNick.isEmpty)) {
+            profileUpdate["tiktok_username"] = nick;
+          }
           // Planilha confirmou esse cadastro (criado agora ou ja existente,
           // manual ou nao) -- a partir daqui conta como agenciamento oficial
           // nos dashboards de "novos agenciados".
@@ -236,12 +296,43 @@ class TikTokImportRepository {
             "hours_live": hours,
             "diamonds": diamonds,
             "battles": _parseInt(cell(_colBatalhas)),
+            "period_key": currentPeriod,
             "updated_at": DateTime.now().toIso8601String(),
           });
 
           final prevDiamonds = _parseInt(cell(_colDiamantesMesPassado));
           final prevHours = _parseDuration(cell(_colDuracaoMesPassado));
           final prevDays = _parseInt(cell(_colDiasMesPassado));
+
+          // Foto dos totais "ate o dia X" (fim do periodo da planilha), para o
+          // ranking poder contar a partir de um dia no mes (migracao 0105).
+          // Falha aqui nunca atrapalha a importacao.
+          final until = _dataUntil(periodoTexto);
+          if (until != null) {
+            try {
+              await _client.from("metric_snapshots").upsert({
+                "agency_id": agencyId,
+                "streamer_id": streamerId,
+                "period_key": currentPeriod,
+                "data_until": _isoDate(until),
+                "diamonds": diamonds,
+                "hours_live": hours,
+                "days_live": days,
+                "battles": _parseInt(cell(_colBatalhas)),
+              }, onConflict: "streamer_id,period_key,data_until");
+              // mes passado completo (colunas "mes passado" da planilha)
+              final prevEnd = DateTime(until.year, until.month, 0);
+              await _client.from("metric_snapshots").upsert({
+                "agency_id": agencyId,
+                "streamer_id": streamerId,
+                "period_key": previousPeriod,
+                "data_until": _isoDate(prevEnd),
+                "diamonds": prevDiamonds,
+                "hours_live": prevHours,
+                "days_live": prevDays,
+              }, onConflict: "streamer_id,period_key,data_until");
+            } catch (_) {}
+          }
 
           await _client.from("monthly_stats").upsert({
             "streamer_id": streamerId,
@@ -289,6 +380,74 @@ class TikTokImportRepository {
         })
         .eq("id", importId);
 
+    results.addAll(await _deactivateMissing(agencyId: agencyId, seenIds: seenIds, sheetPeriod: sheetPeriod));
+
+    // Quem nao veio na planilha do mes novo nao pode ficar com os numeros do
+    // mes passado como se fossem deste mes (migration 0092).
+    try {
+      await _client.rpc("virar_mes_streamer_stats");
+    } catch (_) {}
+
     return ImportSummary(results, rowsData.length);
+  }
+
+  /// Saida automatica: a planilha do TikTok lista todo mundo que esta na
+  /// agencia. Quem estava ativo aqui e NAO veio na planilha do mes atual saiu
+  /// da agencia -> fica inativo (some do app/rankings), igual ao "Encerrar
+  /// participacao" manual do CRM.
+  ///
+  /// Travas de seguranca:
+  ///   * so vale para planilha do mes atual (planilha antiga nao tira ninguem);
+  ///   * so se a planilha cobrir pelo menos metade dos ativos (planilha
+  ///     cortada/filtrada nao derruba todo mundo);
+  ///   * cadastros manuais que a planilha nunca confirmou (created_manually,
+  ///     ex.: agenciado novo ainda entrando) nao sao tocados.
+  Future<List<ImportRowResult>> _deactivateMissing({
+    required String agencyId,
+    required Set<String> seenIds,
+    required String? sheetPeriod,
+  }) async {
+    try {
+      final now = DateTime.now();
+      final currentKey = "${now.year}-${now.month.toString().padLeft(2, "0")}";
+      if (sheetPeriod != currentKey || seenIds.isEmpty) return [];
+
+      final rows = await _client
+          .from("profiles")
+          .select("id, display_name, tiktok_username, tiktok_creator_id, created_manually")
+          .eq("agency_id", agencyId)
+          .eq("is_active", true);
+      final active = [
+        for (final r in rows as List)
+          if (r["created_manually"] != true) r as Map<String, dynamic>,
+      ];
+      if (active.isEmpty) return [];
+
+      final covered = active.where((r) => seenIds.contains(r["id"])).length;
+      if (covered < active.length / 2) return [];
+
+      final missing = active.where((r) => !seenIds.contains(r["id"])).toList();
+      final results = <ImportRowResult>[];
+      for (final r in missing) {
+        await _client
+            .from("profiles")
+            .update({
+              "is_active": false,
+              "left_at": now.toIso8601String(),
+              "left_reason": "Saiu da agência (não veio na planilha do TikTok de $sheetPeriod)",
+            })
+            .eq("id", r["id"])
+            .eq("is_active", true);
+        results.add(ImportRowResult(
+          tiktokId: (r["tiktok_creator_id"] ?? "").toString(),
+          nick: (r["tiktok_username"] ?? r["display_name"] ?? "").toString(),
+          status: "desativado",
+          detail: "Não veio na planilha: marcado como saiu da agência. Para desfazer, use o CRM.",
+        ));
+      }
+      return results;
+    } catch (_) {
+      return [];
+    }
   }
 }

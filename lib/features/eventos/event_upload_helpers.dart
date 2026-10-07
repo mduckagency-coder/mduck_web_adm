@@ -1,23 +1,34 @@
 import "package:file_picker/file_picker.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 
+import "../../core/upload_optimizer.dart";
+
 String _sanitizedExtension(String fileName) {
   final dotIndex = fileName.lastIndexOf(".");
   final rawExt = dotIndex != -1 ? fileName.substring(dotIndex + 1) : "";
   return RegExp(r"^[a-zA-Z0-9]{1,6}$").hasMatch(rawExt) ? rawExt.toLowerCase() : "bin";
 }
 
+/// Buckets cujo conteudo e baixado pelo app de cada streamer.
+const _appBuckets = {"island_media", "max_lessons", "academy", "app_content", "app_settings_media", "streamer_inventory", "event_banners"};
+
 /// Sobe um arquivo pra um bucket com uma chave sanitizada
 /// (`prefixo_timestamp.ext`), nunca o nome cru do arquivo (evita erro 400
 /// InvalidKey quando o nome tem espaco/acento/caractere especial).
+/// Imagens grandes sao reduzidas e videos para o app tem limite de tamanho
+/// (ver core/upload_optimizer.dart) para economizar trafego no Supabase.
 Future<String> uploadEventFile({
   required String bucket,
   required String prefix,
   required PlatformFile file,
 }) async {
   final client = Supabase.instance.client;
-  final ext = _sanitizedExtension(file.name);
-  final path = prefix + "_" + DateTime.now().millisecondsSinceEpoch.toString() + "." + ext;
-  await client.storage.from(bucket).uploadBinary(path, file.bytes!);
+  final optimized = optimizeUpload(file.bytes!, _sanitizedExtension(file.name), forApp: _appBuckets.contains(bucket));
+  final path = "${prefix}_${DateTime.now().millisecondsSinceEpoch}.${optimized.ext}";
+  await client.storage.from(bucket).uploadBinary(
+        path,
+        optimized.bytes,
+        fileOptions: FileOptions(contentType: contentTypeFor(optimized.ext), cacheControl: longCache),
+      );
   return client.storage.from(bucket).getPublicUrl(path);
 }

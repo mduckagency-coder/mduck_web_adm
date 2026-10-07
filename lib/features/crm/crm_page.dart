@@ -1,4 +1,5 @@
 import "package:flutter/material.dart";
+import "../inventario/models/inventory_entry.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "../metricas/streamer_metrics_share_card.dart";
 import "../programas/program_monthly_stats_service.dart" show monthLabel;
@@ -312,6 +313,40 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
         .eq("streamer_id", widget.streamerId)
         .order("created_at", ascending: false);
 
+    // Inventario: a mesma tabela do Home Central > Inventario e do app
+    // (inclusive os registros internos, que nao aparecem no app).
+    List inventoryEntries = const [];
+    try {
+      inventoryEntries = await client
+          .from("streamer_inventory_entries")
+          .select("category, title, occurred_at, created_at, amount, visible_to_streamer, status")
+          .eq("streamer_id", widget.streamerId);
+    } catch (_) {
+      // migration 0090 ainda nao rodada: CRM segue sem o inventario
+    }
+
+    // Conquistas automaticas desbloqueadas (mesma tabela do app).
+    List unlockedAchievements = const [];
+    try {
+      unlockedAchievements = await client
+          .from("streamer_achievements")
+          .select("unlocked_at, revoked_at, source, achievements(title)")
+          .eq("streamer_id", widget.streamerId);
+    } catch (_) {
+      // migration 0091 ainda nao rodada
+    }
+
+    // Trocas de nick do TikTok (mesmo ID, @ novo) -- migration 0093.
+    List nickHistory = const [];
+    try {
+      nickHistory = await client
+          .from("tiktok_nick_history")
+          .select("old_nick, new_nick, changed_at")
+          .eq("streamer_id", widget.streamerId);
+    } catch (_) {
+      // migration 0093 ainda nao rodada
+    }
+
     final assignmentHistory = await client
         .from("manager_assignment_history")
         .select(
@@ -499,6 +534,36 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
         "text":
             "Gestor definido: " +
             (m is Map ? m["login_email"] as String? ?? "-" : "-"),
+      });
+    }
+    for (final e in inventoryEntries) {
+      final type = inventoryTypeOf(e["category"] as String? ?? "outros");
+      final amount = (e["amount"] as num?)?.toDouble();
+      final status = e["status"] as String? ?? "concluido";
+      timeline.add({
+        // occurred_at e so data; usa meio-dia pra ordenar no dia certo
+        "date": "${e["occurred_at"]}T12:00:00",
+        "type": "inventario",
+        "text": "${type.emoji} ${type.label}: ${e["title"]}"
+            "${amount != null ? " · ${formatBrl(amount)}" : ""}"
+            "${status != "concluido" ? " · ${inventoryStatuses[status] ?? status}" : ""}"
+            "${e["visible_to_streamer"] == false ? " · 🔒 interno" : ""}",
+      });
+    }
+    for (final u in unlockedAchievements) {
+      if (u["revoked_at"] != null) continue; // correcao manual: revogada
+      final a = u["achievements"];
+      timeline.add({
+        "date": u["unlocked_at"],
+        "type": "inventario",
+        "text": "✦ Conquista desbloqueada: ${a is Map ? a["title"] : "-"}",
+      });
+    }
+    for (final n in nickHistory) {
+      timeline.add({
+        "date": n["changed_at"],
+        "type": "cadastro",
+        "text": "Trocou o nick do TikTok: @${n["old_nick"]} → @${n["new_nick"]}",
       });
     }
     for (final h in leadHistory) {
@@ -1285,6 +1350,8 @@ class _CrmDetailDialogState extends State<_CrmDetailDialog> {
                         ? const Color(0xFF7A0BD4)
                         : t["type"] == "onboarding"
                         ? Colors.lightBlueAccent
+                        : t["type"] == "inventario"
+                        ? const Color(0xFFFFC94D)
                         : Colors.white70;
                     final date = DateTime.parse(
                       t["date"] as String,

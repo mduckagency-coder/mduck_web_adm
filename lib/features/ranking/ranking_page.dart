@@ -1,5 +1,6 @@
 import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
+import "ranking_period_dialog.dart";
 
 class _StreamerRow {
   final String displayName;
@@ -129,6 +130,12 @@ class _RankingPageState extends State<RankingPage> {
                   const Text("Ranking", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
                   const SizedBox(width: 12),
                   IconButton(icon: const Icon(Icons.refresh, color: Colors.white70), onPressed: () => setState(() => _future = _load())),
+                  const Spacer(),
+                  OutlinedButton.icon(
+                    onPressed: () => showRankingPeriodDialog(context),
+                    icon: const Icon(Icons.date_range, size: 16),
+                    label: const Text("Período do ranking"),
+                  ),
                 ],
               ),
               const SizedBox(height: 16),

@@ -248,6 +248,7 @@ class _ImportPageState extends State<ImportPage> {
                     _SummaryChip(label: "Criados", value: _summary!.created, color: Colors.cyanAccent),
                     _SummaryChip(label: "Nao encontrados", value: _summary!.notFound, color: Colors.orangeAccent),
                     _SummaryChip(label: "Erros", value: _summary!.errors, color: Colors.redAccent),
+                    _SummaryChip(label: "Saíram da agência", value: _summary!.deactivated, color: Colors.purpleAccent),
                   ]),
                   const SizedBox(height: 12),
                   SizedBox(
@@ -260,7 +261,9 @@ class _ImportPageState extends State<ImportPage> {
                             ? Colors.greenAccent
                             : row.status == "nao_encontrado"
                                 ? Colors.orangeAccent
-                                : Colors.redAccent;
+                                : row.status == "desativado"
+                                    ? Colors.purpleAccent
+                                    : Colors.redAccent;
                         return ListTile(
                           dense: true,
                           leading: Icon(Icons.circle, size: 10, color: color),
