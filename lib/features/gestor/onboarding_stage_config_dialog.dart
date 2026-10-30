@@ -2,17 +2,19 @@ import "package:flutter/material.dart";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "onboarding_phase_service.dart";
 
-Color _hexToColor(String hex) {
-  final cleaned = hex.replaceFirst("#", "");
-  return Color(int.parse("FF" + cleaned, radix: 16));
+final _hexPattern = RegExp(r"^#?[0-9a-fA-F]{6}$");
+
+/// Tolerante: cor invalida salva no banco cai no roxo padrao em vez de
+/// derrubar a lista (senao nem da para abrir e corrigir a etapa).
+Color _hexToColor(String? hex) {
+  final value = (hex ?? "").trim();
+  if (!_hexPattern.hasMatch(value)) return const Color(0xFF7A0BD4);
+  return Color(int.parse("FF" + value.replaceFirst("#", ""), radix: 16));
 }
 
 Color _tryColor(String hex) {
-  try {
-    return _hexToColor(hex);
-  } catch (_) {
-    return Colors.white24;
-  }
+  if (!_hexPattern.hasMatch(hex.trim())) return Colors.white24;
+  return _hexToColor(hex);
 }
 
 /// Engrenagem de configuracao das colunas do Kanban de Onboarding 0-15
@@ -205,7 +207,7 @@ class _OnboardingStageConfigDialogState
                         onReorder: _onReorder,
                         itemBuilder: (context, index) {
                           final s = _stages[index];
-                          final color = _hexToColor(s["color"] as String);
+                          final color = _hexToColor(s["color"]?.toString());
                           final active = s["is_active"] as bool? ?? true;
                           return Card(
                             key: ValueKey(s["id"]),
@@ -294,7 +296,7 @@ class _StageFormDialogState extends State<_StageFormDialog> {
     final e = widget.existing;
     if (e != null) {
       _nameController.text = e["name"] ?? "";
-      _colorController.text = e["color"] ?? "#7A0BD4";
+      _colorController.text = e["color"]?.toString() ?? "#7A0BD4";
       _isActive = e["is_active"] ?? true;
       _loadItems();
       _loadMaterialCheckItems();
@@ -419,6 +421,15 @@ class _StageFormDialogState extends State<_StageFormDialog> {
 
   Future<void> _save() async {
     if (_nameController.text.trim().isEmpty) return;
+    var color = _colorController.text.trim();
+    if (!_hexPattern.hasMatch(color)) {
+      setState(() {
+        _errorMessage =
+            "Cor invalida. Use o formato hexadecimal de 6 digitos, ex: #7A0BD4";
+      });
+      return;
+    }
+    if (!color.startsWith("#")) color = "#$color";
     setState(() {
       _saving = true;
       _errorMessage = null;
@@ -448,7 +459,7 @@ class _StageFormDialogState extends State<_StageFormDialog> {
         "phase_key": widget.phaseKey,
         "stage_key": stageKey,
         "name": _nameController.text.trim(),
-        "color": _colorController.text.trim(),
+        "color": color.toUpperCase(),
         "order_index": widget.existing != null
             ? maxOrder
             : (maxOrder as int) + 1,
@@ -543,6 +554,7 @@ class _StageFormDialogState extends State<_StageFormDialog> {
                     Expanded(
                       child: TextField(
                         controller: _colorController,
+                        onChanged: (_) => setState(() {}),
                         style: const TextStyle(color: Colors.white),
                         decoration: const InputDecoration(
                           labelText: "Cor (ex: #7A0BD4)",

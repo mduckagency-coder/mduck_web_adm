@@ -9,8 +9,13 @@ import "onboarding_card_edit_dialog.dart";
 import "onboarding_materials_page.dart";
 import "../recruiter/lead_handoff_dialog.dart" show propagateManagerToProfile;
 
-Color _hexToColor(String hex) {
-  final cleaned = hex.replaceFirst("#", "");
+/// Tolerante: cor invalida salva no banco (ex.: "roxo", "#7A0BD") cai no
+/// roxo padrao em vez de derrubar a tela inteira.
+Color _hexToColor(String? hex) {
+  final cleaned = (hex ?? "").trim().replaceFirst("#", "");
+  if (!RegExp(r"^[0-9a-fA-F]{6}$").hasMatch(cleaned)) {
+    return const Color(0xFF7A0BD4);
+  }
   return Color(int.parse("FF" + cleaned, radix: 16));
 }
 
@@ -1391,7 +1396,7 @@ class _OnboardingPhaseKanbanPageState extends State<OnboardingPhaseKanbanPage> {
               Builder(
                 builder: (context) {
                   final stageKey = stage["stage_key"] as String;
-                  final stageColor = _hexToColor(stage["color"] as String);
+                  final stageColor = _hexToColor(stage["color"]?.toString());
                   final columnCards = visibleCards
                       .where((c) => c["stageKey"] == stageKey)
                       .toList();

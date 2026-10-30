@@ -6,6 +6,7 @@ import "package:flutter/material.dart";
 import "academy_theme.dart";
 
 part "academy_live_tools.dart";
+part "academy_battle.dart";
 
 // Blocos interativos que recriam a interface do TikTok LIVE (sem prints e sem
 // dados reais: nomes, @ e fotos sao ficticios e editaveis no painel).
@@ -78,10 +79,10 @@ Future<void> showAcademyExplain(
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
               Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)))),
               const SizedBox(height: 16),
-              Text(title, style: const TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w900, height: 1.2)),
+              IconText(title, style: const TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w900, height: 1.2)),
               if (body != null && body.trim().isNotEmpty) ...[
                 const SizedBox(height: 10),
-                Text(body, style: const TextStyle(color: Color(0xFFE6E0F5), fontSize: 15, height: 1.5)),
+                IconText(body, style: const TextStyle(color: Color(0xFFE6E0F5), fontSize: 15, height: 1.5)),
               ],
               if (extra != null) ...[const SizedBox(height: 14), extra],
               if (tip != null && tip.trim().isNotEmpty) ...[const SizedBox(height: 16), AcademyTipCard(tip)],
@@ -133,7 +134,7 @@ class AcademyTipCard extends StatelessWidget {
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               const Text("💡 DICA MDUCK", style: TextStyle(color: acGold, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.3)),
               const SizedBox(height: 3),
-              Text(text, style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4, fontWeight: FontWeight.w700)),
+              IconText(text, style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4, fontWeight: FontWeight.w700)),
             ]),
           ),
         ]),

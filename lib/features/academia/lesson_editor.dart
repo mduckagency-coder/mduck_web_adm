@@ -45,6 +45,9 @@ const blockTypes = <String, (String, String)>{
   "tiktok_sheet": ("📲", "Tela do TikTok (Baú, Portal, Sacola...)"),
   "compare": ("⚖️", "Comparação (qual usar?)"),
   "viewer_view": ("👀", "Visão do espectador (ícones na LIVE)"),
+  "battle_sim": ("⚔️", "Batalha animada (passo a passo)"),
+  "multiplier": ("✖️", "Multiplicador (x1, x2, x3)"),
+  "tap_tap": ("👆", "Tap Tap (tocar e somar pontos)"),
 };
 
 Map<String, dynamic> newBlock(String type) => switch (type) {
@@ -69,6 +72,9 @@ Map<String, dynamic> newBlock(String type) => switch (type) {
       "live_menu" => {"type": type, "title": "Onde fica?", "host": "Lucas Martins", "target": "", "items": <Map<String, dynamic>>[], "chat": <Map<String, dynamic>>[]},
       "tiktok_sheet" => {"type": type, "title": "", "sheet_title": "", "button": "Enviar", "elements": <Map<String, dynamic>>[], "send_steps": <Map<String, dynamic>>[]},
       "compare" => {"type": type, "title": "Qual usar?", "items": <Map<String, dynamic>>[]},
+      "battle_sim" => {"type": type, "title": "", "left_name": "@LucasLive", "right_name": "@RafaBattle", "steps": <Map<String, dynamic>>[]},
+      "multiplier" => {"type": type, "title": "", "multipliers": "1,2,3", "gifts": <Map<String, dynamic>>[]},
+      "tap_tap" => {"type": type, "title": "Tap Tap", "points": "3"},
       "viewer_view" => {"type": type, "title": "Como o espectador vê", "host": "Lucas Martins", "icons": <Map<String, dynamic>>[]},
       _ => {"type": type},
     };
@@ -645,7 +651,11 @@ class _LessonEditorState extends State<_LessonEditor> {
       case "tip":
         return [_bf(b, "body", "Dica MDuck", lines: 2)];
       case "strategy":
-        return [_bf(b, "title", "Título", hint: "Experiência / estratégia MDuck"), _bf(b, "body", "Texto", lines: 3)];
+        return [
+          _bf(b, "icon", "Ícone (emoji)", hint: "🧪"),
+          _bf(b, "title", "Título", hint: "Experiência / estratégia MDuck"),
+          _bf(b, "body", "Texto", lines: 3),
+        ];
       case "image":
         return [
           Row(children: [
@@ -974,6 +984,67 @@ class _LessonEditorState extends State<_LessonEditor> {
           ..._itemsEditor(b, const [("emoji", "Emoji", 70.0), ("art", "Desenho (bau/portal)", 110.0), ("label", "Passo depois de Enviar", 0.0)], listKey: "send_steps", addLabel: "+ passo"),
           _bf(b, "send_body", "Texto final", lines: 2),
         ];
+      case "battle_sim":
+        return [
+          _bf(b, "label", "Etiqueta"),
+          _bf(b, "title", "Título"),
+          _bf(b, "intro", "Introdução", lines: 2),
+          Wrap(spacing: 8, children: [
+            for (final (k, l) in const [
+              ("left_name", "Streamer da esquerda (@)"),
+              ("right_name", "Streamer da direita (@)"),
+              ("left_wins", "Vitórias esquerda"),
+              ("right_wins", "Vitórias direita"),
+              ("auto_ms", "Tempo por passo no ▶ (ms)"),
+            ])
+              SizedBox(width: 200, child: _bf(b, k, l)),
+          ]),
+          const Text(
+              "Passos. Missão (banner): first = Primeiro presente; progress = progresso (ex.: 100/200); unlocked = desbloqueada; bonus = bônus ativo; text = livre. "
+              "Chat: mensagens separadas por | no formato @nome: texto. Presente: emoji. Sim/não em Tap Tap e Luva. Resultado: win ou lose.",
+              style: TextStyle(color: Colors.white54, fontSize: 12)),
+          ..._mapListEditor(b, "steps", const [
+            ("caption", "Legenda do passo"),
+            ("timer", "Cronômetro (ex.: 04:28)"),
+            ("left", "Pontos esquerda"),
+            ("right", "Pontos direita"),
+            ("banner", "Missão (first/progress/unlocked/bonus/text)"),
+            ("banner_title", "Título da missão"),
+            ("banner_sub", "Texto da missão (ex.: x3 pontos de presente)"),
+            ("seconds", "Contador (segundos)"),
+            ("progress", "Progresso (ex.: 100/200)"),
+            ("progress_icon", "Ícone do progresso (🎁 / 👥)"),
+            ("gift", "Presente enviado (emoji)"),
+            ("calc", "Conta na tela (ex.: 1 × 3 = 3 pontos)"),
+            ("taps", "Tap Tap? (sim/não)"),
+            ("tap_points", "Pontos por tap"),
+            ("glove", "Luva? (sim/não)"),
+            ("glove_label", "Texto da luva (ex.: x5)"),
+            ("chat", "Chat (@nome: texto | ...)"),
+            ("result", "Resultado (win/lose)"),
+          ], newItem: const {"caption": "", "timer": "04:00"}, addLabel: "+ passo"),
+        ];
+      case "multiplier":
+        return [
+          _bf(b, "label", "Etiqueta"),
+          _bf(b, "title", "Título"),
+          _bf(b, "intro", "Introdução", lines: 2),
+          _bf(b, "multipliers", "Multiplicadores (ex.: 1,2,3)"),
+          ..._itemsEditor(b, const [("emoji", "Emoji", 70.0), ("name", "Presente", 0.0), ("points", "Pontos", 100.0)], listKey: "gifts", addLabel: "+ presente"),
+          _bf(b, "note", "Observação", lines: 2),
+        ];
+      case "tap_tap":
+        return [
+          _bf(b, "label", "Etiqueta"),
+          _bf(b, "title", "Título"),
+          _bf(b, "intro", "Introdução", lines: 2),
+          Row(children: [
+            SizedBox(width: 160, child: _bf(b, "points", "Pontos por tap")),
+            const SizedBox(width: 8),
+            Expanded(child: _bf(b, "hint", "Texto antes de tocar")),
+          ]),
+          _bf(b, "warning", "Aviso (ex.: não é monetização)", lines: 2),
+        ];
       case "viewer_view":
         return [
           _bf(b, "label", "Etiqueta"),
@@ -1091,14 +1162,14 @@ class _LessonEditorState extends State<_LessonEditor> {
   }
 
   /// Lista de itens com muitos campos: cada item vira um painel que abre.
-  List<Widget> _mapListEditor(Map<String, dynamic> b, String listKey, List<(String, String)> fields) {
+  List<Widget> _mapListEditor(Map<String, dynamic> b, String listKey, List<(String, String)> fields, {Map<String, dynamic> newItem = const {"kind": "row", "label": ""}, String addLabel = "+ elemento"}) {
     final items = [for (final x in (b[listKey] as List? ?? const [])) Map<String, dynamic>.from(x as Map)];
     return [
       for (var i = 0; i < items.length; i++)
         ExpansionTile(
           key: ValueKey("${identityHashCode(b)}_$listKey$i${items.length}"),
           tilePadding: EdgeInsets.zero,
-          title: Text("${i + 1}. ${items[i]["kind"] ?? ""} · ${items[i]["label"] ?? items[i]["left"] ?? items[i]["coins"] ?? ""}",
+          title: Text("${i + 1}. ${items[i]["kind"] ?? ""} · ${items[i]["label"] ?? items[i]["left"] ?? items[i]["coins"] ?? items[i]["caption"] ?? ""}", maxLines: 1, overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: Colors.white, fontSize: 13)),
           trailing: Row(mainAxisSize: MainAxisSize.min, children: [
             IconButton(
@@ -1137,10 +1208,10 @@ class _LessonEditorState extends State<_LessonEditor> {
         alignment: Alignment.centerLeft,
         child: TextButton(
           onPressed: () {
-            setState(() => b[listKey] = [...items, {"kind": "row", "label": ""}]);
+            setState(() => b[listKey] = [...items, Map<String, dynamic>.from(newItem)]);
             _changed();
           },
-          child: const Text("+ elemento"),
+          child: Text(addLabel),
         ),
       ),
     ];

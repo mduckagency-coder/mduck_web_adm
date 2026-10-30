@@ -12,6 +12,8 @@ const _tkGrey = Color(0xFF8A8B91);
 const _tkCard = Color(0xFFF1F1F2);
 const _tkRed = Color(0xFFFE2C55);
 
+const _menuArt = {"bau": "bau", "portal": "portal", "sacola": "sacola", "bau_superfa": "superfa"};
+
 const _menuIcons = <String, IconData>{
   "enquete": Icons.poll_outlined,
   "manual": Icons.menu_book_outlined,
@@ -106,9 +108,9 @@ Widget _blockHeader(Map b, Color accent) => Column(crossAxisAlignment: CrossAxis
       if (_s(b, "label").isNotEmpty)
         Text(_s(b, "label").toUpperCase(), style: TextStyle(color: accent, fontSize: 11.5, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
       if (_s(b, "title").isNotEmpty)
-        Padding(padding: const EdgeInsets.only(top: 3), child: Text(_s(b, "title"), style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900, height: 1.2))),
+        Padding(padding: const EdgeInsets.only(top: 3), child: IconText(_s(b, "title"), style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900, height: 1.2))),
       if (_s(b, "intro").isNotEmpty)
-        Padding(padding: const EdgeInsets.only(top: 6), child: Text(_s(b, "intro"), style: const TextStyle(color: Color(0xFFE6E0F5), fontSize: 14.5, height: 1.45))),
+        Padding(padding: const EdgeInsets.only(top: 6), child: IconText(_s(b, "intro"), style: const TextStyle(color: Color(0xFFE6E0F5), fontSize: 14.5, height: 1.45))),
       const SizedBox(height: 12),
     ]);
 
@@ -311,8 +313,8 @@ class _LiveMenuBlockState extends State<LiveMenuBlock> {
     final content = Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(children: [
-        if (_s(it, "icon") == "bau" || _s(it, "icon") == "portal")
-          TreasureChest(size: 30, portal: _s(it, "icon") == "portal")
+        if (_menuArt[_s(it, "icon")] != null)
+          MduckIcon(_menuArt[_s(it, "icon")]!, size: 30)
         else
           Icon(_menuIcons[_s(it, "icon")] ?? Icons.apps, size: 26, color: isTarget ? _tkRed : _tkInk),
         const SizedBox(height: 4),
@@ -698,7 +700,7 @@ class _TikTokSheetBlockState extends State<TikTokSheetBlock> {
             child: Row(children: [
               SizedBox(width: 32, child: Center(child: chestOrEmoji(steps[k], size: 30, fallback: "•"))),
               const SizedBox(width: 10),
-              Expanded(child: Text(_s(steps[k], "label"), style: const TextStyle(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.w800))),
+              Expanded(child: IconText(_s(steps[k], "label"), style: const TextStyle(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.w800))),
             ]),
           ),
           if (k < steps.length - 1 && k < shown - 1)
@@ -722,7 +724,7 @@ class _TikTokSheetBlockState extends State<TikTokSheetBlock> {
         ],
         if (done && _s(b, "send_body").isNotEmpty) ...[
           const SizedBox(height: 12),
-          Text(_s(b, "send_body"), style: const TextStyle(color: Color(0xFFE6E0F5), fontSize: 14, height: 1.45)),
+          IconText(_s(b, "send_body"), style: const TextStyle(color: Color(0xFFE6E0F5), fontSize: 14, height: 1.45)),
         ],
         if (done)
           Align(
@@ -798,7 +800,7 @@ class _CompareBlockState extends State<CompareBlock> {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(_s(it, "title").toUpperCase(), style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.w900, letterSpacing: 1)),
                 const SizedBox(height: 2),
-                Text(_s(it, "goal"), style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.35, fontWeight: FontWeight.w600)),
+                IconText(_s(it, "goal"), style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.35, fontWeight: FontWeight.w600)),
               ]),
             ),
             Icon(open ? Icons.remove_circle_outline : Icons.play_circle_outline, color: color, size: 20),
@@ -820,7 +822,7 @@ class _CompareBlockState extends State<CompareBlock> {
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                               decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(10)),
-                              child: Text(steps[k], style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w700)),
+                              child: IconText(steps[k], style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w700)),
                             ),
                           ),
                           if (k < steps.length - 1)
@@ -829,7 +831,7 @@ class _CompareBlockState extends State<CompareBlock> {
                       ]),
                       if (_s(it, "question").isNotEmpty) ...[
                         const SizedBox(height: 10),
-                        Text("“${_s(it, "question")}”", style: TextStyle(color: color, fontSize: 13.5, fontStyle: FontStyle.italic, fontWeight: FontWeight.w600)),
+                        IconText("“${_s(it, "question")}”", style: TextStyle(color: color, fontSize: 13.5, fontStyle: FontStyle.italic, fontWeight: FontWeight.w600)),
                       ],
                     ]),
                   ),
@@ -871,14 +873,14 @@ class _ViewerViewBlockState extends State<ViewerViewBlock> {
             Positioned.fill(child: _LiveBackdrop(b, height: 330)),
             Positioned(
               left: 12,
-              top: 88,
+              top: 82,
               child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 for (var i = 0; i < icons.length; i++)
                   Padding(
-                    padding: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsets.only(right: 6),
                     child: _Hot(
                       active: !_seen.contains(i),
-                      radius: 12,
+                      radius: 10,
                       onTap: () {
                         setState(() => _seen.add(i));
                         showAcademyExplain(context, title: _s(icons[i], "title"), body: _s(icons[i], "body"), tip: _s(icons[i], "tip"));
@@ -888,7 +890,7 @@ class _ViewerViewBlockState extends State<ViewerViewBlock> {
                   ),
               ]),
             ),
-            const Positioned(left: 92, top: 112, child: _TapHint("👈 Toque")),
+            const Positioned(left: 10, top: 136, child: _TapHint("👆 Toque em cada um")),
           ]),
         ),
       ),
@@ -897,22 +899,15 @@ class _ViewerViewBlockState extends State<ViewerViewBlock> {
     ]);
   }
 
-  Widget _icon(Map it) => Container(
-        width: 68,
-        padding: const EdgeInsets.fromLTRB(4, 6, 4, 4),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          gradient: const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFFF8A65), Color(0xFFE53958)]),
-          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0, 2))],
-        ),
+  Widget _icon(Map it) => SizedBox(
+        width: 40,
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          chestOrEmoji(it, size: 48, fallback: "🎁"),
+          chestOrEmoji(it, size: 34, fallback: "🎁"),
           if (_s(it, "badge").isNotEmpty)
             Container(
-              margin: const EdgeInsets.only(top: 2),
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-              decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(6)),
-              child: Text(_s(it, "badge"), style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.w800)),
+              padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+              decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(5)),
+              child: Text(_s(it, "badge"), style: const TextStyle(color: Colors.white, fontSize: 8.5, fontWeight: FontWeight.w800)),
             ),
         ]),
       );
@@ -932,9 +927,12 @@ class TreasureChest extends StatelessWidget {
 
 /// Desenho do baú/portal no lugar do emoji quando o item tem "art".
 Widget chestOrEmoji(Map m, {required double size, String fallback = "✨"}) {
-  final art = _s(m, "art");
-  if (art == "bau" || art == "portal") return TreasureChest(size: size, portal: art == "portal");
-  return Text(_s(m, "emoji", fallback), style: TextStyle(fontSize: size * 0.72));
+  var art = _s(m, "art");
+  final emoji = _s(m, "emoji", fallback);
+  final token = RegExp(r"^[(w+)]$").firstMatch(emoji.trim());
+  if (art.isEmpty && token != null) art = token.group(1)!;
+  if (academyIconKinds.contains(art)) return MduckIcon(art, size: size);
+  return Text(emoji, style: TextStyle(fontSize: size * 0.72));
 }
 
 class _ChestPainter extends CustomPainter {
@@ -1016,4 +1014,118 @@ class _ChestPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_ChestPainter old) => old.portal != portal;
+}
+
+// ---------------------------------------------------------------- ícones desenhados
+
+/// Ícones desenhados no app (sem imagem externa). Nos textos, use [bau],
+/// [portal], [sacola] ou [superfa] para o desenho aparecer no meio da frase.
+const academyIconKinds = {"bau", "portal", "sacola", "superfa"};
+
+class MduckIcon extends StatelessWidget {
+  final String kind;
+  final double size;
+  const MduckIcon(this.kind, {super.key, this.size = 40});
+
+  @override
+  Widget build(BuildContext context) => switch (kind) {
+        "portal" => TreasureChest(size: size, portal: true),
+        "sacola" => SizedBox(width: size, height: size, child: CustomPaint(painter: _BagPainter())),
+        "superfa" => SizedBox(
+            width: size,
+            height: size,
+            child: Stack(children: [
+              TreasureChest(size: size),
+              Positioned(right: 0, bottom: 0, child: Icon(Icons.favorite, size: size * 0.32, color: const Color(0xFFFF8A1F))),
+            ]),
+          ),
+        _ => TreasureChest(size: size),
+      };
+}
+
+final _iconToken = RegExp(r"\[(bau|portal|sacola|superfa)\]");
+
+/// Texto que troca [bau], [portal], [sacola] e [superfa] pelos desenhos.
+class IconText extends StatelessWidget {
+  final String text;
+  final TextStyle? style;
+  final TextAlign? textAlign;
+  final int? maxLines;
+  final TextOverflow? overflow;
+  const IconText(this.text, {super.key, this.style, this.textAlign, this.maxLines, this.overflow});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_iconToken.hasMatch(text)) return Text(text, style: style, textAlign: textAlign, maxLines: maxLines, overflow: overflow);
+    final size = (style?.fontSize ?? DefaultTextStyle.of(context).style.fontSize ?? 14) * 1.35;
+    final spans = <InlineSpan>[];
+    var last = 0;
+    for (final m in _iconToken.allMatches(text)) {
+      if (m.start > last) spans.add(TextSpan(text: text.substring(last, m.start)));
+      spans.add(WidgetSpan(alignment: PlaceholderAlignment.middle, child: MduckIcon(m.group(1)!, size: size)));
+      last = m.end;
+    }
+    if (last < text.length) spans.add(TextSpan(text: text.substring(last)));
+    return Text.rich(TextSpan(children: spans), style: style, textAlign: textAlign, maxLines: maxLines, overflow: overflow);
+  }
+}
+
+/// Sacola de Prêmios: caixinha roxa com laço em cima.
+class _BagPainter extends CustomPainter {
+  @override
+  void paint(Canvas c, Size s) {
+    final w = s.width, h = s.height;
+    final box = RRect.fromRectAndRadius(Rect.fromLTRB(w * 0.12, h * 0.30, w * 0.88, h * 0.92), Radius.circular(w * 0.10));
+    c.drawRRect(box, Paint()..shader = const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFB873FF), Color(0xFF7B2FE0)]).createShader(box.outerRect));
+    // desenhinhos claros no papel
+    final mark = Paint()
+      ..color = const Color(0x40FFFFFF)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w * 0.035;
+    for (final (x, y) in [(0.28, 0.48), (0.62, 0.62), (0.32, 0.80), (0.74, 0.84)]) {
+      c.drawArc(Rect.fromCircle(center: Offset(w * x, h * y), radius: w * 0.06), 0.6, 4.6, false, mark);
+    }
+    // borda de cima (tampa)
+    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTRB(w * 0.08, h * 0.28, w * 0.92, h * 0.40), Radius.circular(w * 0.05)), Paint()..color = const Color(0xFF9B4DF5));
+    // laço
+    final ribbon = Paint()..color = const Color(0xFFF6D7B0);
+    final dark = Paint()..color = const Color(0xFFD9A877);
+    c.drawPath(
+        Path()
+          ..moveTo(w * 0.5, h * 0.30)
+          ..cubicTo(w * 0.30, h * 0.02, w * 0.08, h * 0.18, w * 0.20, h * 0.30)
+          ..cubicTo(w * 0.28, h * 0.36, w * 0.42, h * 0.33, w * 0.5, h * 0.30),
+        ribbon);
+    c.drawPath(
+        Path()
+          ..moveTo(w * 0.5, h * 0.30)
+          ..cubicTo(w * 0.70, h * 0.02, w * 0.92, h * 0.18, w * 0.80, h * 0.30)
+          ..cubicTo(w * 0.72, h * 0.36, w * 0.58, h * 0.33, w * 0.5, h * 0.30),
+        ribbon);
+    c.drawPath(
+        Path()
+          ..moveTo(w * 0.47, h * 0.32)
+          ..lineTo(w * 0.36, h * 0.50)
+          ..lineTo(w * 0.42, h * 0.49)
+          ..lineTo(w * 0.50, h * 0.36)
+          ..close(),
+        dark);
+    c.drawPath(
+        Path()
+          ..moveTo(w * 0.53, h * 0.32)
+          ..lineTo(w * 0.64, h * 0.50)
+          ..lineTo(w * 0.58, h * 0.49)
+          ..lineTo(w * 0.50, h * 0.36)
+          ..close(),
+        dark);
+    c.drawCircle(Offset(w * 0.5, h * 0.30), w * 0.07, Paint()..color = const Color(0xFFFFE9C9));
+    c.drawCircle(Offset(w * 0.5, h * 0.30), w * 0.07,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = w * 0.02
+          ..color = dark.color);
+  }
+
+  @override
+  bool shouldRepaint(_BagPainter old) => false;
 }

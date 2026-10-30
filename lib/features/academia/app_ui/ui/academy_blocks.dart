@@ -78,14 +78,14 @@ class AcademyBlock extends StatelessWidget {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 const Text("💡 DICA MDUCK", style: TextStyle(color: acGold, fontSize: 11.5, fontWeight: FontWeight.w900, letterSpacing: 1.4)),
                 const SizedBox(height: 4),
-                Text(s("body") ?? "", style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.4, fontWeight: FontWeight.w700)),
+                IconText(s("body") ?? "", style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.4, fontWeight: FontWeight.w700)),
               ]),
             ),
           ]),
         );
       case "strategy":
         return _Callout(
-          icon: const Text("🧪", style: TextStyle(fontSize: 18)),
+          icon: Text(block["icon"] is String ? block["icon"] as String : "🧪", style: const TextStyle(fontSize: 18)),
           title: s("title") ?? "Experiência / estratégia MDuck",
           color: const Color(0xFFFFB020),
           children: [_Body(s("body") ?? "")],
@@ -175,6 +175,12 @@ class AcademyBlock extends StatelessWidget {
         return CompareBlock(block, accent: accent);
       case "viewer_view":
         return ViewerViewBlock(block, accent: accent);
+      case "battle_sim":
+        return BattleSimBlock(block, accent: accent);
+      case "multiplier":
+        return MultiplierBlock(block, accent: accent);
+      case "tap_tap":
+        return TapTapBlock(block, accent: accent);
       case "identify":
         return _Section(
           label: "✨ Desafio de olhar",
@@ -215,7 +221,7 @@ class AcademyBlock extends StatelessWidget {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 const Text("COLOQUE EM PRÁTICA", style: TextStyle(color: Color(0xFF7CF2B0), fontSize: 11.5, fontWeight: FontWeight.w900, letterSpacing: 1.4)),
                 const SizedBox(height: 4),
-                Text(s("body") ?? "", style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.4, fontWeight: FontWeight.w700)),
+                IconText(s("body") ?? "", style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.4, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 6),
                 const Text("Sem obrigação: é um convite para a sua próxima LIVE.", style: TextStyle(color: Colors.white54, fontSize: 12)),
               ]),
@@ -232,7 +238,7 @@ class _Body extends StatelessWidget {
   const _Body(this.text);
 
   @override
-  Widget build(BuildContext context) => Text(text, style: const TextStyle(color: Color(0xFFE6E0F5), fontSize: 15, height: 1.5));
+  Widget build(BuildContext context) => IconText(text, style: const TextStyle(color: Color(0xFFE6E0F5), fontSize: 15, height: 1.5));
 }
 
 class _Section extends StatelessWidget {
@@ -249,7 +255,7 @@ class _Section extends StatelessWidget {
         if (title != null)
           Padding(
             padding: const EdgeInsets.only(top: 3),
-            child: Text(title!, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900, height: 1.2)),
+            child: IconText(title!, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900, height: 1.2)),
           ),
         const SizedBox(height: 10),
         child,
@@ -275,7 +281,7 @@ class _Callout extends StatelessWidget {
           Row(children: [
             icon,
             const SizedBox(width: 8),
-            Expanded(child: Text(title, style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.w900, letterSpacing: 0.3))),
+            Expanded(child: IconText(title, style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.w900, letterSpacing: 0.3))),
           ]),
           const SizedBox(height: 8),
           ...children,
@@ -401,10 +407,10 @@ class _DiscoverState extends State<_Discover> {
               ),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Row(children: [
-                  Text("${widget.items[i]["emoji"] ?? "✨"}", style: const TextStyle(fontSize: 22)),
+                  chestOrEmoji(widget.items[i], size: 28),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text("${widget.items[i]["title"] ?? ""}",
+                    child: IconText("${widget.items[i]["title"] ?? ""}",
                         style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w800)),
                   ),
                   Icon(_open.contains(i) ? Icons.remove_circle_outline : Icons.add_circle_outline, color: widget.accent, size: 18),
@@ -414,7 +420,7 @@ class _DiscoverState extends State<_Discover> {
                   child: _open.contains(i)
                       ? Padding(
                           padding: const EdgeInsets.only(top: 8),
-                          child: Text("${widget.items[i]["body"] ?? ""}", style: const TextStyle(color: Color(0xFFE6E0F5), fontSize: 14, height: 1.45)),
+                          child: IconText("${widget.items[i]["body"] ?? ""}", style: const TextStyle(color: Color(0xFFE6E0F5), fontSize: 14, height: 1.45)),
                         )
                       : const SizedBox(width: double.infinity),
                 ),
@@ -458,16 +464,16 @@ class _FlowState extends State<_Flow> {
                 AnimatedScale(
                   scale: i == _step ? 1.25 : 1,
                   duration: const Duration(milliseconds: 280),
-                  child: Text("${items[i]["emoji"] ?? "•"}", style: const TextStyle(fontSize: 24)),
+                  child: chestOrEmoji(items[i], size: 30, fallback: "•"),
                 ),
                 const SizedBox(width: 12),
-                Expanded(child: Text("${items[i]["label"] ?? ""}", style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w800))),
+                Expanded(child: IconText("${items[i]["label"] ?? ""}", style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w800))),
                 if (i > _step) Text("toque", style: TextStyle(color: widget.accent.withValues(alpha: 0.7), fontSize: 11)),
               ]),
               if (i <= _step && (items[i]["body"] ?? "").toString().isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 6, left: 36),
-                  child: Text("${items[i]["body"]}", style: const TextStyle(color: Color(0xFFE6E0F5), fontSize: 13.5, height: 1.4)),
+                  child: IconText("${items[i]["body"]}", style: const TextStyle(color: Color(0xFFE6E0F5), fontSize: 13.5, height: 1.4)),
                 ),
             ]),
           ),
